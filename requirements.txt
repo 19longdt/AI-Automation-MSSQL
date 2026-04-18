@@ -1,0 +1,22 @@
+# Core
+pyodbc==5.1.0
+pymongo==4.7.3
+pydantic==2.7.1
+pydantic-settings==2.3.0
+APScheduler==3.10.4
+
+# XML plan parsing
+lxml==5.2.2
+
+# Notifications
+pymsteams==0.2.2
+slack-sdk==3.27.2
+python-telegram-bot==21.3
+
+# Utilities
+python-dotenv==1.0.1
+tenacity==8.3.0          # retry với exponential backoff cho MongoDB
+
+# Dev / testing
+pytest==8.2.2
+pytest-asyncio==0.23.7
