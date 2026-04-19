@@ -48,6 +48,10 @@ class Finding(BaseModel):
     ai_analysis_id: str | None = None
 
     def finding_hash(self) -> str:
-        """Hash dùng cho dedup_cache — cùng issue_type + node + query_hash
-        trong window ngắn sẽ không gửi alert trùng."""
-        ...
+        """Hash dùng cho dedup_cache — cùng topic + issue_type + node + query_hash
+        trong window ngắn sẽ không gửi alert trùng.
+        topic_id được include để tránh collision giữa các topic khác nhau
+        có cùng issue_type trên cùng node."""
+        import hashlib
+        key = f"{self.topic_id}:{self.issue_type}:{self.node}:{self.query_hash or ''}"
+        return hashlib.md5(key.encode()).hexdigest()

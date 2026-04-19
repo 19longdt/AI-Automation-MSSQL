@@ -44,7 +44,13 @@ python -m layer1.scheduler
    → node_role_refresh (mỗi NODE_ROLE_REFRESH_SEC, default 1 giờ)
    → health_check (mỗi 2 phút)
 
-6. scheduler.start() — blocking
+6. Khởi tạo notification dispatcher (TelegramNotifier nếu token có)
+   → dispatch_startup() gửi thông báo service đã start
+
+7. Khởi tạo TelegramBot (nếu có TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID + CLAUDE_API_KEY)
+   → PlanAnalyzer (Claude API) + TelegramBot.start() (daemon thread)
+
+8. scheduler.start() — blocking
    → SIGTERM/SIGINT → graceful shutdown
 ```
 
@@ -57,23 +63,24 @@ python -m layer1.scheduler
 ```
 layer1/
 ├── scheduler.py               ← Entry: setup → register topic jobs → start
-├── config.py                  ← EnvSettings only (MSSQL hosts, MongoDB URI, credentials)
+├── config.py                  ← EnvSettings only (MSSQL hosts, MongoDB URI, credentials, API keys)
 │
 ├── models/
 │   ├── common.py              ← Severity, NodeRole, IssueType enums
-│   ├── topic.py               ← MonitorTopic, QueryConfig, ThresholdConfig, BaselineConfig
+│   ├── topic.py               ← MonitorTopic, QueryConfig, ThresholdConfig, BaselineConfig, AnalysisConfig
 │   ├── metrics.py             ← RawMetric, QueryResult
-│   ├── findings.py            ← Finding (output → MongoDB → Layer 2)
+│   ├── findings.py            ← Finding (output → MongoDB → Telegram bot → Claude)
 │   └── job.py                 ← JobExecution, JobStatus
 │
 ├── executor/
 │   ├── mssql_connection.py    ← pyodbc context manager (tạo mới per-call, KHÔNG cache)
 │   ├── query_executor.py      ← Generic: nhận QueryConfig + host → execute → QueryResult
+│   │                             [NOTE: Decimal→float conversion tại đây — pyodbc trả Decimal, MongoDB không serialize]
 │   ├── topic_runner.py        ← Orchestrate 1 topic: reload config → resolve nodes → query → detect → notify
 │   └── node_role_cache.py     ← Detect Primary/Secondary từ AG DMV, cache, refresh mỗi giờ
 │
 ├── detectors/
-│   ├── registry.py            ← Map detector_type string → handler class
+│   ├── registry.py            ← Map detector_type string → handler class (build_default() đăng ký threshold + baseline)
 │   ├── threshold_detector.py  ← Generic: value vs config thresholds → WARNING/CRITICAL
 │   ├── baseline_detector.py   ← Day-of-week baseline comparison (4 tuần cùng ngày/giờ)
 │   ├── plan_detector.py       ← XML execution plan analysis (lxml)
@@ -85,7 +92,7 @@ layer1/
 │   └── repositories/
 │       ├── topic_repo.py          ← CRUD monitor_topics
 │       ├── raw_metrics_repo.py    ← insert_many query results
-│       ├── findings_repo.py       ← insert_one findings
+│       ├── findings_repo.py       ← insert_one findings; find_by_id_prefix() cho Telegram bot
 │       ├── baseline_repo.py       ← Day-of-week baseline CRUD
 │       ├── dedup_repo.py          ← Atomic check-and-set chống spam alert
 │       └── job_execution_repo.py  ← Job run history + stuck/missed detection
@@ -94,9 +101,14 @@ layer1/
 │   ├── job_runner.py          ← Decorator: ghi job_executions (start/finish/fail)
 │   └── health_checker.py      ← Detect stuck/missed jobs, MongoDB ping
 │
-└── notifications/
-    ├── base_notifier.py       ← ABC + NotificationDispatcher (multi-channel)
-    └── teams_notifier.py      ← Microsoft Teams Incoming Webhook
+├── notifications/
+│   ├── base_notifier.py       ← ABC + NotificationDispatcher (severity filter + multi-channel)
+│   ├── teams_notifier.py      ← Microsoft Teams Incoming Webhook
+│   ├── telegram_notifier.py   ← Telegram alert: HTML parse mode, kèm finding_id[:8] + /analyze hint
+│   └── telegram_bot.py        ← Bot polling (daemon thread): /analyze command → Claude API → reply
+│
+└── ai/
+    └── plan_analyzer.py       ← Build prompt từ AnalysisConfig → gọi Claude API → trả text phân tích
 ```
 
 ---
@@ -120,6 +132,14 @@ MONGODB_DB=db_monitor
 NODE_ROLE_REFRESH_SEC=3600
 
 TEAMS_WEBHOOK_URL=https://...
+
+# Telegram — alerts + on-demand /analyze bot
+TELEGRAM_BOT_TOKEN=1234567890:ABC...
+TELEGRAM_CHAT_ID=-1001234567890
+
+# Claude API — dùng cho TelegramBot /analyze command
+CLAUDE_API_KEY=sk-ant-...
+CLAUDE_MODEL=claude-sonnet-4-6
 ```
 
 ### MongoDB `monitor_topics` — Toàn bộ monitoring config
@@ -144,6 +164,12 @@ Mỗi topic là 1 nhóm monitoring độc lập. SQL queries, thresholds, detect
   "detector_type": "threshold",
   "thresholds": {
     "log_send_queue_size": { "warning": 500, "critical": 1000 }
+  },
+  // Tuỳ chọn — enable /analyze command trong Telegram bot cho topic này
+  "analysis_config": {
+    "context": "AG replica synchronization health — kiểm tra lag và failover risk.",
+    "include_fields": [],
+    "focus_metrics": ["log_send_queue_size", "redo_queue_size", "synchronization_state_desc"]
   }
 }
 ```
@@ -272,12 +298,56 @@ APScheduler main thread
             │       Thread 3: query_executor.execute(queries, "SQL-NODE-03") — pyodbc conn mới
             │
             └─► detect + save + notify (main thread)
+
+Daemon thread (song song với APScheduler):
+    TelegramBot._poll_loop()
+        → getUpdates (long-poll timeout=25s)
+        → /analyze <id> hoặc reply vào alert
+        → FindingsRepo.find_by_id_prefix()
+        → TopicRepo → analysis_config
+        → PlanAnalyzer.analyze() → Claude API
+        → Telegram reply
 ```
 
 **Thread safety:**
 - `pyodbc.Connection`: **KHÔNG thread-safe** → tạo mới trong context manager, KHÔNG cache
 - `pymongo.MongoClient`: **thread-safe** → singleton
 - APScheduler jobs: `max_instances=1` + `coalesce=True`
+
+---
+
+## Telegram Bot — On-demand AI Analysis
+
+Khi alert được gửi, user nhận Telegram message kèm `🔗 ID: <code>03cc0a88</code>` và hint `/analyze`.
+
+**Hai cách trigger phân tích:**
+
+1. **Reply vào alert** → gõ `/analyze` (không cần ID, bot tự parse từ alert message)
+2. **Gõ trực tiếp** → `/analyze 03cc0a88` (8 ký tự đầu của finding_id)
+
+**Điều kiện để bot hoạt động:**
+- `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` phải set trong `.env`
+- `CLAUDE_API_KEY` phải set trong `.env`
+- Topic trong MongoDB phải có `analysis_config` (nếu thiếu bot báo rõ thay vì crash)
+
+**Không tự động phân tích** — chỉ khi DBA chủ động gõ lệnh.
+
+---
+
+## Known Bugs Fixed
+
+| Bug | Triệu chứng | Fix |
+|---|---|---|
+| `pyodbc Decimal` không serialize | `cannot encode object: Decimal` khi insert MongoDB | `_sanitize_value()` trong `query_executor.py`: `Decimal → float` |
+| `DetectorRegistry.build_default()` stub | `NoneType.detect()` — tất cả topics crash | Implement `register()`, `detect()`, `build_default()` trong `registry.py` |
+| `BaselineDetector.detect()` stub | `NoneType is not iterable` | Full implementation của `detect()` và `_compare_with_baseline()` |
+| Telegram HTTP 400 | MarkdownV2 fail với IP `10.100.112.61` (dấu `.`) | Chuyển sang HTML parse mode + `html.escape()` cho tất cả user data |
+| Dedup hash collision | Alert chỉ gửi lần đầu rồi dừng hẳn cho mọi topic | `finding_hash()` thêm `topic_id` vào key (trước chỉ có `issue_type + node + query_hash`) |
+
+**Sau khi deploy finding_hash fix**, cần xóa dedup cache cũ:
+```javascript
+db.dedup_cache.deleteMany({})
+```
 
 ---
 
@@ -333,6 +403,9 @@ stdlib → third-party → internal (relative imports).
 | **KHÔNG** query DMV không có TOP/WHERE | dm_exec_query_stats có thể 100k+ rows |
 | **KHÔNG** dùng rolling 7-day average cho baseline | Workload pattern theo ngày → false positives |
 | **KHÔNG** để exception crash scheduler | 1 topic fail → tất cả monitoring dừng = unacceptable |
+| **KHÔNG** dùng `python-telegram-bot` v21+ | Async-only, không tương thích APScheduler sync — dùng urllib.request |
+| **KHÔNG** tự động phân tích finding với Claude | On-demand only — DBA chủ động gõ /analyze |
+| **KHÔNG** bỏ `topic_id` khỏi `finding_hash()` | Dẫn đến dedup collision giữa các topic khác nhau |
 
 ---
 
@@ -362,4 +435,7 @@ lxml            — XML execution plan parsing
 pymsteams       — Teams webhook notification
 tenacity        — Retry exponential backoff
 python-dotenv   — .env file loading
+anthropic       — Claude API (sync client, dùng trong PlanAnalyzer)
 ```
+
+**Không dùng `python-telegram-bot`** — thư viện v21 là async-only, không tương thích với APScheduler sync. Thay vào đó dùng `urllib.request` (stdlib) trực tiếp cho cả TelegramNotifier lẫn TelegramBot polling.

@@ -37,6 +37,22 @@ class BaselineConfig(BaseModel):
     baseline_weeks: int = Field(default=4, description="Số tuần lịch sử để tính baseline")
 
 
+class AnalysisConfig(BaseModel):
+    """Config cho AI analysis khi user gọi /analyze trên Telegram."""
+
+    context: str = Field(
+        description="Mô tả topic cho Claude — ngữ cảnh để Claude hiểu đang phân tích cái gì"
+    )
+    include_fields: list[str] = Field(
+        default_factory=list,
+        description="Field lớn trong finding.metrics cần đính kèm (sql_text, xml_query_plan...)",
+    )
+    focus_metrics: list[str] = Field(
+        default_factory=list,
+        description="Metric cần highlight trong phân tích — subset của metrics",
+    )
+
+
 class MonitorTopic(BaseModel):
     """
     1 topic monitoring đọc từ MongoDB `monitor_topics`.
@@ -66,3 +82,6 @@ class MonitorTopic(BaseModel):
         default_factory=dict,
         description="Config bổ sung cho detector-specific logic",
     )
+
+    # AI analysis config (optional) — dùng khi user gọi /analyze trên Telegram
+    analysis_config: AnalysisConfig | None = None

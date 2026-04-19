@@ -1,0 +1,62 @@
+services:
+
+  # ── Layer 1: Python Monitoring Service ──────────────────────────────────────
+  # LAYER1_IMAGE cho phép chỉ định image từ registry mà không cần source code.
+  # Nếu không set → dùng local image tên "ai-automation-mssql/layer1:latest".
+  #
+  # Build local:   docker compose build
+  # Dùng registry: LAYER1_IMAGE=ghcr.io/org/layer1:v1.2 docker compose pull && docker compose up -d
+  layer1:
+    build: .
+    image: ${LAYER1_IMAGE:-ai-automation-mssql/layer1:latest}
+    container_name: layer1-monitor
+    restart: unless-stopped
+
+    # Đọc env vars từ file .env trong cùng thư mục
+    env_file: .env
+
+    # Override MONGODB_URI để trỏ vào service mongodb bên dưới.
+    # Nếu dùng MongoDB external, bỏ dòng này và sửa MONGODB_URI trong .env.
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── MongoDB Community ────────────────────────────────────────────────────────
+  # Bỏ service này nếu dùng MongoDB external (Atlas, replica set riêng...).
+  # Khi đó sửa MONGODB_URI trong .env thành URI của MongoDB external.
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    restart: unless-stopped
+
+    volumes:
+      - mongodb_data:/data/db
+
+    ports:
+      - "27017:27017"
+
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  mongodb_data:
+    driver: local

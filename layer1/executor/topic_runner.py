@@ -68,7 +68,33 @@ class TopicRunner:
 
         Không raise exception — mọi lỗi log ERROR và return 0.
         """
-        ...
+        try:
+            topic = self._topic_repo.find_by_id(topic_id)
+            if topic is None:
+                logger.warning("Topic not found: %s", topic_id)
+                return 0
+            if not topic.enabled:
+                logger.info("Topic disabled, skipping: topic=%s", topic_id)
+                return 0
+
+            resolved_nodes = self._role_cache.resolve(topic.nodes)
+            if not resolved_nodes:
+                logger.warning(
+                    "No nodes resolved: topic=%s nodes_config=%s", topic_id, topic.nodes
+                )
+                return 0
+
+            results = self._execute_on_nodes(topic, resolved_nodes)
+            self._save_raw_metrics(results)
+
+            findings = self._run_detector(topic, results)
+            return self._process_findings(findings)
+
+        except Exception as exc:
+            logger.error(
+                "TopicRunner.run failed: topic=%s error=%s", topic_id, exc, exc_info=True
+            )
+            return 0
 
     def _execute_on_nodes(
         self,
@@ -80,16 +106,91 @@ class TopicRunner:
         ThreadPoolExecutor với max_workers = len(resolved_nodes).
         Mỗi node trong thread riêng với connection riêng.
         """
-        ...
+        all_results: list[QueryResult] = []
+        with ThreadPoolExecutor(max_workers=len(resolved_nodes)) as pool:
+            futures = {
+                pool.submit(
+                    self._executor.execute_batch,
+                    topic.queries,
+                    host,
+                    topic.topic_id,
+                    role,
+                ): (host, role)
+                for host, role in resolved_nodes
+            }
+            for future in as_completed(futures):
+                host, role = futures[future]
+                try:
+                    node_results = future.result()
+                    all_results.extend(node_results)
+                except Exception as exc:
+                    logger.error(
+                        "Thread failed: topic=%s node=%s error=%s",
+                        topic.topic_id, host, exc,
+                    )
+        return all_results
 
     def _save_raw_metrics(self, results: list[QueryResult]) -> int:
         """Convert QueryResult → RawMetric, batch insert vào MongoDB."""
-        ...
+        metrics = [
+            RawMetric(
+                topic_id=r.topic_id,
+                query_id=r.query_id,
+                node=r.node,
+                role=r.role,
+                collected_at=r.executed_at,
+                rows=r.rows,
+                row_count=r.row_count,
+                duration_ms=r.duration_ms,
+            )
+            for r in results
+            if r.success
+        ]
+        if metrics:
+            return self._raw_metrics_repo.insert_batch(metrics)
+        return 0
 
     def _run_detector(self, topic: MonitorTopic, results: list[QueryResult]) -> list[Finding]:
         """Gọi detector nếu topic.detector_type != None."""
-        ...
+        if not topic.detector_type:
+            return []
+        try:
+            return self._detectors.detect(topic.detector_type, results, topic)
+        except Exception as exc:
+            logger.error(
+                "Detector failed: topic=%s type=%s error=%s",
+                topic.topic_id, topic.detector_type, exc, exc_info=True,
+            )
+            return []
 
     def _process_findings(self, findings: list[Finding]) -> int:
         """Save findings, check dedup, dispatch notifications. Return count."""
-        ...
+        count = 0
+        for finding in findings:
+            try:
+                self._findings_repo.insert(finding)
+                finding_hash = finding.finding_hash()
+                if self._dedup_repo.should_alert(finding_hash, self._dedup_suppress_min):
+                    if self._dispatcher:
+                        logger.info(
+                            "Dispatching notification: issue_type=%s severity=%s node=%s",
+                            finding.issue_type.value, finding.severity.value, finding.node,
+                        )
+                        self._dispatcher.dispatch(finding)
+                    else:
+                        logger.warning(
+                            "No dispatcher configured — notification skipped: topic=%s issue_type=%s node=%s",
+                            finding.topic_id, finding.issue_type.value, finding.node,
+                        )
+                else:
+                    logger.info(
+                        "Dedup suppressed: topic=%s issue_type=%s node=%s suppress_min=%d",
+                        finding.topic_id, finding.issue_type.value, finding.node, self._dedup_suppress_min,
+                    )
+                count += 1
+            except Exception as exc:
+                logger.error(
+                    "Process finding failed: issue_type=%s node=%s error=%s",
+                    finding.issue_type, finding.node, exc, exc_info=True,
+                )
+        return count

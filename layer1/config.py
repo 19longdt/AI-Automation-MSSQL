@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -25,11 +25,38 @@ class EnvSettings(BaseSettings):
     )
 
     # ── MSSQL Nodes (tất cả hosts trong AG cluster) ────────────────────────
+    # default_factory=list để pydantic-settings cho phép parse failure,
+    # field_validator bên dưới sẽ xử lý cả 2 format: JSON array và comma-separated.
     mssql_nodes: list[str] = Field(
-        description="Danh sách hostname:port của tất cả nodes trong AG cluster. "
-                    "Service sẽ tự detect Primary/Secondary, không cần chỉ định role.",
-        # Ví dụ: ["SQL-NODE-01", "SQL-NODE-02", "SQL-NODE-03"]
+        default_factory=list,
+        description="Danh sách hostname của tất cả nodes trong AG cluster. "
+                    "Chấp nhận 2 format:\n"
+                    "  MSSQL_NODES=SQL-NODE-01,SQL-NODE-02,SQL-NODE-03\n"
+                    '  MSSQL_NODES=["SQL-NODE-01","SQL-NODE-02","SQL-NODE-03"]',
     )
+
+    @field_validator("mssql_nodes", mode="before")
+    @classmethod
+    def parse_mssql_nodes(cls, v: object) -> list[str]:
+        """Hỗ trợ cả comma-separated lẫn JSON array từ env var."""
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                import json
+                return json.loads(v)
+            return [node.strip() for node in v.split(",") if node.strip()]
+        return v  # type: ignore[return-value]
+
+    @model_validator(mode="after")
+    def validate_nodes_not_empty(self) -> "EnvSettings":
+        if not self.mssql_nodes:
+            raise ValueError(
+                "MSSQL_NODES là bắt buộc. "
+                "Ví dụ: MSSQL_NODES=SQL-NODE-01,SQL-NODE-02,SQL-NODE-03"
+            )
+        return self
+
+    # ── MSSQL Connection ───────────────────────────────────────────────────
     mssql_database: str = Field(...)
     mssql_username: str = Field(...)
     mssql_password: str = Field(...)
@@ -53,6 +80,7 @@ class EnvSettings(BaseSettings):
     teams_webhook_url: str = Field(default="")
     slack_bot_token: str = Field(default="")
     telegram_bot_token: str = Field(default="")
+    telegram_chat_id: str = Field(default="")
 
     # ── AI (Layer 2) ────────────────────────────────────────────────────────
     claude_api_key: str = Field(default="")
@@ -60,7 +88,14 @@ class EnvSettings(BaseSettings):
 
     def get_connection_string(self, host: str) -> str:
         """Tạo pyodbc connection string cho 1 node."""
-        ...
+        return (
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={host},{self.mssql_port};"
+            f"DATABASE={self.mssql_database};"
+            f"UID={self.mssql_username};"
+            f"PWD={self.mssql_password};"
+            f"TrustServerCertificate=yes;"
+        )
 
 
 # Singleton — import settings từ module này

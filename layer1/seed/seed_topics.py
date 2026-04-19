@@ -1,0 +1,947 @@
+"""
+seed_topics.py — Seed toàn bộ monitoring topics vào MongoDB.
+
+Chạy một lần trước khi start service lần đầu, hoặc chạy lại để update config.
+Idempotent: dùng upsert theo topic_id — chạy nhiều lần không tạo duplicate.
+
+Cách chạy:
+    python -m layer1.seed.seed_topics
+
+Topics được seed:
+    1.  ag_health          — AG Health & CDC (2 phút)
+    2.  blocking           — Blocking & Deadlock (1 phút)
+    3.  blocked_query      — Blocked Query Snapshot (1 phút)
+    4.  slow_query         — Slow Query / Baseline (5 phút)
+    5.  plan_regression    — Plan Regression (5 phút)
+    6.  plan_instability   — Plan Instability (5 phút)
+    7.  index_usage        — Non-Optimal Index Usage (5 phút)
+    8.  high_variation     — High Variation Query (5 phút)
+    9.  tempdb_memory      — TempDB & Memory Pressure (5 phút)
+    10. wait_stats         — Wait Statistics Anomaly (5 phút)
+    11. agent_maintenance  — SQL Agent Jobs & Backup (10 phút)
+    12. missing_index      — Missing Index Detector (1 giờ)
+    13. resource_governor  — Resource Governor Monitor (5 phút)
+    14. index_fragmentation — Index Fragmentation (hàng ngày 3AM — cron)
+"""
+from __future__ import annotations
+
+import logging
+import sys
+
+from ..config import settings
+from ..storage.mongo_client import MongoConnection
+from ..storage.repositories.topic_repo import TopicRepo
+from ..models.topic import MonitorTopic, QueryConfig, ThresholdConfig, BaselineConfig
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Topic definitions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _all_topics() -> list[MonitorTopic]:
+    return [
+        _ag_health(),
+        _blocking(),
+        _blocked_query(),
+        _slow_query(),
+        _plan_regression(),
+        _plan_instability(),
+        _index_usage(),
+        _high_variation(),
+        _tempdb_memory(),
+        _wait_stats(),
+        _agent_maintenance(),
+        _missing_index(),
+        _resource_governor(),
+        _index_fragmentation(),
+    ]
+
+
+# ── 1. AG Health & CDC ───────────────────────────────────────────────────────
+
+def _ag_health() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="ag_health",
+        display_name="AG Health & CDC Monitor",
+        enabled=True,
+        schedule_sec=120,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="ag_sync_state",
+                description="AG replica synchronization state và log send queue",
+                sql="""
+SELECT TOP 20
+    ar.replica_server_name,
+    drs.synchronization_state_desc,
+    drs.synchronization_health_desc,
+    drs.log_send_queue_size,
+    drs.log_send_rate,
+    drs.redo_queue_size,
+    drs.redo_rate,
+    drs.last_commit_time
+FROM sys.dm_hadr_database_replica_states drs
+JOIN sys.availability_replicas ar
+    ON drs.replica_id = ar.replica_id
+WHERE drs.is_local = 0
+""",
+                timeout_sec=30,
+            ),
+            QueryConfig(
+                query_id="cdc_jobs",
+                description="CDC capture và cleanup job status",
+                sql="""
+SELECT TOP 20
+    j.name AS job_name,
+    j.enabled,
+    jh.run_status,         -- 0=Failed, 1=Succeeded, 2=Retry, 3=Cancelled
+    jh.run_date,
+    jh.run_time,
+    jh.run_duration,
+    jh.message
+FROM msdb.dbo.sysjobs j
+JOIN msdb.dbo.sysjobhistory jh
+    ON j.job_id = jh.job_id
+WHERE j.name LIKE 'cdc.%'
+  AND jh.step_id = 0
+  AND jh.run_date >= CAST(CONVERT(VARCHAR, GETDATE(), 112) AS INT)
+ORDER BY jh.run_date DESC, jh.run_time DESC
+""",
+                timeout_sec=20,
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "log_send_queue_size": ThresholdConfig(warning=500, critical=1000),
+            "redo_queue_size": ThresholdConfig(warning=1000, critical=5000),
+            # run_status: 0 = Failed → critical nếu != 1
+            "run_status": ThresholdConfig(warning=1, critical=0),
+        },
+    )
+
+
+# ── 2. Blocking & Deadlock ───────────────────────────────────────────────────
+
+def _blocking() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="blocking",
+        display_name="Blocking Chain & Deadlock Monitor",
+        enabled=True,
+        schedule_sec=60,
+        nodes=["all"],
+        queries=[
+            QueryConfig(
+                query_id="blocking_sessions",
+                description="Active blocking sessions với chain info",
+                sql="""
+SELECT TOP 100
+    r.session_id,
+    r.blocking_session_id,
+    r.wait_type,
+    r.wait_time / 1000          AS wait_sec,
+    r.command,
+    r.status,
+    DB_NAME(r.database_id)      AS database_name,
+    s.login_name,
+    s.host_name,
+    s.program_name,
+    SUBSTRING(qt.text, 1, 500)  AS query_text
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt
+WHERE r.blocking_session_id > 0
+  AND r.wait_time > 5000
+ORDER BY r.wait_time DESC
+""",
+                timeout_sec=15,
+            ),
+            QueryConfig(
+                query_id="deadlock_events",
+                description="Deadlock events từ System Health XEvent (24h gần nhất)",
+                sql="""
+SELECT TOP 20
+    xdr.value('@timestamp', 'datetime2')    AS deadlock_time,
+    xdr.value('(//deadlock/process-list/process/@id)[1]', 'varchar(50)') AS victim_id,
+    SUBSTRING(
+        xdr.value('(//deadlock/process-list/process/inputbuf)[1]', 'varchar(max)'),
+        1, 500
+    )                                        AS victim_query
+FROM (
+    SELECT CAST(target_data AS XML) AS target_data
+    FROM sys.dm_xe_session_targets t
+    JOIN sys.dm_xe_sessions s ON t.event_session_address = s.address
+    WHERE s.name = 'system_health'
+      AND t.target_name = 'ring_buffer'
+) AS data
+CROSS APPLY target_data.nodes('//RingBufferTarget/event[@name="xml_deadlock_report"]') AS xr(xdr)
+WHERE xdr.value('@timestamp', 'datetime2') > DATEADD(HOUR, -24, GETUTCDATE())
+ORDER BY deadlock_time DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="blocking_chain",
+        thresholds={
+            "wait_sec": ThresholdConfig(warning=30, critical=120),
+            "chain_depth": ThresholdConfig(warning=2, critical=3),
+        },
+    )
+
+
+# ── 3. Blocked Query Snapshot ────────────────────────────────────────────────
+
+def _blocked_query() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="blocked_query",
+        display_name="Blocked Query Snapshot & Trend",
+        enabled=True,
+        schedule_sec=60,
+        nodes=["all"],
+        queries=[
+            QueryConfig(
+                query_id="blocked_snapshot",
+                description="Chi tiết query đang bị block tại thời điểm check",
+                sql="""
+SELECT TOP 100
+    r.session_id,
+    r.blocking_session_id,
+    r.wait_type,
+    r.wait_time / 1000              AS wait_duration_sec,
+    r.wait_resource,
+    DB_NAME(r.database_id)          AS database_name,
+    s.login_name,
+    s.host_name,
+    CONVERT(VARCHAR(64),
+        HASHBYTES('MD5', qt.text), 2) AS query_hash,
+    SUBSTRING(qt.text, 1, 1000)     AS query_text,
+    -- Head blocker info
+    bs.login_name                   AS blocker_login,
+    SUBSTRING(bt.text, 1, 500)      AS blocker_query
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s   ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt
+LEFT JOIN sys.dm_exec_sessions bs ON r.blocking_session_id = bs.session_id
+OUTER APPLY (
+    SELECT TOP 1 text
+    FROM sys.dm_exec_connections c
+    CROSS APPLY sys.dm_exec_sql_text(c.most_recent_sql_handle)
+    WHERE c.session_id = r.blocking_session_id
+) bt
+WHERE r.blocking_session_id > 0
+  AND r.wait_time > 10000
+ORDER BY r.wait_time DESC
+""",
+                timeout_sec=15,
+            ),
+        ],
+        detector_type="blocking_chain",
+        thresholds={
+            "wait_duration_sec": ThresholdConfig(warning=10, critical=60),
+        },
+    )
+
+
+# ── 4. Slow Query / Performance Regression ───────────────────────────────────
+
+def _slow_query() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="slow_query",
+        display_name="Slow Query / Performance Regression (Baseline)",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["all"],
+        queries=[
+            QueryConfig(
+                query_id="query_store_stats",
+                description="Query Store: avg duration của các query chạy trong 30 phút qua",
+                sql="""
+SELECT TOP 50
+    CONVERT(VARCHAR(64), HASHBYTES('MD5', qsqt.query_sql_text), 2)
+                                        AS query_hash,
+    qsq.query_id,
+    ROUND(qsp.avg_duration / 1000.0, 2) AS avg_duration_ms,
+    ROUND(qsp.avg_logical_io_reads, 0)  AS avg_logical_reads,
+    qsp.count_executions,
+    qsp.last_execution_time,
+    SUBSTRING(qsqt.query_sql_text, 1, 500) AS query_text
+FROM sys.query_store_query qsq
+JOIN sys.query_store_plan qsp
+    ON qsq.query_id = qsp.query_id
+JOIN sys.query_store_query_text qsqt
+    ON qsq.query_text_id = qsqt.query_text_id
+WHERE qsp.last_execution_time > DATEADD(MINUTE, -30, GETUTCDATE())
+  AND qsp.count_executions >= 5
+  AND qsp.avg_duration > 50000   -- > 50ms
+ORDER BY qsp.avg_duration DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="baseline",
+        baseline_config=BaselineConfig(
+            metric_field="avg_duration_ms",
+            threshold_pct=50.0,
+            min_executions=10,
+            baseline_weeks=4,
+        ),
+    )
+
+
+# ── 5. Plan Regression ───────────────────────────────────────────────────────
+
+def _plan_regression() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="plan_regression",
+        display_name="Execution Plan Regression Detector",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="new_plans_today",
+                description="Query có plan mới trong 24h, tệ hơn plan cũ >= 50%",
+                sql="""
+SELECT TOP 30
+    qsq.query_id,
+    CONVERT(VARCHAR(64), HASHBYTES('MD5', qsqt.query_sql_text), 2) AS query_hash,
+    new_p.plan_id           AS new_plan_id,
+    ROUND(new_p.avg_duration / 1000.0, 2) AS new_avg_ms,
+    ROUND(old_p.avg_duration / 1000.0, 2) AS old_avg_ms,
+    ROUND(100.0 * (new_p.avg_duration - old_p.avg_duration) / NULLIF(old_p.avg_duration, 0), 1)
+                            AS pct_worse,
+    new_p.query_plan        AS plan_xml,
+    SUBSTRING(qsqt.query_sql_text, 1, 500) AS query_text
+FROM sys.query_store_query qsq
+JOIN sys.query_store_query_text qsqt ON qsq.query_text_id = qsqt.query_text_id
+-- Plan mới (xuất hiện trong 24h qua)
+JOIN sys.query_store_plan new_p
+    ON qsq.query_id = new_p.query_id
+   AND new_p.last_execution_time > DATEADD(HOUR, -24, GETUTCDATE())
+   AND new_p.count_executions >= 10
+-- Plan cũ nhất của cùng query (ít nhất 100 executions để đáng tin)
+JOIN (
+    SELECT query_id, plan_id, avg_duration
+    FROM sys.query_store_plan
+    WHERE count_executions >= 100
+) old_p ON qsq.query_id = old_p.query_id
+       AND old_p.plan_id != new_p.plan_id
+       AND old_p.avg_duration < new_p.avg_duration  -- plan cũ tốt hơn
+WHERE new_p.avg_duration > old_p.avg_duration * 1.5 -- tệ hơn 50%
+ORDER BY pct_worse DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="plan_analysis",
+        extra={"plan_xml_field": "plan_xml"},
+    )
+
+
+# ── 6. Plan Instability ──────────────────────────────────────────────────────
+
+def _plan_instability() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="plan_instability",
+        display_name="Plan Instability Detector (Parameter Sniffing)",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="multi_plan_queries",
+                description="Query có nhiều execution plans đang active, worst/best > 5x",
+                sql="""
+SELECT TOP 20
+    qsq.query_id,
+    CONVERT(VARCHAR(64), HASHBYTES('MD5', qsqt.query_sql_text), 2) AS query_hash,
+    COUNT(DISTINCT qsp.plan_id)     AS plan_count,
+    ROUND(MIN(qsp.avg_duration) / 1000.0, 2) AS best_plan_ms,
+    ROUND(MAX(qsp.avg_duration) / 1000.0, 2) AS worst_plan_ms,
+    ROUND(MAX(qsp.avg_duration) * 1.0 / NULLIF(MIN(qsp.avg_duration), 0), 1)
+                                    AS worst_best_ratio,
+    SUM(qsp.count_executions)       AS total_executions,
+    SUBSTRING(qsqt.query_sql_text, 1, 500) AS query_text
+FROM sys.query_store_query qsq
+JOIN sys.query_store_query_text qsqt ON qsq.query_text_id = qsqt.query_text_id
+JOIN sys.query_store_plan qsp ON qsq.query_id = qsp.query_id
+WHERE qsp.last_execution_time > DATEADD(DAY, -7, GETUTCDATE())
+  AND qsp.is_forced_plan = 0
+GROUP BY qsq.query_id, qsqt.query_sql_text
+HAVING COUNT(DISTINCT qsp.plan_id) > 3
+   AND MAX(qsp.avg_duration) * 1.0 / NULLIF(MIN(qsp.avg_duration), 0) > 5
+ORDER BY worst_best_ratio DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="plan_analysis",
+        thresholds={
+            "worst_best_ratio": ThresholdConfig(warning=5, critical=10),
+            "plan_count": ThresholdConfig(warning=3, critical=6),
+        },
+    )
+
+
+# ── 7. Non-Optimal Index Usage ───────────────────────────────────────────────
+
+def _index_usage() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="index_usage",
+        display_name="Non-Optimal Index Usage (Plan XML Analysis)",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["all"],
+        queries=[
+            QueryConfig(
+                query_id="high_io_with_plan",
+                description="Query có logical reads cao kèm plan XML để detect scan/lookup",
+                sql="""
+SELECT TOP 30
+    CONVERT(VARCHAR(64), HASHBYTES('MD5', qsqt.query_sql_text), 2) AS query_hash,
+    qsq.query_id,
+    ROUND(qsp.avg_logical_io_reads, 0) AS avg_logical_reads,
+    ROUND(qsp.avg_duration / 1000.0, 2) AS avg_duration_ms,
+    qsp.count_executions,
+    qsp.query_plan                      AS plan_xml,
+    SUBSTRING(qsqt.query_sql_text, 1, 500) AS query_text
+FROM sys.query_store_query qsq
+JOIN sys.query_store_query_text qsqt ON qsq.query_text_id = qsqt.query_text_id
+JOIN sys.query_store_plan qsp ON qsq.query_id = qsp.query_id
+WHERE qsp.last_execution_time > DATEADD(HOUR, -1, GETUTCDATE())
+  AND qsp.count_executions >= 5
+  AND qsp.avg_logical_io_reads > 10000
+  AND qsp.query_plan IS NOT NULL
+ORDER BY qsp.avg_logical_io_reads DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="plan_analysis",
+        extra={"plan_xml_field": "plan_xml"},
+    )
+
+
+# ── 8. High Variation Query ──────────────────────────────────────────────────
+
+def _high_variation() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="high_variation",
+        display_name="High Variation Query Detector",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["all"],
+        queries=[
+            QueryConfig(
+                query_id="cv_queries",
+                description="Query có coefficient of variation cao — execution time không ổn định",
+                sql="""
+SELECT TOP 20
+    CONVERT(VARCHAR(64), HASHBYTES('MD5', qsqt.query_sql_text), 2) AS query_hash,
+    qsq.query_id,
+    ROUND(qsp.avg_duration / 1000.0, 2)                            AS avg_duration_ms,
+    ROUND(qsp.stdev_duration / 1000.0, 2)                          AS stdev_duration_ms,
+    -- CV = stdev / avg — giá trị > 0.5 là biến động cao
+    ROUND(qsp.stdev_duration * 1.0 / NULLIF(qsp.avg_duration, 0), 3) AS cv_ratio,
+    qsp.count_executions,
+    ROUND(qsp.min_duration / 1000.0, 2)                            AS min_ms,
+    ROUND(qsp.max_duration / 1000.0, 2)                            AS max_ms,
+    SUBSTRING(qsqt.query_sql_text, 1, 500) AS query_text
+FROM sys.query_store_query qsq
+JOIN sys.query_store_query_text qsqt ON qsq.query_text_id = qsqt.query_text_id
+JOIN sys.query_store_plan qsp ON qsq.query_id = qsp.query_id
+WHERE qsp.last_execution_time > DATEADD(HOUR, -1, GETUTCDATE())
+  AND qsp.count_executions > 50
+  AND qsp.avg_duration > 50000     -- > 50ms average
+  AND qsp.stdev_duration > 0
+ORDER BY cv_ratio DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "cv_ratio": ThresholdConfig(warning=0.5, critical=1.0),
+        },
+    )
+
+
+# ── 9. TempDB & Memory Pressure ──────────────────────────────────────────────
+
+def _tempdb_memory() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="tempdb_memory",
+        display_name="TempDB & Memory Pressure Monitor",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="ple",
+                description="Page Life Expectancy — giá trị thấp = memory pressure",
+                sql="""
+SELECT TOP 5
+    object_name,
+    counter_name,
+    cntr_value AS ple_sec
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Page life expectancy'
+  AND object_name LIKE '%Buffer Manager%'
+""",
+                timeout_sec=10,
+            ),
+            QueryConfig(
+                query_id="memory_grants",
+                description="Memory grants pending — > 0 = workload đang chờ memory",
+                sql="""
+SELECT TOP 5
+    counter_name,
+    cntr_value AS pending_grants
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Memory Grants Pending'
+""",
+                timeout_sec=10,
+            ),
+            QueryConfig(
+                query_id="tempdb_space",
+                description="TempDB space usage — version store, user objects, internal",
+                sql="""
+SELECT TOP 1
+    ROUND(SUM(total_page_count) * 8.0 / 1024, 1)             AS total_mb,
+    ROUND(SUM(unallocated_extent_page_count) * 8.0 / 1024, 1) AS free_mb,
+    ROUND(
+        100.0 * (1 - SUM(unallocated_extent_page_count) * 1.0 / NULLIF(SUM(total_page_count), 0)),
+        1
+    )                                                          AS used_pct,
+    ROUND(SUM(version_store_reserved_page_count) * 8.0 / 1024, 1) AS version_store_mb,
+    ROUND(SUM(internal_object_reserved_page_count) * 8.0 / 1024, 1) AS internal_mb,
+    ROUND(SUM(user_object_reserved_page_count) * 8.0 / 1024, 1)     AS user_object_mb
+FROM sys.dm_db_file_space_usage
+""",
+                timeout_sec=10,
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "ple_sec": ThresholdConfig(warning=300, critical=100),
+            "pending_grants": ThresholdConfig(warning=1, critical=5),
+            "used_pct": ThresholdConfig(warning=70, critical=85),
+            "version_store_mb": ThresholdConfig(warning=500, critical=1000),
+        },
+        extra={
+            # ple_sec và pending_grants: giá trị thấp/cao mới là vấn đề
+            # threshold detector sẽ đọc extra.lower_is_worse khi implement
+            "lower_is_worse": ["ple_sec"],
+        },
+    )
+
+
+# ── 10. Wait Statistics Anomaly ──────────────────────────────────────────────
+
+def _wait_stats() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="wait_stats",
+        display_name="Wait Statistics Anomaly Monitor (Baseline)",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["all"],
+        queries=[
+            QueryConfig(
+                query_id="wait_snapshot",
+                description="Top wait types — so sánh với baseline cùng giờ",
+                sql="""
+SELECT TOP 20
+    wait_type,
+    waiting_tasks_count,
+    wait_time_ms,
+    max_wait_time_ms,
+    signal_wait_time_ms,
+    -- Delta sẽ tính ở baseline detector so với lần snapshot trước
+    GETUTCDATE() AS snapshot_time
+FROM sys.dm_os_wait_stats
+WHERE wait_type NOT IN (
+    'SLEEP_TASK', 'BROKER_TO_FLUSH', 'BROKER_EVENTHANDLER',
+    'CHECKPOINT_QUEUE', 'DBMIRROR_EVENTS_QUEUE', 'DISPATCHER_QUEUE_SEMAPHORE',
+    'FT_IFTS_SCHEDULER_IDLE_WAIT', 'HADR_FILESTREAM_IOMGR_IOCOMPLETION',
+    'HADR_WORK_QUEUE', 'LAZYWRITER_SLEEP', 'LOGMGR_QUEUE', 'ONDEMAND_TASK_QUEUE',
+    'REQUEST_FOR_DEADLOCK_SEARCH', 'RESOURCE_QUEUE', 'SERVER_IDLE_CHECK',
+    'SLEEP_DBSTARTUP', 'SLEEP_DCOMSTARTUP', 'SLEEP_MASTERDBREADY',
+    'SLEEP_MASTERMDREADY', 'SLEEP_MASTERUPGRADED', 'SLEEP_MSDBSTARTUP',
+    'SLEEP_TEMPDBSTARTUP', 'SNI_HTTP_ACCEPT', 'SP_SERVER_DIAGNOSTICS_SLEEP',
+    'SQLTRACE_BUFFER_FLUSH', 'WAITFOR', 'XE_DISPATCHER_WAIT', 'XE_TIMER_EVENT'
+)
+  AND wait_time_ms > 0
+ORDER BY wait_time_ms DESC
+""",
+                timeout_sec=10,
+            ),
+        ],
+        detector_type="baseline",
+        baseline_config=BaselineConfig(
+            metric_field="wait_time_ms",
+            threshold_pct=200.0,  # tăng > 200% so với baseline → anomaly
+            min_executions=5,
+            baseline_weeks=4,
+        ),
+    )
+
+
+# ── 11. SQL Agent Jobs & Maintenance ─────────────────────────────────────────
+
+def _agent_maintenance() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="agent_maintenance",
+        display_name="SQL Agent Jobs, Backup & DBCC Monitor",
+        enabled=True,
+        schedule_sec=600,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="failed_jobs",
+                description="SQL Agent jobs thất bại trong 24h",
+                sql="""
+SELECT TOP 50
+    j.name                          AS job_name,
+    jh.step_name,
+    jh.run_status,                  -- 0=Failed
+    jh.run_date,
+    jh.run_time,
+    jh.run_duration,
+    LEFT(jh.message, 500)           AS error_message,
+    -- Đếm lần fail liên tiếp
+    (
+        SELECT COUNT(*) FROM msdb.dbo.sysjobhistory jh2
+        WHERE jh2.job_id = j.job_id
+          AND jh2.step_id = 0
+          AND jh2.run_status = 0
+          AND jh2.run_date >= CAST(FORMAT(DATEADD(DAY, -7, GETDATE()), 'yyyyMMdd') AS INT)
+    ) AS fail_count_7d
+FROM msdb.dbo.sysjobs j
+JOIN msdb.dbo.sysjobhistory jh ON j.job_id = jh.job_id
+WHERE jh.step_id = 0
+  AND jh.run_status = 0
+  AND jh.run_date >= CAST(FORMAT(DATEADD(DAY, -1, GETDATE()), 'yyyyMMdd') AS INT)
+ORDER BY jh.run_date DESC, jh.run_time DESC
+""",
+                timeout_sec=20,
+            ),
+            QueryConfig(
+                query_id="backup_status",
+                description="Last backup per database — phát hiện backup gap",
+                sql="""
+SELECT TOP 50
+    d.name                          AS database_name,
+    d.recovery_model_desc,
+    MAX(CASE WHEN bs.type = 'D' THEN bs.backup_finish_date END) AS last_full_backup,
+    MAX(CASE WHEN bs.type = 'L' THEN bs.backup_finish_date END) AS last_log_backup,
+    MAX(CASE WHEN bs.type = 'I' THEN bs.backup_finish_date END) AS last_diff_backup,
+    -- Giờ kể từ full backup
+    DATEDIFF(HOUR,
+        MAX(CASE WHEN bs.type = 'D' THEN bs.backup_finish_date END),
+        GETDATE()
+    )                               AS hours_since_full,
+    -- Giờ kể từ log backup (chỉ check database recovery model = FULL)
+    CASE WHEN d.recovery_model_desc = 'FULL'
+         THEN DATEDIFF(MINUTE,
+             MAX(CASE WHEN bs.type = 'L' THEN bs.backup_finish_date END),
+             GETDATE())
+         ELSE NULL
+    END                             AS mins_since_log
+FROM sys.databases d
+LEFT JOIN msdb.dbo.backupset bs ON bs.database_name = d.name
+WHERE d.database_id > 4                 -- bỏ system databases
+  AND d.state_desc = 'ONLINE'
+  AND d.is_read_only = 0
+GROUP BY d.name, d.recovery_model_desc
+ORDER BY hours_since_full DESC
+""",
+                timeout_sec=20,
+            ),
+            QueryConfig(
+                query_id="dbcc_status",
+                description="DBCC CHECKDB last run per database",
+                sql="""
+SELECT TOP 20
+    name            AS database_name,
+    DATABASEPROPERTYEX(name, 'LastGoodCheckDbTime') AS last_checkdb,
+    DATEDIFF(DAY,
+        CAST(DATABASEPROPERTYEX(name, 'LastGoodCheckDbTime') AS DATETIME),
+        GETDATE()
+    )               AS days_since_checkdb
+FROM sys.databases
+WHERE database_id > 4
+  AND state_desc = 'ONLINE'
+ORDER BY days_since_checkdb DESC
+""",
+                timeout_sec=15,
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "run_status": ThresholdConfig(warning=0, critical=0),      # 0 = failed
+            "fail_count_7d": ThresholdConfig(warning=1, critical=2),
+            "hours_since_full": ThresholdConfig(warning=24, critical=48),
+            "mins_since_log": ThresholdConfig(warning=60, critical=120),
+            "days_since_checkdb": ThresholdConfig(warning=7, critical=14),
+        },
+    )
+
+
+# ── 12. Missing Index Detector ───────────────────────────────────────────────
+
+def _missing_index() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="missing_index",
+        display_name="Missing Index Detector",
+        enabled=True,
+        schedule_sec=3600,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="high_value_missing_indexes",
+                description="Missing indexes với improvement_measure cao (SQL Server gợi ý)",
+                sql="""
+SELECT TOP 30
+    DB_NAME(mid.database_id)        AS database_name,
+    OBJECT_NAME(mid.object_id, mid.database_id) AS table_name,
+    mid.equality_columns,
+    mid.inequality_columns,
+    mid.included_columns,
+    ROUND(
+        migs.avg_total_user_cost
+        * migs.avg_user_impact
+        * (migs.user_seeks + migs.user_scans),
+        0
+    )                               AS improvement_measure,
+    migs.user_seeks,
+    migs.user_scans,
+    ROUND(migs.avg_user_impact, 1)  AS avg_user_impact_pct,
+    migs.last_user_seek
+FROM sys.dm_db_missing_index_details mid
+JOIN sys.dm_db_missing_index_groups mig  ON mid.index_handle = mig.index_handle
+JOIN sys.dm_db_missing_index_group_stats migs ON mig.index_group_handle = migs.group_handle
+WHERE mid.database_id = DB_ID()
+  AND migs.avg_total_user_cost * migs.avg_user_impact * (migs.user_seeks + migs.user_scans) > 10000
+ORDER BY improvement_measure DESC
+""",
+                timeout_sec=30,
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "improvement_measure": ThresholdConfig(warning=10000, critical=100000),
+        },
+    )
+
+
+# ── 13. Resource Governor Monitor ────────────────────────────────────────────
+
+def _resource_governor() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="resource_governor",
+        display_name="Resource Governor Pool Monitor",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="pool_cpu_usage",
+                description="Resource pool CPU usage so với max_cpu_percent được cấu hình",
+                sql="""
+SELECT TOP 20
+    rp.name                         AS pool_name,
+    rp.max_cpu_percent              AS max_cpu_pct_config,
+    rp.min_cpu_percent              AS min_cpu_pct_config,
+    rprs.avg_cpu_percent_target     AS avg_cpu_target,
+    rprs.avg_cpu_percent            AS avg_cpu_actual,
+    -- Phần trăm max_cpu đang được dùng
+    CASE WHEN rp.max_cpu_percent > 0
+         THEN ROUND(100.0 * rprs.avg_cpu_percent / rp.max_cpu_percent, 1)
+         ELSE 0
+    END                             AS pct_of_max_cpu,
+    rprs.active_worker_count,
+    rprs.active_request_count,
+    rprs.blocked_task_count,
+    rprs.read_io_completed          AS read_io_per_sec,
+    rprs.write_io_completed         AS write_io_per_sec
+FROM sys.dm_resource_governor_resource_pools rprs
+JOIN sys.resource_governor_resource_pools rp ON rprs.pool_id = rp.pool_id
+WHERE rprs.pool_id > 2              -- bỏ internal và default pools
+ORDER BY rprs.avg_cpu_percent DESC
+""",
+                timeout_sec=10,
+            ),
+            QueryConfig(
+                query_id="top_sessions_by_pool",
+                description="Top sessions đang consume nhiều CPU trong mỗi pool",
+                sql="""
+SELECT TOP 30
+    rp.name                         AS pool_name,
+    wg.name                         AS workgroup_name,
+    r.session_id,
+    r.cpu_time / 1000               AS cpu_sec,
+    r.reads,
+    r.writes,
+    DB_NAME(r.database_id)          AS database_name,
+    s.login_name,
+    SUBSTRING(qt.text, 1, 300)      AS query_text
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt
+JOIN sys.dm_resource_governor_workload_groups wg ON r.group_id = wg.group_id
+JOIN sys.resource_governor_resource_pools rp ON wg.pool_id = rp.pool_id
+WHERE r.cpu_time > 5000             -- > 5 giây CPU
+  AND rp.pool_id > 2
+ORDER BY r.cpu_time DESC
+""",
+                timeout_sec=15,
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "pct_of_max_cpu": ThresholdConfig(warning=80, critical=95),
+            "blocked_task_count": ThresholdConfig(warning=5, critical=20),
+        },
+    )
+
+
+# ── 14. Index Fragmentation (Scheduled daily) ────────────────────────────────
+
+def _index_fragmentation() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id="index_fragmentation",
+        display_name="Index Fragmentation Monitor (Daily)",
+        enabled=True,
+        # 24 giờ — scheduler dùng cron job riêng để chạy lúc 3AM
+        # Ở đây đặt interval dài để không chạy liên tục
+        schedule_sec=86400,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="fragmented_indexes",
+                description="Indexes bị phân mảnh > 10%, page_count > 1000",
+                sql="""
+SELECT TOP 50
+    DB_NAME()                       AS database_name,
+    OBJECT_NAME(ips.object_id)      AS table_name,
+    i.name                          AS index_name,
+    ips.index_type_desc,
+    ROUND(ips.avg_fragmentation_in_percent, 1) AS fragmentation_pct,
+    ips.page_count,
+    -- Khuyến nghị: REORGANIZE nếu 10-30%, REBUILD nếu > 30%
+    CASE
+        WHEN ips.avg_fragmentation_in_percent > 30 THEN 'REBUILD'
+        WHEN ips.avg_fragmentation_in_percent > 10 THEN 'REORGANIZE'
+        ELSE 'OK'
+    END                             AS recommended_action,
+    ips.record_count
+FROM sys.dm_db_index_physical_stats(
+    DB_ID(), NULL, NULL, NULL, 'SAMPLED'  -- SAMPLED nhanh hơn DETAILED
+) ips
+JOIN sys.indexes i
+    ON ips.object_id = i.object_id
+   AND ips.index_id = i.index_id
+WHERE ips.avg_fragmentation_in_percent > 10
+  AND ips.page_count > 1000
+  AND ips.index_type_desc IN ('CLUSTERED INDEX', 'NONCLUSTERED INDEX')
+ORDER BY ips.avg_fragmentation_in_percent DESC
+""",
+                timeout_sec=120,  # SAMPLED scan mất thời gian
+            ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "fragmentation_pct": ThresholdConfig(warning=10, critical=30),
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
+def seed(dry_run: bool = False) -> None:
+    """
+    Upsert tất cả topics vào MongoDB.
+    dry_run=True: in ra topics sẽ được seed mà không ghi vào DB.
+    """
+    topics = _all_topics()
+
+    if dry_run:
+        logger.info("DRY RUN — %d topics sẽ được seed:", len(topics))
+        for t in topics:
+            logger.info(
+                "  %-25s  schedule=%4ds  nodes=%-12s  detector=%s",
+                t.topic_id,
+                t.schedule_sec,
+                str(t.nodes),
+                t.detector_type or "null",
+            )
+        return
+
+    MongoConnection.initialize(settings)
+    repo = TopicRepo()
+
+    success = 0
+    for topic in topics:
+        try:
+            repo.upsert(topic)
+            logger.info(
+                "Seeded: %-25s  schedule=%4ds  detector=%s",
+                topic.topic_id,
+                topic.schedule_sec,
+                topic.detector_type or "null",
+            )
+            success += 1
+        except Exception as exc:
+            logger.error("Failed to seed topic=%s: %s", topic.topic_id, exc)
+
+    logger.info("Done: %d/%d topics seeded successfully.", success, len(topics))
+    MongoConnection.close()
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seed monitoring topics into MongoDB")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print topics without writing to MongoDB",
+    )
+    parser.add_argument(
+        "--topic",
+        metavar="TOPIC_ID",
+        help="Seed only a specific topic (by topic_id)",
+    )
+    args = parser.parse_args()
+
+    if args.topic:
+        topics = [t for t in _all_topics() if t.topic_id == args.topic]
+        if not topics:
+            logger.error(
+                "Topic '%s' không tìm thấy. Các topics hợp lệ: %s",
+                args.topic,
+                [t.topic_id for t in _all_topics()],
+            )
+            sys.exit(1)
+        if not args.dry_run:
+            MongoConnection.initialize(settings)
+            repo = TopicRepo()
+            repo.upsert(topics[0])
+            logger.info("Seeded: %s", topics[0].topic_id)
+            MongoConnection.close()
+        else:
+            logger.info("DRY RUN — %s", topics[0].model_dump())
+    else:
+        seed(dry_run=args.dry_run)
+
+
+if __name__ == "__main__":
+    main()

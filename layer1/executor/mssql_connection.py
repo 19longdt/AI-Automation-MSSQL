@@ -33,9 +33,21 @@ def mssql_connection(host: str, timeout_sec: int | None = None) -> Generator[pyo
     Raises:
         pyodbc.Error: nếu không kết nối được — caller phải handle
     """
-    ...
+    timeout = timeout_sec if timeout_sec is not None else settings.mssql_query_timeout_sec
+    conn_str = settings.get_connection_string(host)
+    conn = pyodbc.connect(conn_str, timeout=timeout, autocommit=True)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def test_connection(host: str) -> bool:
     """Kiểm tra kết nối tới 1 node. Trả về False nếu unreachable."""
-    ...
+    try:
+        with mssql_connection(host) as conn:
+            conn.execute("SELECT 1")
+        return True
+    except Exception as exc:
+        logger.debug("test_connection failed for host=%s: %s", host, exc)
+        return False

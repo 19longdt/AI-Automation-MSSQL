@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(py|yml|yaml|json|toml|env|cfg|ini\\)$\")",
+      "Bash(grep -l \"slack\\\\|telegram\" /d/GIT/AI-Automation-MSSQL/layer1/notifications/*.py)",
+      "Bash(find /d/GIT/AI-Automation-MSSQL -type f -name \"*.py\" -exec wc -l {} +)",
+      "Bash(awk '{print $NF}')",
+      "Bash(grep -v \"^$\")"
+    ]
+  }
+}

@@ -18,14 +18,14 @@ class Severity(str, Enum):
     WARNING = "WARNING"
     CRITICAL = "CRITICAL"
 
-    def is_at_least(self, other: Severity) -> bool:
+    def is_at_least(self, other: "Severity") -> bool:
         """Kiểm tra severity này có >= other không (dùng để filter alert)."""
-        ...
+        return self.order >= other.order
 
     @property
     def order(self) -> int:
         """Numeric order để so sánh severity levels."""
-        ...
+        return {"INFO": 0, "WARNING": 1, "CRITICAL": 2}[self.value]
 
 
 class NodeRole(str, Enum):

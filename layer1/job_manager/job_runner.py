@@ -15,10 +15,13 @@ Sử dụng dạng decorator:
 from __future__ import annotations
 
 import logging
+import os
+import socket
 from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar
 
+from ..models.job import JobExecution, JobStatus
 from ..storage.repositories.job_execution_repo import JobExecutionRepo
 
 logger = logging.getLogger(__name__)
@@ -34,16 +37,22 @@ class JobRunner:
 
     def __init__(self, execution_repo: JobExecutionRepo) -> None:
         self._repo = execution_repo
+        self._instance_id = f"{socket.gethostname()}:{os.getpid()}"
 
-    def wrap(self, job_name: str, stuck_timeout_sec: int = 300) -> Callable[[F], F]:
+    def wrap(self, job_name: str) -> Callable[[F], F]:
         """
         Decorator factory. Sử dụng:
-            @runner.wrap("my_job", stuck_timeout_sec=120)
+            @runner.wrap("my_job")
             def my_job_fn() -> int: ...
         """
-        ...
+        def decorator(func: F) -> F:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                self._execute(job_name, lambda: func(*args, **kwargs))
+            return wrapper  # type: ignore[return-value]
+        return decorator  # type: ignore[return-value]
 
-    def _execute(self, job_name: str, func: Callable, stuck_timeout_sec: int) -> None:
+    def _execute(self, job_name: str, func: Callable) -> None:
         """
         Thực thi job với full lifecycle tracking:
           1. Insert job_execution (status=RUNNING)
@@ -51,4 +60,21 @@ class JobRunner:
           3. Update job_execution (status=SUCCESS/FAILED, duration_ms, findings_created)
           4. Catch mọi exception → log ERROR, update status=FAILED
         """
-        ...
+        execution = JobExecution(
+            job_name=job_name,
+            instance_id=self._instance_id,
+        )
+        doc_id = self._repo.start(execution)
+        findings_created = 0
+        try:
+            result = func()
+            # func() trả về số findings_created (int) hoặc None
+            if isinstance(result, int):
+                findings_created = result
+            self._repo.finish(doc_id, JobStatus.SUCCESS, findings_created)
+            logger.info(
+                "Job finished: name=%s findings=%d", job_name, findings_created
+            )
+        except Exception as exc:
+            logger.error("Job failed: name=%s error=%s", job_name, exc, exc_info=True)
+            self._repo.finish(doc_id, JobStatus.FAILED, findings_created, error=str(exc))

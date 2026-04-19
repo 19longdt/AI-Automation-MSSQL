@@ -32,14 +32,21 @@ class DetectorRegistry:
 
     def register(self, detector_type: str, handler: object) -> None:
         """Đăng ký handler cho 1 detector_type."""
-        ...
+        self._detectors[detector_type] = handler
 
     def detect(self, detector_type: str, results: list[QueryResult], topic: MonitorTopic) -> list[Finding]:
         """
         Lookup handler và chạy detection.
         Trả về [] nếu detector_type không registered hoặc là None.
         """
-        ...
+        handler = self._detectors.get(detector_type)
+        if handler is None:
+            logger.warning(
+                "DetectorRegistry: no handler for detector_type=%s (topic=%s)",
+                detector_type, topic.topic_id,
+            )
+            return []
+        return handler.detect(results, topic)  # type: ignore[union-attr]
 
     @classmethod
     def build_default(cls) -> DetectorRegistry:
@@ -47,7 +54,12 @@ class DetectorRegistry:
         Tạo registry với tất cả built-in detectors:
           "threshold" → ThresholdDetector
           "baseline"  → BaselineDetector
-          "plan_analysis" → PlanDetector
-          "blocking_chain" → BlockingChainDetector
         """
-        ...
+        from .threshold_detector import ThresholdDetector
+        from .baseline_detector import BaselineDetector
+        from ..storage.repositories.baseline_repo import BaselineRepo
+
+        registry = cls()
+        registry.register("threshold", ThresholdDetector())
+        registry.register("baseline", BaselineDetector(BaselineRepo()))
+        return registry

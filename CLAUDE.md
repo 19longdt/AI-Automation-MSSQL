@@ -10,8 +10,8 @@ Hệ thống tự động giám sát và phân tích sự cố cho cụm **MSSQL
 - **Partition tables** theo ngày/tháng
 
 Kiến trúc 2 layer:
-- **Layer 1** (`layer1/`): Python monitoring service — config-driven, generic executor
-- **Layer 2** (chưa implement): AI Agent dùng Claude API — phân tích findings, đề xuất fix
+- **Layer 1** (`layer1/`): Python monitoring service — config-driven, generic executor ✅ Implemented
+- **Layer 2** (on-demand via Telegram bot): Claude API phân tích findings khi user yêu cầu `/analyze`
 
 ---
 
@@ -47,13 +47,27 @@ layer1/
 ├── config.py                  ← EnvSettings (connections, credentials only)
 ├── models/                    ← Pydantic models
 ├── executor/                  ← Generic SQL executor + node role cache
-├── detectors/                 ← Registry pattern: threshold, baseline, plan, blocking
+├── detectors/                 ← Registry pattern: threshold, baseline
 ├── storage/                   ← MongoDB repositories
 ├── job_manager/               ← Job execution tracking + health check
-└── notifications/             ← Alert channels
+├── notifications/             ← Alert channels (Telegram, Teams)
+└── ai/                        ← Claude API integration (on-demand analysis)
 ```
 
 Xem `layer1/CLAUDE.md` cho chi tiết đầy đủ từng module, code rules, constraints.
+
+## Deployment
+
+Docker Compose — build machine tạo image, server chỉ cần `docker-compose.yml` + `.env`:
+
+```bash
+# Build & push
+docker build -t longdt/ai-automation-mssql:vX.X.X -t longdt/ai-automation-mssql:latest .
+docker push longdt/ai-automation-mssql:vX.X.X && docker push longdt/ai-automation-mssql:latest
+
+# Server
+docker compose pull layer1 && docker compose up -d layer1
+```
 
 ---
 
@@ -73,14 +87,23 @@ Xem `layer1/CLAUDE.md` cho chi tiết đầy đủ từng module, code rules, co
 ## Environment Variables
 
 ```env
-MSSQL_NODES=SQL-NODE-01,SQL-NODE-02,SQL-NODE-03
+# MSSQL — comma-separated IPs (không dùng hostname trong Docker)
+MSSQL_NODES=10.x.x.1,10.x.x.2,10.x.x.3
 MSSQL_DATABASE=YourDatabase
 MSSQL_USERNAME=sa_monitor
 MSSQL_PASSWORD=secret
-MONGODB_URI=mongodb://localhost:27017
+MONGODB_URI=mongodb://mongodb:27017   # "mongodb" = service name trong docker-compose
 MONGODB_DB=db_monitor
 NODE_ROLE_REFRESH_SEC=3600
-TEAMS_WEBHOOK_URL=https://...
+
+# Notifications (để trống = không gửi)
+TEAMS_WEBHOOK_URL=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# AI on-demand analysis (cần cho /analyze command)
+CLAUDE_API_KEY=sk-ant-...
+CLAUDE_MODEL=claude-sonnet-4-6
 ```
 
 ---
