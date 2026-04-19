@@ -1,1 +1,1 @@
-"""Detectors — phân tích raw_metrics và tạo findings."""
+"""detectors — Registry pattern: detector_type string → handler class."""

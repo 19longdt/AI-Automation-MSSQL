@@ -5,7 +5,7 @@ Mọi APScheduler job function phải được wrap qua JobRunner để:
   - Ghi execution record khi bắt đầu (status=RUNNING)
   - Update record khi hoàn thành (status=SUCCESS/FAILED)
   - Catch tất cả exceptions — job không bao giờ crash scheduler
-  - Skip nếu instance không phải leader
+  - Tính duration_ms tự động
 
 Sử dụng dạng decorator:
     @job_runner.wrap("slow_query_check")
@@ -20,7 +20,6 @@ from functools import wraps
 from typing import TypeVar
 
 from ..storage.repositories.job_execution_repo import JobExecutionRepo
-from .leader_election import LeaderElection
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +32,8 @@ class JobRunner:
     Instance được inject vào scheduler khi startup.
     """
 
-    def __init__(self, execution_repo: JobExecutionRepo, election: LeaderElection) -> None:
+    def __init__(self, execution_repo: JobExecutionRepo) -> None:
         self._repo = execution_repo
-        self._election = election
 
     def wrap(self, job_name: str, stuck_timeout_sec: int = 300) -> Callable[[F], F]:
         """
@@ -46,5 +44,11 @@ class JobRunner:
         ...
 
     def _execute(self, job_name: str, func: Callable, stuck_timeout_sec: int) -> None:
-        """Thực thi job với full lifecycle tracking."""
+        """
+        Thực thi job với full lifecycle tracking:
+          1. Insert job_execution (status=RUNNING)
+          2. Gọi func()
+          3. Update job_execution (status=SUCCESS/FAILED, duration_ms, findings_created)
+          4. Catch mọi exception → log ERROR, update status=FAILED
+        """
         ...

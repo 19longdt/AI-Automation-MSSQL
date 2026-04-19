@@ -1,17 +1,15 @@
 """
 scheduler.py — Entry point của Layer 1 Monitoring Service.
 
-Startup sequence:
-  1. Load env config (EnvSettings) — fail fast nếu thiếu required vars
-  2. Kết nối MongoDB, tạo indexes
-  3. Load runtime config từ MongoDB `service_config` (override defaults)
-  4. Khởi tạo repositories, collectors, detectors, notifiers
-  5. Khởi tạo Leader Election, bắt đầu election
-  6. Đăng ký jobs vào APScheduler (chỉ Leader mới chạy, Standby skip qua job_runner)
-  7. Start scheduler, block cho đến khi SIGTERM/SIGINT
+Config-driven architecture: SQL queries và thresholds cấu hình trong MongoDB.
+Python app chỉ là generic executor — schedule, query, detect, notify.
 
-Graceful shutdown:
-  - SIGTERM/SIGINT → shutdown scheduler → release MongoDB leadership → close connections
+Startup:
+  1. Load env vars (MSSQL nodes, MongoDB URI)
+  2. Kết nối MongoDB, tạo indexes
+  3. Detect node roles (Primary/Secondary) → cache
+  4. Đọc monitor_topics enabled → đăng ký APScheduler jobs
+  5. Start scheduler (blocking)
 
 Chạy: python -m layer1.scheduler
 """
@@ -19,204 +17,100 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from .config import ConfigManager
-from .job_manager.leader_election import LeaderElection
+from .config import settings
+from .executor.node_role_cache import NodeRoleCache
+from .executor.query_executor import QueryExecutor
+from .executor.topic_runner import TopicRunner
+from .detectors.registry import DetectorRegistry
 from .job_manager.job_runner import JobRunner
 from .job_manager.health_checker import HealthChecker
 from .storage.mongo_client import MongoConnection
 from .storage.indexes import create_all_indexes
-from .storage.repositories.config_repo import ConfigRepo
-from .storage.repositories.findings_repo import FindingsRepo
+from .storage.repositories.topic_repo import TopicRepo
 from .storage.repositories.raw_metrics_repo import RawMetricsRepo
+from .storage.repositories.findings_repo import FindingsRepo
 from .storage.repositories.baseline_repo import BaselineRepo
 from .storage.repositories.dedup_repo import DedupRepo
-from .storage.repositories.leader_repo import LeaderRepo
 from .storage.repositories.job_execution_repo import JobExecutionRepo
-from .collectors.query_store import QueryStoreCollector
-from .collectors.query_stats import QueryStatsCollector
-from .collectors.blocking import BlockingCollector
-from .collectors.blocked_queries import BlockedQueriesCollector
-from .collectors.tempdb_memory import TempDbMemoryCollector
-from .collectors.wait_stats import WaitStatsCollector
-from .collectors.agent_jobs import AgentJobsCollector
-from .collectors.ag_health import AgHealthCollector
-from .collectors.index_fragmentation import IndexFragmentationCollector
-from .collectors.missing_indexes import MissingIndexesCollector
-from .collectors.resource_governor import ResourceGovernorCollector
-from .detectors.query_regression import QueryRegressionDetector
-from .detectors.plan_regression import PlanRegressionDetector
-from .detectors.plan_instability import PlanInstabilityDetector
-from .detectors.blocking_detector import BlockingDetector
-from .detectors.blocked_query_trend import BlockedQueryTrendDetector
-from .detectors.wait_anomaly_detector import WaitAnomalyDetector
-from .detectors.threshold_checker import ThresholdChecker
 from .notifications.base_notifier import NotificationDispatcher
 from .notifications.teams_notifier import TeamsNotifier
-from .plan_parser.plan_comparer import PlanComparer
 
 logger = logging.getLogger(__name__)
 
 
-class ServiceContainer:
-    """
-    Dependency injection container — khởi tạo và giữ tất cả service objects.
-    Tách construction khỏi startup logic để dễ test từng component riêng.
-    """
-
-    def __init__(self, cfg: ConfigManager) -> None:
-        self.cfg = cfg
-
-        # Repositories
-        self.raw_metrics_repo: RawMetricsRepo = ...
-        self.findings_repo: FindingsRepo = ...
-        self.baseline_repo: BaselineRepo = ...
-        self.dedup_repo: DedupRepo = ...
-        self.leader_repo: LeaderRepo = ...
-        self.job_execution_repo: JobExecutionRepo = ...
-
-        # Collectors
-        self.query_store_collector: QueryStoreCollector = ...
-        self.query_stats_collector: QueryStatsCollector = ...
-        self.blocking_collector: BlockingCollector = ...
-        self.blocked_queries_collector: BlockedQueriesCollector = ...
-        self.tempdb_memory_collector: TempDbMemoryCollector = ...
-        self.wait_stats_collector: WaitStatsCollector = ...
-        self.agent_jobs_collector: AgentJobsCollector = ...
-        self.ag_health_collector: AgHealthCollector = ...
-        self.index_frag_collector: IndexFragmentationCollector = ...
-        self.missing_index_collector: MissingIndexesCollector = ...
-        self.resource_gov_collector: ResourceGovernorCollector = ...
-
-        # Detectors
-        self.query_regression_detector: QueryRegressionDetector = ...
-        self.plan_regression_detector: PlanRegressionDetector = ...
-        self.plan_instability_detector: PlanInstabilityDetector = ...
-        self.blocking_detector: BlockingDetector = ...
-        self.blocked_query_trend_detector: BlockedQueryTrendDetector = ...
-        self.wait_anomaly_detector: WaitAnomalyDetector = ...
-        self.threshold_checker: ThresholdChecker = ...
-
-        # Infra
-        self.election: LeaderElection = ...
-        self.runner: JobRunner = ...
-        self.dispatcher: NotificationDispatcher = ...
-        self.health_checker: HealthChecker = ...
-
-    @classmethod
-    def build(cls, cfg: ConfigManager) -> ServiceContainer:
-        """Khởi tạo tất cả dependencies theo đúng thứ tự."""
-        ...
-
-
 class Layer1Service:
-    """Orchestrator chính — quản lý APScheduler và lifecycle."""
+    """
+    Orchestrator chính.
+    Đọc topics từ MongoDB → đăng ký 1 APScheduler job per topic → start.
+    """
 
-    def __init__(self, container: ServiceContainer) -> None:
-        self._c = container
+    def __init__(self) -> None:
         self._scheduler = BlockingScheduler(timezone="UTC")
 
+        # Infrastructure — khởi tạo trong _setup()
+        self._role_cache: NodeRoleCache = ...
+        self._topic_runner: TopicRunner = ...
+        self._job_runner: JobRunner = ...
+        self._topic_repo: TopicRepo = ...
+
     def start(self) -> None:
-        """
-        Đăng ký tất cả jobs và start scheduler.
-        Jobs được wrap qua job_runner.wrap() — Standby instance tự động skip.
-        """
+        """Setup toàn bộ dependencies, register jobs, start scheduler."""
         ...
 
     def stop(self) -> None:
-        """Graceful shutdown — được gọi khi nhận SIGTERM/SIGINT."""
+        """Graceful shutdown — gọi khi nhận SIGTERM/SIGINT."""
+        ...
+
+    def _setup_infrastructure(self) -> None:
+        """
+        Khởi tạo theo thứ tự:
+          1. MongoDB connection + indexes
+          2. Node role cache (detect AG roles)
+          3. Repositories
+          4. Executor + detector registry
+          5. TopicRunner (inject tất cả dependencies)
+          6. JobRunner (execution tracking)
+          7. Notifications
+        """
         ...
 
     def _register_jobs(self) -> None:
         """
-        Đăng ký tất cả APScheduler jobs với:
-          - trigger: interval
-          - max_instances=1 (tránh overlap)
-          - coalesce=True (bỏ qua missed runs)
-          - id: job name để health checker track
+        Đọc tất cả topics enabled từ MongoDB.
+        Với mỗi topic → đăng ký 1 APScheduler interval job.
+
+        Thêm 2 system jobs:
+          - node_role_refresh: mỗi node_role_refresh_sec
+          - health_check: mỗi 2 phút
         """
         ...
 
-    # ── Job functions (1 function per job type) ─────────────────────────────
-
-    def _run_query_checks(self) -> int:
-        """Collect QS + DMV → detect slow query / plan regression / instability / variation."""
-        ...
-
-    def _run_blocking_monitor(self) -> int:
-        """Collect blocking chains + blocked query snapshot → detect + trend."""
-        ...
-
-    def _run_ag_health(self) -> int:
-        """Collect AG sync + CDC job status → threshold check."""
-        ...
-
-    def _run_wait_stats(self) -> int:
-        """Collect wait stats delta → anomaly detection vs day-of-week baseline."""
-        ...
-
-    def _run_tempdb_memory(self) -> int:
-        """Collect TempDB + memory metrics → threshold check."""
-        ...
-
-    def _run_resource_governor(self) -> int:
-        """Collect resource pool usage → sustained threshold check."""
-        ...
-
-    def _run_agent_jobs(self) -> int:
-        """Collect SQL Agent jobs + backup + DBCC → maintenance checks."""
-        ...
-
-    def _run_missing_indexes(self) -> int:
-        """Collect missing index DMV → filter by improvement_measure."""
-        ...
-
-    def _run_index_fragmentation(self) -> int:
-        """Daily: collect fragmentation → classify REORGANIZE vs REBUILD."""
-        ...
-
-    def _run_baseline_update(self) -> int:
-        """Hourly: upsert baselines cho slow query và wait stats."""
-        ...
-
-    def _run_health_check(self) -> int:
-        """2 phút: check stuck/missed jobs, MongoDB health."""
+    def _make_topic_job(self, topic_id: str):
+        """
+        Tạo job function cho 1 topic.
+        Wrapped bởi job_runner.wrap() để tracking execution.
+        """
         ...
 
 
-def _setup_logging() -> None:
-    """Cấu hình structured logging với level từ LOG_LEVEL env var."""
-    ...
+def _setup_logging() -> None: ...
 
 
-def _setup_signal_handlers(service: Layer1Service) -> None:
-    """Đăng ký SIGTERM/SIGINT handler để graceful shutdown."""
-    ...
+def _setup_signal_handlers(service: Layer1Service) -> None: ...
 
 
 def main() -> None:
-    """Entry point chính."""
+    """Entry point."""
     _setup_logging()
-    logger.info("Layer 1 Monitoring Service starting...")
+    logger.info("Layer 1 Monitoring Service starting (config-driven)...")
 
-    cfg = ConfigManager.get()
+    service = Layer1Service()
 
-    MongoConnection.initialize(cfg)
-    create_all_indexes(MongoConnection.get_db())
-
-    config_repo = ConfigRepo()
-    cfg.load_runtime_from_mongo(config_repo.load())
-
-    container = ServiceContainer.build(cfg)
-    container.election.start()
-
-    service = Layer1Service(container)
     _setup_signal_handlers(service)
 
-    logger.info("Service started. Role: %s", container.election.get_role())
     service.start()  # blocking
 
 

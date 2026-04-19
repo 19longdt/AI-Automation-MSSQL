@@ -1,1 +1,1 @@
-"""job_manager — Leader Election và job execution tracking."""
+"""job_manager — Job execution tracking và health checking."""

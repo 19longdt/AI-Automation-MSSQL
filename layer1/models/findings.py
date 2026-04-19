@@ -21,9 +21,11 @@ class Finding(BaseModel):
     finding_id: str = Field(default_factory=lambda: str(uuid4()))
     detected_at: datetime = Field(default_factory=datetime.utcnow)
 
+    topic_id: str = Field(description="ID của monitor topic sinh ra finding này")
     issue_type: IssueType
     severity: Severity
     node: str = Field(description="Hostname của node phát sinh issue")
+    role: str = Field(default="", description="'primary' | 'secondary' — từ NodeRoleCache")
 
     # Query-related fields (None nếu không liên quan đến query)
     query_hash: str | None = None

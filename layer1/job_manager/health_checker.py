@@ -2,13 +2,9 @@
 health_checker.py — Phát hiện stuck/missed jobs và alert.
 
 Chạy như 1 job riêng trong scheduler (mỗi 2 phút), kiểm tra:
-  - Stuck jobs: status=RUNNING quá lâu so với job_stuck_timeout_sec
+  - Stuck jobs: status=RUNNING quá lâu so với stuck_timeout_sec
   - Missed jobs: khoảng cách giữa 2 lần chạy > interval × 1.5
-  - Leader health: MongoDB ping, leader document còn hiệu lực
-
-Tách health check thành job riêng thay vì embed vào mỗi job để:
-  - Có 1 điểm tập trung để alert về infra health
-  - Phát hiện được missed jobs (job hoàn toàn không chạy)
+  - MongoDB health: ping check
 """
 from __future__ import annotations
 

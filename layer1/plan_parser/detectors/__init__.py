@@ -1,1 +1,0 @@
-"""Plan XML pattern detectors."""
