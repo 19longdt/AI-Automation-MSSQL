@@ -104,11 +104,14 @@ layer1/
 ├── notifications/
 │   ├── base_notifier.py       ← ABC + NotificationDispatcher (severity filter + multi-channel)
 │   ├── teams_notifier.py      ← Microsoft Teams Incoming Webhook
-│   ├── telegram_notifier.py   ← Telegram alert: HTML parse mode, kèm finding_id[:8] + /analyze hint
+│   ├── telegram_notifier.py   ← Telegram alert: HTML parse mode, file attachment cho long text fields
 │   └── telegram_bot.py        ← Bot polling (daemon thread): /analyze command → Claude API → reply
 │
-└── ai/
-    └── plan_analyzer.py       ← Build prompt từ AnalysisConfig → gọi Claude API → trả text phân tích
+├── ai/
+│   └── plan_analyzer.py       ← Build prompt từ AnalysisConfig → gọi Claude API → trả text phân tích
+│
+└── utils/
+    └── time_utils.py          ← now_vn() (UTC+7 naive, cho MongoDB), utc_now() (cho APScheduler)
 ```
 
 ---
@@ -140,6 +143,16 @@ TELEGRAM_CHAT_ID=-1001234567890
 # Claude API — dùng cho TelegramBot /analyze command
 CLAUDE_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-sonnet-4-6
+
+# Logging
+LOG_LEVEL=INFO
+
+# Logstash centralized logging (để trống LOGSTASH_HOST = disable, chỉ log ra console)
+# Dùng UDP transport → Logstash input: udp { port => 5044 codec => json }
+LOGSTASH_HOST=10.100.110.185
+LOGSTASH_PORT=5044
+LOGSTASH_APP_NAME=sds.ep.ai-automation
+LOGSTASH_DATABASE_PATH=/var/lib/layer1/logstash/queue.db  # SQLite persistent queue
 ```
 
 ### MongoDB `monitor_topics` — Toàn bộ monitoring config
@@ -426,16 +439,17 @@ stdlib → third-party → internal (relative imports).
 ## Dependencies
 
 ```
-pyodbc          — MSSQL connection (per-call, thread-safe usage)
-pymongo         — MongoDB (singleton MongoClient)
-pydantic        — Data models + validation
-pydantic-settings — EnvSettings
-APScheduler     — Job scheduling
-lxml            — XML execution plan parsing
-pymsteams       — Teams webhook notification
-tenacity        — Retry exponential backoff
-python-dotenv   — .env file loading
-anthropic       — Claude API (sync client, dùng trong PlanAnalyzer)
+pyodbc                 — MSSQL connection (per-call, thread-safe usage)
+pymongo                — MongoDB (singleton MongoClient)
+pydantic               — Data models + validation
+pydantic-settings      — EnvSettings
+APScheduler            — Job scheduling
+lxml                   — XML execution plan parsing
+pymsteams              — Teams webhook notification
+tenacity               — Retry exponential backoff
+python-dotenv          — .env file loading
+anthropic              — Claude API (sync client, dùng trong PlanAnalyzer)
+python-logstash-async  — Centralized logging tới Logstash (optional — chỉ cần khi LOGSTASH_HOST set)
 ```
 
 **Không dùng `python-telegram-bot`** — thư viện v21 là async-only, không tương thích với APScheduler sync. Thay vào đó dùng `urllib.request` (stdlib) trực tiếp cho cả TelegramNotifier lẫn TelegramBot polling.

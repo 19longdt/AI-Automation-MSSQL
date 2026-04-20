@@ -197,7 +197,9 @@ class Layer1Service:
             max_instances=1,
             coalesce=True,
         )
-        job_intervals["node_role_refresh"] = settings.node_role_refresh_sec
+        # node_role_refresh KHÔNG thêm vào job_intervals —
+        # system jobs không wrap bởi JobRunner nên không có record trong job_executions,
+        # nếu thêm vào sẽ luôn bị coi là MISSED bởi health checker.
 
         # System job: health check mỗi 2 phút
         self._scheduler.add_job(
@@ -208,7 +210,7 @@ class Layer1Service:
             max_instances=1,
             coalesce=True,
         )
-        job_intervals["health_check"] = 120
+        # health_check cũng không thêm vào job_intervals — cùng lý do trên.
 
         # Cập nhật intervals cho health checker sau khi đã register xong
         self._health_checker._job_intervals = job_intervals
@@ -265,16 +267,24 @@ def _setup_logging() -> None:
 
     import socket as _socket
 
+    # UDP transport: mỗi record = 1 datagram hoàn chỉnh → tương thích với
+    # Logstash "codec => json" (không cần json_lines).
     handler = AsynchronousLogstashHandler(
         host=settings.logstash_host,
         port=settings.logstash_port,
         database_path=settings.logstash_database_path or None,
+        transport="logstash_async.transport.UdpTransport",
     )
-    handler.setFormatter(LogstashFormatter(extra={
-        "app_name": settings.logstash_app_name,
-        "service": "layer1-monitor",
-        "hostname": _socket.gethostname(),
-    }))
+    # extra_prefix=None: đặt extra fields ở top-level thay vì nested dưới key "extra".
+    # Logstash filter check [app_name] ở top-level — nếu nested sẽ không thấy → drop toàn bộ log.
+    handler.setFormatter(LogstashFormatter(
+        extra_prefix=None,
+        extra={
+            "app_name": settings.logstash_app_name,
+            "service": "layer1-monitor",
+            "hostname": _socket.gethostname(),
+        },
+    ))
     logging.getLogger().addHandler(handler)
     logging.getLogger().info(
         "Logstash handler attached: %s:%s app_name=%s database_path=%s",

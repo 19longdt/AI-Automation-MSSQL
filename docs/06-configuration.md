@@ -54,6 +54,19 @@ TELEGRAM_CHAT_ID=-1001234567890    # Dùng @userinfobot để lấy chat_id
 # Dùng cho /analyze command trong Telegram bot
 CLAUDE_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-sonnet-4-6
+
+# ── Logging ───────────────────────────────────────────────────────────
+LOG_LEVEL=INFO   # DEBUG | INFO | WARNING | ERROR
+
+# ── Logstash centralized logging ─────────────────────────────────────
+# Để trống LOGSTASH_HOST → disable (chỉ log ra console/stdout)
+# Dùng UDP transport → Logstash input: udp { port => 5044 codec => json }
+LOGSTASH_HOST=10.100.110.185
+LOGSTASH_PORT=5044
+LOGSTASH_APP_NAME=sds.ep.ai-automation
+# SQLite persistent queue để không mất log khi container restart.
+# Trống = in-memory queue (tiện cho dev, không dùng cho production).
+LOGSTASH_DATABASE_PATH=/var/lib/layer1/logstash/queue.db
 ```
 
 ### Quyền SQL Server cần thiết
