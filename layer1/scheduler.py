@@ -242,10 +242,46 @@ class Layer1Service:
 
 
 def _setup_logging() -> None:
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+
+    if not settings.logstash_host:
+        return
+
+    # Optional dependency — chỉ import khi LOGSTASH_HOST có set,
+    # để dev không cần cài thư viện nếu không dùng centralized logging.
+    try:
+        from logstash_async.handler import AsynchronousLogstashHandler
+        from logstash_async.formatter import LogstashFormatter
+    except ImportError:
+        logging.getLogger().error(
+            "LOGSTASH_HOST configured but python-logstash-async not installed; skipping."
+        )
+        return
+
+    import socket as _socket
+
+    handler = AsynchronousLogstashHandler(
+        host=settings.logstash_host,
+        port=settings.logstash_port,
+        database_path=settings.logstash_database_path or None,
+    )
+    handler.setFormatter(LogstashFormatter(extra={
+        "app_name": settings.logstash_app_name,
+        "service": "layer1-monitor",
+        "hostname": _socket.gethostname(),
+    }))
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().info(
+        "Logstash handler attached: %s:%s app_name=%s database_path=%s",
+        settings.logstash_host,
+        settings.logstash_port,
+        settings.logstash_app_name,
+        settings.logstash_database_path or "<in-memory>",
     )
 
 
@@ -253,6 +289,8 @@ def _setup_signal_handlers(service: Layer1Service) -> None:
     def _shutdown(signum, _frame):
         logger.info("Signal %s received, initiating graceful shutdown...", signum)
         service.stop()
+        # Flush async logstash queue trước khi exit
+        logging.shutdown()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)

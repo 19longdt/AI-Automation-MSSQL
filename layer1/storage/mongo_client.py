@@ -33,7 +33,14 @@ class MongoConnection:
         Khởi tạo connection pool. Gọi 1 lần khi service startup.
         Raise ConnectionError nếu không kết nối được — MongoDB là hard dependency.
         """
-        client = MongoClient(cfg.mongodb_uri, serverSelectionTimeoutMS=5000)
+        # tz_aware=False (default): pymongo trả naive datetime khi đọc.
+        # Pin explicit để future dev không vô tình bật tz_aware=True làm
+        # corrupt logic format datetime ở Telegram (đã giả định naive VN).
+        client = MongoClient(
+            cfg.mongodb_uri,
+            serverSelectionTimeoutMS=5000,
+            tz_aware=False,
+        )
         # Verify kết nối ngay — không lazy
         client.admin.command("ping")
         cls._client = client

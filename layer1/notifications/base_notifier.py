@@ -42,8 +42,14 @@ class NotificationDispatcher:
         self._notifiers = notifiers
         self._min_severity = min_severity
 
-    def dispatch(self, finding: Finding) -> None:
-        """Gửi tới tất cả channels nếu severity >= min_severity."""
+    def dispatch(self, finding: Finding) -> tuple[str, str | None]:
+        """Gửi tới tất cả channels nếu severity >= min_severity.
+
+        Returns (status, error_msg) cho topic_runner ghi vào finding.alert_*:
+          - "skipped_severity": severity dưới min_severity
+          - "sent": ≥1 channel thành công (error_msg = partial errors nếu có)
+          - "failed": tất cả channels thất bại (error_msg = aggregated)
+        """
         from ..models.common import Severity
         if not finding.severity.is_at_least(Severity(self._min_severity)):
             logger.debug(
@@ -51,22 +57,36 @@ class NotificationDispatcher:
                 finding.severity.value, self._min_severity,
                 finding.issue_type.value, finding.node,
             )
-            return
+            return ("skipped_severity", f"severity {finding.severity.value} < min {self._min_severity}")
+
+        if not self._notifiers:
+            return ("failed", "no notifiers configured")
+
+        any_success = False
+        errors: list[str] = []
         for notifier in self._notifiers:
+            name = type(notifier).__name__
             try:
                 ok = notifier.send(finding)
                 if ok:
+                    any_success = True
                     logger.info(
                         "Notification sent via %s: issue_type=%s node=%s",
-                        type(notifier).__name__, finding.issue_type.value, finding.node,
+                        name, finding.issue_type.value, finding.node,
                     )
                 else:
+                    errors.append(f"{name}: returned False")
                     logger.warning(
                         "Notification failed via %s: issue_type=%s node=%s",
-                        type(notifier).__name__, finding.issue_type.value, finding.node,
+                        name, finding.issue_type.value, finding.node,
                     )
             except Exception as exc:
-                logger.error("Notifier %s failed: %s", type(notifier).__name__, exc)
+                errors.append(f"{name}: {exc}")
+                logger.error("Notifier %s failed: %s", name, exc)
+
+        if any_success:
+            return ("sent", "; ".join(errors) if errors else None)
+        return ("failed", "; ".join(errors))
 
     def dispatch_health(self, message: str) -> None:
         """Gửi health alert tới tất cả channels (không filter severity)."""

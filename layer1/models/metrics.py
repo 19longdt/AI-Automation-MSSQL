@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..utils.time_utils import now_vn
+
 
 class QueryResult(BaseModel):
     """Kết quả 1 query execution trên 1 node."""
@@ -18,7 +20,7 @@ class QueryResult(BaseModel):
     role: str = Field(description="'primary' | 'secondary' — từ NodeRoleCache")
     rows: list[dict[str, Any]] = Field(default_factory=list)
     row_count: int = 0
-    executed_at: datetime = Field(default_factory=datetime.utcnow)
+    executed_at: datetime = Field(default_factory=now_vn)
     duration_ms: float = 0.0
     success: bool = True
     error_message: str | None = None
@@ -31,7 +33,7 @@ class RawMetric(BaseModel):
     query_id: str
     node: str
     role: str
-    collected_at: datetime = Field(default_factory=datetime.utcnow)
+    collected_at: datetime = Field(default_factory=now_vn)
     rows: list[dict[str, Any]] = Field(default_factory=list)
     row_count: int = 0
     duration_ms: float = 0.0

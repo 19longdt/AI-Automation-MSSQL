@@ -8,6 +8,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from ..utils.time_utils import now_vn
+
 
 class JobStatus(str, Enum):
     """Trạng thái của 1 lần job chạy.
@@ -25,7 +27,7 @@ class JobExecution(BaseModel):
 
     job_name: str
     instance_id: str = Field(description="hostname:pid của instance thực thi")
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=now_vn)
     finished_at: datetime | None = None
     duration_ms: float = 0.0
     status: JobStatus = JobStatus.RUNNING

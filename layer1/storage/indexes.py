@@ -96,6 +96,10 @@ def _create_findings_indexes(db: Database) -> None:
             sparse=True,
         ),
         IndexModel(
+            [("alert_status", ASCENDING), ("detected_at", DESCENDING)],
+            name="alert_status_time",
+        ),
+        IndexModel(
             [("detected_at", ASCENDING)],
             expireAfterSeconds=TTL_FINDINGS_SEC,
             name="ttl_detected_at",

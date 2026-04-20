@@ -8,8 +8,8 @@ có pattern theo ngày (Thứ Hai cao điểm, Chủ Nhật thấp).
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
+from ...utils.time_utils import now_vn
 from ..mongo_client import MongoConnection
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ class BaselineRepo:
                         "$slice": -max_samples,
                     }
                 },
-                "$set": {"updated_at": datetime.utcnow()},
+                "$set": {"updated_at": now_vn()},
             },
             upsert=True,
         )

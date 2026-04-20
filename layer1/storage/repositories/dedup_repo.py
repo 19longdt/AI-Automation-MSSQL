@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from ...utils.time_utils import now_vn
 from ..mongo_client import MongoConnection
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class DedupRepo:
         Dùng findOneAndUpdate để atomic check-and-set — tránh race condition
         khi nhiều findings cùng hash xuất hiện trong cùng job run.
         """
-        now = datetime.utcnow()
+        now = now_vn()
         cutoff = now - timedelta(minutes=suppress_minutes)
 
         # Atomic: update record nếu last_alerted_at đã quá suppress window
@@ -52,6 +53,6 @@ class DedupRepo:
         """Ghi nhận đã alert, update last_alerted_at."""
         self.collection.update_one(
             {"finding_hash": finding_hash},
-            {"$set": {"last_alerted_at": datetime.utcnow()}},
+            {"$set": {"last_alerted_at": now_vn()}},
             upsert=True,
         )

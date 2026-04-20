@@ -19,6 +19,13 @@ services:
     # Nếu dùng MongoDB external, bỏ dòng này và sửa MONGODB_URI trong .env.
     environment:
       MONGODB_URI: mongodb://mongodb:27017
+      # Persistent queue cho python-logstash-async — đảm bảo không mất log
+      # khi Logstash hoặc container restart. Path bên trong container.
+      LOGSTASH_DATABASE_PATH: /var/lib/layer1/logstash/queue.db
+
+    volumes:
+      # Mount để persistent queue survive container restart.
+      - logstash_buffer:/var/lib/layer1/logstash
 
     depends_on:
       mongodb:
@@ -59,4 +66,6 @@ services:
 
 volumes:
   mongodb_data:
+    driver: local
+  logstash_buffer:
     driver: local

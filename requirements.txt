@@ -20,6 +20,9 @@ anthropic>=0.25.0
 python-dotenv==1.0.1
 tenacity==8.3.0          # retry với exponential backoff cho MongoDB
 
+# Centralized logging (TCP json_lines tới Logstash)
+python-logstash-async==2.7.2
+
 # Dev / testing
 pytest==8.2.2
 pytest-asyncio==0.23.7

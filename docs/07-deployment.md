@@ -7,7 +7,7 @@
 ```
 ┌─── Build Machine ───────────────────────────────┐
 │  docker compose build                           │
-│  docker push longdt/ai-automation-mssql:v0.0.1 │
+│  docker push 19longdt/ai-automation-mssql:v0.0.1 │
 └────────────────────────┬────────────────────────┘
                          │
                     Docker Hub
@@ -61,12 +61,12 @@ docker login
 # Tag — phải tag cả version lẫn latest
 VERSION=v0.0.1
 
-docker tag ai-automation-mssql/layer1:latest longdt/ai-automation-mssql:${VERSION}
-docker tag ai-automation-mssql/layer1:latest longdt/ai-automation-mssql:latest
+docker tag ai-automation-mssql/layer1:latest 19longdt/ai-automation-mssql:${VERSION}
+docker tag ai-automation-mssql/layer1:latest 19longdt/ai-automation-mssql:latest
 
 # Push cả 2 tag
-docker push longdt/ai-automation-mssql:${VERSION}
-docker push longdt/ai-automation-mssql:latest
+docker push 19longdt/ai-automation-mssql:${VERSION}
+docker push 19longdt/ai-automation-mssql:latest
 ```
 
 ---
@@ -117,7 +117,7 @@ MSSQL_PASSWORD=your_secure_password
 MONGODB_URI=mongodb://mongodb:27017
 
 # Image pull từ Docker Hub
-LAYER1_IMAGE=longdt/ai-automation-mssql:v0.0.1
+LAYER1_IMAGE=19longdt/ai-automation-mssql:v0.0.1
 
 TEAMS_WEBHOOK_URL=
 ```
@@ -139,7 +139,7 @@ docker compose ps
 
 ```
 NAME              IMAGE                                STATUS
-layer1-monitor    longdt/ai-automation-mssql:v0.0.1   Up
+layer1-monitor    19longdt/ai-automation-mssql:v0.0.1   Up
 mongodb           mongo:7.0                            Up (healthy)
 ```
 
@@ -223,15 +223,15 @@ Trên **build machine**:
 ```bash
 VERSION=v0.0.2
 docker compose build
-docker tag ai-automation-mssql/layer1:latest longdt/ai-automation-mssql:${VERSION}
-docker tag ai-automation-mssql/layer1:latest longdt/ai-automation-mssql:latest
-docker push longdt/ai-automation-mssql:${VERSION}
-docker push longdt/ai-automation-mssql:latest
+docker tag ai-automation-mssql/layer1:latest 19longdt/ai-automation-mssql:${VERSION}
+docker tag ai-automation-mssql/layer1:latest 19longdt/ai-automation-mssql:latest
+docker push 19longdt/ai-automation-mssql:${VERSION}
+docker push 19longdt/ai-automation-mssql:latest
 ```
 
 Trên **server**:
 ```bash
-nano .env   # sửa LAYER1_IMAGE=longdt/ai-automation-mssql:v0.0.2
+nano .env   # sửa LAYER1_IMAGE=19longdt/ai-automation-mssql:v0.0.2
 docker compose pull layer1
 docker compose up -d layer1
 ```

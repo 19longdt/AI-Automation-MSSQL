@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from bson import ObjectId
 
 from ..mongo_client import MongoConnection
 from ...models.job import JobExecution, JobStatus
+from ...utils.time_utils import now_vn
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class JobExecutionRepo:
         error: str | None = None,
     ) -> None:
         """Update record khi job hoàn thành — set finished_at, duration_ms, status."""
-        now = datetime.utcnow()
+        now = now_vn()
         doc = self.collection.find_one({"_id": ObjectId(doc_id)})
         duration_ms = 0.0
         if doc and doc.get("started_at"):
@@ -64,7 +65,7 @@ class JobExecutionRepo:
 
     def find_stuck_jobs(self, timeout_sec: int) -> list[dict]:
         """Tìm jobs có status=RUNNING và started_at quá lâu → stuck."""
-        cutoff = datetime.utcnow() - timedelta(seconds=timeout_sec)
+        cutoff = now_vn() - timedelta(seconds=timeout_sec)
         return list(
             self.collection.find(
                 {"status": JobStatus.RUNNING.value, "started_at": {"$lt": cutoff}}
@@ -76,7 +77,7 @@ class JobExecutionRepo:
         So sánh thời gian run cuối với interval expected.
         Trả về list job_name bị missed (chưa chạy đúng schedule).
         """
-        now = datetime.utcnow()
+        now = now_vn()
         latest = {doc["job_name"]: doc for doc in self.get_latest_per_job()}
         missed: list[str] = []
 

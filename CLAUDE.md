@@ -62,8 +62,8 @@ Docker Compose — build machine tạo image, server chỉ cần `docker-compose
 
 ```bash
 # Build & push
-docker build -t longdt/ai-automation-mssql:vX.X.X -t longdt/ai-automation-mssql:latest .
-docker push longdt/ai-automation-mssql:vX.X.X && docker push longdt/ai-automation-mssql:latest
+docker build -t 19longdt/ai-automation-mssql:vX.X.X -t 19longdt/ai-automation-mssql:latest .
+docker push 19longdt/ai-automation-mssql:vX.X.X && docker push 19longdt/ai-automation-mssql:latest
 
 # Server
 docker compose pull layer1 && docker compose up -d layer1

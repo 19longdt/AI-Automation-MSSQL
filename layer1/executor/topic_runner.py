@@ -19,6 +19,7 @@ from ..storage.repositories.findings_repo import FindingsRepo
 from ..storage.repositories.dedup_repo import DedupRepo
 from ..notifications.base_notifier import NotificationDispatcher
 from ..detectors.registry import DetectorRegistry
+from ..utils.time_utils import now_vn
 from .query_executor import QueryExecutor
 from .node_role_cache import NodeRoleCache
 
@@ -164,29 +165,17 @@ class TopicRunner:
             return []
 
     def _process_findings(self, findings: list[Finding]) -> int:
-        """Save findings, check dedup, dispatch notifications. Return count."""
+        """Compute alert state → set finding fields → single insert. Return count."""
         count = 0
         for finding in findings:
             try:
+                status, error = self._compute_alert_state(finding)
+                finding.alert_status = status
+                finding.alert_error = error
+                if status == "sent":
+                    finding.alert_sent_at = now_vn()
+
                 self._findings_repo.insert(finding)
-                finding_hash = finding.finding_hash()
-                if self._dedup_repo.should_alert(finding_hash, self._dedup_suppress_min):
-                    if self._dispatcher:
-                        logger.info(
-                            "Dispatching notification: issue_type=%s severity=%s node=%s",
-                            finding.issue_type.value, finding.severity.value, finding.node,
-                        )
-                        self._dispatcher.dispatch(finding)
-                    else:
-                        logger.warning(
-                            "No dispatcher configured — notification skipped: topic=%s issue_type=%s node=%s",
-                            finding.topic_id, finding.issue_type.value, finding.node,
-                        )
-                else:
-                    logger.info(
-                        "Dedup suppressed: topic=%s issue_type=%s node=%s suppress_min=%d",
-                        finding.topic_id, finding.issue_type.value, finding.node, self._dedup_suppress_min,
-                    )
                 count += 1
             except Exception as exc:
                 logger.error(
@@ -194,3 +183,34 @@ class TopicRunner:
                     finding.issue_type, finding.node, exc, exc_info=True,
                 )
         return count
+
+    def _compute_alert_state(self, finding: Finding) -> tuple[str, str | None]:
+        """Quyết định alert state cho finding.
+
+        Returns (alert_status, alert_error). status ∈
+          skipped_no_dispatcher | suppressed | sent | failed | skipped_severity.
+
+        Thứ tự: no_dispatcher → dedup → dispatch (severity check trong dispatcher).
+        Lưu ý: dedup chạy TRƯỚC severity → finding bị skip do severity vẫn consume
+        dedup slot — giữ nguyên behavior cũ để không thay đổi UX dedup.
+        """
+        if not self._dispatcher:
+            logger.warning(
+                "No dispatcher configured — notification skipped: topic=%s issue_type=%s node=%s",
+                finding.topic_id, finding.issue_type.value, finding.node,
+            )
+            return ("skipped_no_dispatcher", "no dispatcher configured")
+
+        finding_hash = finding.finding_hash()
+        if not self._dedup_repo.should_alert(finding_hash, self._dedup_suppress_min):
+            logger.info(
+                "Dedup suppressed: topic=%s issue_type=%s node=%s suppress_min=%d",
+                finding.topic_id, finding.issue_type.value, finding.node, self._dedup_suppress_min,
+            )
+            return ("suppressed", f"within suppress window {self._dedup_suppress_min}min")
+
+        logger.info(
+            "Dispatching notification: issue_type=%s severity=%s node=%s",
+            finding.issue_type.value, finding.severity.value, finding.node,
+        )
+        return self._dispatcher.dispatch(finding)

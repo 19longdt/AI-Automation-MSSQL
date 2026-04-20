@@ -86,6 +86,17 @@ class EnvSettings(BaseSettings):
     claude_api_key: str = Field(default="")
     claude_model: str = Field(default="claude-sonnet-4-6")
 
+    # ── Logging ─────────────────────────────────────────────────────────────
+    log_level: str = Field(default="INFO")
+
+    # ── Logstash centralized logging ────────────────────────────────────────
+    # Để trống logstash_host = disable, vẫn log ra console.
+    logstash_host: str = Field(default="")
+    logstash_port: int = Field(default=5044)
+    logstash_app_name: str = Field(default="sds.ep.ai-automation")
+    # SQLite path cho persistent queue. Trống = in-memory queue (mất log nếu crash).
+    logstash_database_path: str = Field(default="")
+
     def get_connection_string(self, host: str) -> str:
         """Tạo pyodbc connection string cho 1 node."""
         return (

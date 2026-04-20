@@ -21,6 +21,7 @@ import logging
 from datetime import datetime
 
 from ..config import settings
+from ..utils.time_utils import now_vn
 from .mssql_connection import mssql_connection
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ class NodeRoleCache:
                 f"Không thể detect AG node roles — tất cả nodes unreachable: {settings.mssql_nodes}"
             )
         self._nodes = detected
-        self._last_refresh = datetime.utcnow()
+        self._last_refresh = now_vn()
         primary = self.get_primary_host()
         secondaries = self.get_secondary_hosts()
         logger.info(
@@ -100,7 +101,7 @@ class NodeRoleCache:
             return
 
         self._nodes = detected
-        self._last_refresh = datetime.utcnow()
+        self._last_refresh = now_vn()
         new_primary = self.get_primary_host()
 
         if old_primary and new_primary and old_primary != new_primary:
@@ -163,7 +164,7 @@ class NodeRoleCache:
         """Cache cũ hơn max_age_sec (default 2 giờ) coi là stale."""
         if self._last_refresh is None:
             return True
-        elapsed = (datetime.utcnow() - self._last_refresh).total_seconds()
+        elapsed = (now_vn() - self._last_refresh).total_seconds()
         return elapsed > max_age_sec
 
     def _detect_roles(self) -> dict[str, NodeInfo]:
@@ -175,7 +176,7 @@ class NodeRoleCache:
         Fix: kết nối từng node, dùng @@SERVERNAME để build mapping
         replica_hostname → IP, sau đó thay thế trước khi lưu vào cache.
         """
-        now = datetime.utcnow()
+        now = now_vn()
 
         # Bước 1: Connect từng node — lấy @@SERVERNAME để map hostname → IP,
         # đồng thời lấy AG roles từ node đầu tiên trả được kết quả.

@@ -10,13 +10,13 @@ KHÔNG dùng rolling 7-day average: workload pattern khác nhau theo ngày
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from ..models.common import IssueType, Severity
 from ..models.findings import Finding
 from ..models.topic import BaselineConfig, MonitorTopic
 from ..models.metrics import QueryResult
 from ..storage.repositories.baseline_repo import BaselineRepo
+from ..utils.time_utils import now_vn
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class BaselineDetector:
             return []
 
         config = topic.baseline_config
-        now = datetime.utcnow()
+        now = now_vn()
         day_of_week = now.weekday()  # 0=Monday … 6=Sunday
         hour = now.hour
 

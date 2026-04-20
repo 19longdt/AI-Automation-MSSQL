@@ -21,7 +21,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import timedelta, timezone
 from typing import TYPE_CHECKING
 
 from ..models.findings import Finding
@@ -30,8 +29,6 @@ if TYPE_CHECKING:
     from ..ai.plan_analyzer import PlanAnalyzer
     from ..storage.repositories.findings_repo import FindingsRepo
     from ..storage.repositories.topic_repo import TopicRepo
-
-_TZ_HCM = timezone(timedelta(hours=7))
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +174,8 @@ class TelegramBot:
 
     def _format_analysis_result(self, finding: Finding, analysis_text: str) -> str:
         """Format kết quả Claude AI theo template chuẩn trước khi gửi Telegram."""
-        detected_hcm = finding.detected_at.replace(tzinfo=timezone.utc).astimezone(_TZ_HCM)
-        time_str = detected_hcm.strftime("%Y-%m-%d %H:%M:%S +07")
+        # detected_at đã lưu giờ VN — format trực tiếp
+        time_str = finding.detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
         header = "\n".join([
             f"🔍 <b>AI Analysis — {html.escape(finding.issue_type.value)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",

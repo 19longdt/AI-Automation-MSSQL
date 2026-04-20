@@ -34,9 +34,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY layer1/ ./layer1/
 
-# Chạy bằng non-root user để giảm attack surface
+# Chạy bằng non-root user để giảm attack surface.
+# /var/lib/layer1/logstash là persistent queue path cho python-logstash-async
+# (được mount qua volume trong docker-compose.yml).
 RUN useradd -m -u 1000 monitor \
-    && chown -R monitor:monitor /app
+    && mkdir -p /var/lib/layer1/logstash \
+    && chown -R monitor:monitor /app /var/lib/layer1
 USER monitor
 
 CMD ["python", "-m", "layer1.scheduler"]

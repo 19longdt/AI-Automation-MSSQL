@@ -9,16 +9,15 @@ from __future__ import annotations
 import html
 import json
 import logging
+import secrets
 import urllib.error
 import urllib.request
-from datetime import timedelta, timezone
 
 from .base_notifier import BaseNotifier
 from ..models.findings import Finding
+from ..utils.time_utils import now_vn
 
 logger = logging.getLogger(__name__)
-
-_TZ_HCM = timezone(timedelta(hours=7))
 
 _SEVERITY_ICON = {
     "CRITICAL": "🔴",
@@ -26,20 +25,41 @@ _SEVERITY_ICON = {
     "INFO":     "🔵",
 }
 
-# Các suffix này thường chứa XML/JSON/query text lớn — bỏ qua khi format message
-_SKIP_SUFFIXES = ("_text", "_xml", "_json")
+# _xml/_json thường rất lớn và không đọc được trong Telegram — skip.
+# _text (SQL/query text) được inline nếu ngắn, gửi kèm file nếu dài.
+_SKIP_SUFFIXES = ("_xml", "_json")
+_TEXT_SUFFIX = "_text"
+
+# Ngưỡng chuyển _text field từ inline -> file attachment.
+_INLINE_TEXT_MAX = 1500
 
 
 class TelegramNotifier(BaseNotifier):
 
     def __init__(self, bot_token: str, chat_id: str) -> None:
         self._chat_id = chat_id
-        self._api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        self._api_base = f"https://api.telegram.org/bot{bot_token}"
+        self._api_url = f"{self._api_base}/sendMessage"
+        self._doc_url = f"{self._api_base}/sendDocument"
 
     def send(self, finding: Finding) -> bool:
-        """Gửi finding alert, trả về True nếu thành công."""
-        text = self._format_finding(finding)
-        return self._post(text)
+        """Gửi finding alert. Long _text fields gửi kèm dạng file attachment.
+
+        Trả về True nếu message chính thành công. Attachment failure log
+        warning nhưng không fail toàn bộ (alert core đã delivered).
+        """
+        text, attachments = self._format_finding(finding)
+        ok = self._post(text)
+        if not ok:
+            return False
+
+        for filename, content in attachments:
+            if not self._post_document(filename, content, caption=None):
+                logger.warning(
+                    "TelegramNotifier: attachment %s failed (finding=%s)",
+                    filename, finding.finding_id[:8],
+                )
+        return True
 
     def send_health_issue(self, message: str) -> bool:
         """Gửi infra health alert (stuck job, MongoDB down...)."""
@@ -47,9 +67,7 @@ class TelegramNotifier(BaseNotifier):
 
     def send_startup(self, nodes: list[str], topic_count: int) -> bool:
         """Gửi thông báo deploy mới khi service khởi động."""
-        from datetime import datetime
-        now_hcm = datetime.utcnow().replace(tzinfo=timezone.utc).astimezone(_TZ_HCM)
-        time_str = now_hcm.strftime("%Y-%m-%d %H:%M:%S +07")
+        time_str = now_vn().strftime("%Y-%m-%d %H:%M:%S +07")
         nodes_str = ", ".join(html.escape(n) for n in nodes)
         text = "\n".join([
             "🚀 <b>Layer 1 Monitoring — Deploy mới</b>",
@@ -60,12 +78,17 @@ class TelegramNotifier(BaseNotifier):
         ])
         return self._post(text)
 
-    def _format_finding(self, finding: Finding) -> str:
-        icon = _SEVERITY_ICON.get(finding.severity.value, "⚪")
+    def _format_finding(self, finding: Finding) -> tuple[str, list[tuple[str, bytes]]]:
+        """Build message HTML + danh sách (filename, content) cần gửi kèm.
 
-        # detected_at lưu naive UTC → convert sang giờ Hà Nội
-        detected_hcm = finding.detected_at.replace(tzinfo=timezone.utc).astimezone(_TZ_HCM)
-        time_str = detected_hcm.strftime("%Y-%m-%d %H:%M:%S +07")
+        _text fields:
+          - <= _INLINE_TEXT_MAX chars -> inline trong <blockquote expandable>
+          - > _INLINE_TEXT_MAX chars  -> gửi kèm file .txt
+        _xml/_json fields: skip (quá lớn, không đọc được).
+        Các field khác: hiển thị scalar như cũ.
+        """
+        icon = _SEVERITY_ICON.get(finding.severity.value, "⚪")
+        time_str = finding.detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
 
         lines = [
             f"{icon} <b>{html.escape(finding.severity.value)} — {html.escape(finding.issue_type.value)}</b>",
@@ -75,15 +98,29 @@ class TelegramNotifier(BaseNotifier):
             f"🕐 Time:   {time_str}",
         ]
 
-        metrics = {
-            k: v
-            for k, v in finding.metrics.items()
-            if v is not None and not any(k.endswith(s) for s in _SKIP_SUFFIXES)
-        }
-        if metrics:
+        scalar_metrics: dict = {}
+        inline_texts: list[tuple[str, str]] = []
+        attachments: list[tuple[str, bytes]] = []
+
+        for k, v in finding.metrics.items():
+            if v is None:
+                continue
+            if any(k.endswith(s) for s in _SKIP_SUFFIXES):
+                continue
+            if k.endswith(_TEXT_SUFFIX):
+                text_value = str(v)
+                if len(text_value) <= _INLINE_TEXT_MAX:
+                    inline_texts.append((k, text_value))
+                else:
+                    filename = self._safe_filename(finding.finding_id[:8], k)
+                    attachments.append((filename, text_value.encode("utf-8")))
+                continue
+            scalar_metrics[k] = v
+
+        if scalar_metrics:
             lines.append("")
             lines.append("📊 <b>Metrics:</b>")
-            for k, v in metrics.items():
+            for k, v in scalar_metrics.items():
                 if isinstance(v, float):
                     lines.append(f"  • {html.escape(k)}: <code>{v:,.2f}</code>")
                 elif isinstance(v, int):
@@ -91,14 +128,32 @@ class TelegramNotifier(BaseNotifier):
                 else:
                     lines.append(f"  • {html.escape(k)}: <code>{html.escape(str(v))}</code>")
 
+        for k, text_value in inline_texts:
+            lines.append("")
+            lines.append(f"📝 <b>{html.escape(k)}:</b>")
+            # expandable blockquote: Telegram client shows 4 lines then "Show more".
+            lines.append(f"<blockquote expandable>{html.escape(text_value)}</blockquote>")
+
+        if attachments:
+            attached_names = ", ".join(html.escape(n) for n, _ in attachments)
+            lines.append("")
+            lines.append(f"📎 <b>Attachments:</b> <i>{attached_names}</i>")
+
         lines.append("")
         lines.append(f"🔗 ID: <code>{finding.finding_id[:8]}</code>")
         lines.append("<i>Reply /analyze để phân tích với Claude AI</i>")
 
-        return "\n".join(lines)
+        return "\n".join(lines), attachments
+
+    @staticmethod
+    def _safe_filename(finding_prefix: str, field_key: str) -> str:
+        """Build tên file đính kèm từ finding_id prefix + field key.
+        Giữ ký tự an toàn, thay khác bằng '_'. Luôn đuôi .txt."""
+        safe_key = "".join(c if c.isalnum() or c in "._-" else "_" for c in field_key)
+        return f"{finding_prefix}_{safe_key}.txt"
 
     def _post(self, text: str) -> bool:
-        """HTTP POST tới Telegram Bot API."""
+        """HTTP POST sendMessage JSON."""
         try:
             payload = json.dumps({
                 "chat_id": self._chat_id,
@@ -119,4 +174,51 @@ class TelegramNotifier(BaseNotifier):
             return False
         except Exception as exc:
             logger.error("TelegramNotifier failed: %s", exc)
+            return False
+
+    def _post_document(self, filename: str, content: bytes, caption: str | None) -> bool:
+        """HTTP POST sendDocument multipart/form-data.
+
+        Telegram sendDocument file size limit: 50MB — đủ cho mọi SQL/query text.
+        Build multipart body thủ công để không phụ thuộc `requests` library.
+        """
+        boundary = f"----LayerOne{secrets.token_hex(12)}"
+        body = bytearray()
+
+        def _add_field(name: str, value: str) -> None:
+            body.extend(f"--{boundary}\r\n".encode())
+            body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+            body.extend(value.encode("utf-8"))
+            body.extend(b"\r\n")
+
+        _add_field("chat_id", str(self._chat_id))
+        if caption:
+            _add_field("caption", caption)
+            _add_field("parse_mode", "HTML")
+
+        # Document part
+        body.extend(f"--{boundary}\r\n".encode())
+        body.extend(
+            f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode()
+        )
+        body.extend(b"Content-Type: text/plain; charset=utf-8\r\n\r\n")
+        body.extend(content)
+        body.extend(b"\r\n")
+        body.extend(f"--{boundary}--\r\n".encode())
+
+        try:
+            req = urllib.request.Request(
+                self._doc_url,
+                data=bytes(body),
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.status == 200
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode(errors="replace")
+            logger.error("TelegramNotifier sendDocument HTTP %d: %s", exc.code, err_body)
+            return False
+        except Exception as exc:
+            logger.error("TelegramNotifier sendDocument failed: %s", exc)
             return False
