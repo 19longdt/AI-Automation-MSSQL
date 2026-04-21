@@ -159,24 +159,37 @@ MONGODB_DB=db_monitor
 # Image (Cách A — separate)
 LAYER1_IMAGE=19longdt/ai-automation-mssql-layer1:v1.0.0
 
-# Telegram alerts (tùy chọn)
+# Telegram alerts + /quick command (tùy chọn)
 TELEGRAM_BOT_TOKEN=<layer1-bot-token>
 TELEGRAM_CHAT_ID=<chat-id>
+
+# Claude API — tùy chọn, cần nếu muốn /quick command (Haiku analysis)
+CLAUDE_API_KEY=sk-ant-...
+HAIKU_MODEL=claude-haiku-4-5-20251001
 ```
 
-**Bổ sung khi dùng Layer 2:**
+**Bổ sung khi dùng Layer 2 (/analyze command):**
 
 ```env
 # Image layer 2 (Cách A — separate)
 LAYER2_IMAGE=19longdt/ai-automation-mssql-layer2:v1.0.0
 
+# Layer 2 agent URL — để Layer 1 TelegramBot forward /analyze requests
+LAYER2_URL=http://layer2:8000
+
 # Bot Telegram riêng cho Layer 2 — KHÁC với Layer 1 để tránh polling conflict
 L2_TELEGRAM_BOT_TOKEN=<layer2-bot-token>
 
-# Claude API — bắt buộc cho Layer 2
+# Claude API — bắt buộc cho Layer 2 agent
 CLAUDE_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-sonnet-4-6
 ```
+
+**Chú thích:**
+- `LAYER2_URL` để Layer 1 forward `/analyze` requests → Layer 2 agent (Sonnet)
+- Layer 1 có 2 lệnh:
+  - `/quick` dùng Haiku model (nhanh, 5 giây, nếu `CLAUDE_API_KEY` set)
+  - `/analyze` forward tới Layer 2 agent (30–90s, nếu `LAYER2_URL` set)
 
 **Khi dùng all-in-one (Cách B):**
 
@@ -427,14 +440,19 @@ db.monitor_topics.find({enabled: true}, {topic_id:1}).pretty()"
 - [ ] `db.node_roles.find()` trả về đúng Primary/Secondary
 - [ ] `db.raw_metrics.find()` có data sau vài phút
 
-### Layer 2 (bổ sung)
-- [ ] `CLAUDE_API_KEY` điền đủ trong `.env`
-- [ ] `L2_TELEGRAM_BOT_TOKEN` điền trong `.env` (bot khác với Layer 1)
+### Layer 1 + Layer 2 Integration (/quick + /analyze)
+- [ ] Layer 1: `CLAUDE_API_KEY` + `HAIKU_MODEL` set → `/quick` enabled (Haiku analysis Layer 1)
+- [ ] Layer 1: `LAYER2_URL=http://layer2:8000` set → `/analyze` enabled (forward to Layer 2)
+- [ ] Layer 2: `CLAUDE_API_KEY` + `CLAUDE_MODEL` set (Sonnet for Layer 2 agent)
+- [ ] Layer 2: `L2_TELEGRAM_BOT_TOKEN` set (bot khác với Layer 1)
+
+### Layer 2 Setup (bổ sung)
 - [ ] `LAYER2_IMAGE` set trong `.env`
 - [ ] `docker compose pull layer2 && docker compose up -d layer2` → `Up (healthy)`
 - [ ] `curl http://localhost:8000/health` trả về `{"status": "ok", ...}`
 - [ ] `curl http://localhost:8000/skills` trả về danh sách skills
-- [ ] Gõ `/analyze` trong Telegram → Layer 2 bot trả lời
+- [ ] Test `/quick` trong Telegram → Haiku trả lời trong 5 giây
+- [ ] Test `/analyze` trong Telegram → Layer 2 agent trả lời sau 30–90s
 
 ---
 

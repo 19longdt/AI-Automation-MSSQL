@@ -47,8 +47,9 @@ python -m layer1.scheduler
 6. Khởi tạo notification dispatcher (TelegramNotifier nếu token có)
    → dispatch_startup() gửi thông báo service đã start
 
-7. Khởi tạo TelegramBot (nếu có TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID + CLAUDE_API_KEY)
-   → PlanAnalyzer (Claude API) + TelegramBot.start() (daemon thread)
+7. Khởi tạo TelegramBot (nếu có TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+   → PlanAnalyzer (Haiku, nếu có CLAUDE_API_KEY) + TelegramBot.start() (daemon thread)
+   → /quick enabled nếu CLAUDE_API_KEY set; /analyze enabled nếu LAYER2_URL set
 
 8. scheduler.start() — blocking
    → SIGTERM/SIGINT → graceful shutdown
@@ -105,7 +106,7 @@ layer1/
 │   ├── base_notifier.py       ← ABC + NotificationDispatcher (severity filter + multi-channel)
 │   ├── teams_notifier.py      ← Microsoft Teams Incoming Webhook
 │   ├── telegram_notifier.py   ← Telegram alert: HTML parse mode, file attachment cho long text fields
-│   └── telegram_bot.py        ← Bot polling (daemon thread): /analyze command → Claude API → reply
+│   └── telegram_bot.py        ← Bot polling (daemon thread): /quick (Haiku) + /analyze (Layer 2 HTTP)
 │
 ├── ai/
 │   └── plan_analyzer.py       ← Build prompt từ AnalysisConfig → gọi Claude API → trả text phân tích
@@ -136,13 +137,20 @@ NODE_ROLE_REFRESH_SEC=3600
 
 TEAMS_WEBHOOK_URL=https://...
 
-# Telegram — alerts + on-demand /analyze bot
+# Telegram — alerts + on-demand /quick + /analyze bot
 TELEGRAM_BOT_TOKEN=1234567890:ABC...
 TELEGRAM_CHAT_ID=-1001234567890
 
-# Claude API — dùng cho TelegramBot /analyze command
+# Claude API — dùng cho TelegramBot /quick command (Haiku analysis Layer 1)
 CLAUDE_API_KEY=sk-ant-...
-CLAUDE_MODEL=claude-sonnet-4-6
+CLAUDE_MODEL=claude-sonnet-4-6  # (config only, unused by Layer 1)
+
+# Haiku model — dùng cho /quick command (phân tích nhanh, rẻ)
+HAIKU_MODEL=claude-haiku-4-5-20251001
+
+# Layer 2 agent URL — để forward /analyze requests tới Layer 2
+# Format: http://layer2:8000 (Docker Compose), http://localhost:8000 (local), etc.
+LAYER2_URL=http://layer2:8000
 
 # Logging
 LOG_LEVEL=INFO
@@ -315,11 +323,9 @@ APScheduler main thread
 Daemon thread (song song với APScheduler):
     TelegramBot._poll_loop()
         → getUpdates (long-poll timeout=25s)
-        → /analyze <id> hoặc reply vào alert
-        → FindingsRepo.find_by_id_prefix()
-        → TopicRepo → analysis_config
-        → PlanAnalyzer.analyze() → Claude API
-        → Telegram reply
+        → Dispatch:
+           /quick <id>   → PlanAnalyzer(haiku_model) → reply ngay (5s)
+           /analyze <id> → HTTP POST http://layer2:8000/api/v1/analyze → reply khi done (30–90s)
 ```
 
 **Thread safety:**
@@ -331,17 +337,34 @@ Daemon thread (song song với APScheduler):
 
 ## Telegram Bot — On-demand AI Analysis
 
-Khi alert được gửi, user nhận Telegram message kèm `🔗 ID: <code>03cc0a88</code>` và hint `/analyze`.
+Khi alert được gửi, user nhận Telegram message kèm `🔗 ID: <code>03cc0a88</code>`.
 
-**Hai cách trigger phân tích:**
+**Hai lệnh phân tích:**
 
-1. **Reply vào alert** → gõ `/analyze` (không cần ID, bot tự parse từ alert message)
-2. **Gõ trực tiếp** → `/analyze 03cc0a88` (8 ký tự đầu của finding_id)
+### `/quick` — Phân tích nhanh (Layer 1, Haiku model)
+```
+/quick (reply vào alert) → Haiku model phân tích trong 3–5 giây
+/quick <finding_id>      → Hoặc gõ trực tiếp
+```
+- ⚡ Nhanh, rẻ, output ngắn gọn
+- Dùng Haiku model (Claude) → `HAIKU_MODEL=claude-haiku-4-5-20251001`
+- Cần `CLAUDE_API_KEY` trong `.env`
+
+### `/analyze` — Phân tích sâu (Layer 2, Sonnet agent)
+```
+/analyze (reply vào alert)  → Layer 2 agent with tools, 30–90 giây
+/analyze <finding_id>       → Hoặc gõ trực tiếp
+```
+- 🤖 Full orchestration: tools, prompt caching, agentic loop
+- Dùng Sonnet model (Claude) + Layer 2 agent
+- Cần `LAYER2_URL=http://layer2:8000` trong `.env`
+- Response bao gồm: analysis + tool_calls_count + cost_usd
 
 **Điều kiện để bot hoạt động:**
 - `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` phải set trong `.env`
-- `CLAUDE_API_KEY` phải set trong `.env`
-- Topic trong MongoDB phải có `analysis_config` (nếu thiếu bot báo rõ thay vì crash)
+- **Để dùng `/quick`**: `CLAUDE_API_KEY` phải set
+- **Để dùng `/analyze`**: `LAYER2_URL` phải set
+- Topic trong MongoDB phải có `analysis_config` (nếu thiếu `/quick` báo rõ thay vì crash)
 
 **Không tự động phân tích** — chỉ khi DBA chủ động gõ lệnh.
 
@@ -417,7 +440,8 @@ stdlib → third-party → internal (relative imports).
 | **KHÔNG** dùng rolling 7-day average cho baseline | Workload pattern theo ngày → false positives |
 | **KHÔNG** để exception crash scheduler | 1 topic fail → tất cả monitoring dừng = unacceptable |
 | **KHÔNG** dùng `python-telegram-bot` v21+ | Async-only, không tương thích APScheduler sync — dùng urllib.request |
-| **KHÔNG** tự động phân tích finding với Claude | On-demand only — DBA chủ động gõ /analyze |
+| **KHÔNG** tự động phân tích finding với Claude | On-demand only — DBA chủ động gõ `/quick` hoặc `/analyze` |
+| **/quick (Layer 1) vs /analyze (Layer 2)** | Phân tách: quick=Haiku (5s, giá rẻ), analyze=Sonnet agent (30–90s, full tools) |
 | **KHÔNG** bỏ `topic_id` khỏi `finding_hash()` | Dẫn đến dedup collision giữa các topic khác nhau |
 
 ---

@@ -8,11 +8,13 @@ Flow:
   1. Nhận finding + analysis_config từ topic
   2. Build prompt: context + focus_metrics + include_fields (sql_text, xml_plan...)
   3. Gọi Claude API (sync, dùng anthropic SDK)
-  4. Trả về text phân tích → TelegramBot gửi về user
+  4. Trả về AnalysisResponse (text + metadata: tokens, model, cost)
 """
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass
 
 import anthropic
 
@@ -25,28 +27,61 @@ logger = logging.getLogger(__name__)
 _MAX_FIELD_BYTES = 8192
 
 
+@dataclass
+class AnalysisResponse:
+    """Response từ PlanAnalyzer — text + metadata."""
+    analysis_text: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    duration_ms: int
+    cost_usd: float = 0.0  # Haiku cost tính sau
+
+
 class PlanAnalyzer:
+
+    # Haiku pricing (per 1M tokens)
+    _HAIKU_INPUT_PRICE = 0.80 / 1_000_000
+    _HAIKU_OUTPUT_PRICE = 4.0 / 1_000_000
 
     def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = model
 
-    def analyze(self, finding: Finding, analysis_config: AnalysisConfig) -> str:
+    def analyze(self, finding: Finding, analysis_config: AnalysisConfig) -> AnalysisResponse:
         """
-        Gọi Claude API, trả về text phân tích dạng plain text.
+        Gọi Claude API, trả về AnalysisResponse (text + metadata).
         Raise nếu API lỗi — caller (TelegramBot) xử lý exception.
         """
         prompt = self._build_prompt(finding, analysis_config)
         logger.info(
-            "PlanAnalyzer: calling Claude for finding=%s topic=%s",
-            finding.finding_id[:8], finding.topic_id,
+            "PlanAnalyzer: calling Claude model=%s for finding=%s topic=%s",
+            self._model, finding.finding_id[:8], finding.topic_id,
         )
+        start_time = time.time()
         message = self._client.messages.create(
             model=self._model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
-        return message.content[0].text
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        analysis_text = message.content[0].text
+        input_tokens = message.usage.input_tokens
+        output_tokens = message.usage.output_tokens
+
+        # Tính chi phí cho Haiku
+        cost_usd = (input_tokens * self._HAIKU_INPUT_PRICE +
+                   output_tokens * self._HAIKU_OUTPUT_PRICE)
+
+        return AnalysisResponse(
+            analysis_text=analysis_text,
+            model=self._model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            duration_ms=duration_ms,
+            cost_usd=cost_usd,
+        )
 
     def _build_prompt(self, finding: Finding, cfg: AnalysisConfig) -> str:
         lines = [

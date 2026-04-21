@@ -139,8 +139,10 @@ class TelegramNotifier(BaseNotifier):
             lines.append(f"📎 <b>Attachments:</b> <i>{attached_names}</i>")
 
         lines.append("")
-        lines.append(f"🔗 ID: <code>{finding.finding_id}</code>")
-        lines.append("<i>Reply /analyze để phân tích với Claude AI</i>")
+        lines.append(f"🔗 ID: <code>{finding.finding_id[:8]}</code>")
+        lines.append("<b>Phân tích:</b>")
+        lines.append("  ⚡ <code>/quick</code> — Haiku model, 5 giây, phân tích sơ bộ (rẻ)")
+        lines.append("  🤖 <code>/analyze</code> — Layer 2 agent, 30–90s, full analysis + tools (chính xác)")
 
         return "\n".join(lines), attachments
 

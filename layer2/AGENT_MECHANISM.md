@@ -7,10 +7,11 @@ Tài liệu giải thích toàn bộ luồng của Phase 5 (`agent/orchestrator.
 ## 1. Luồng tổng thể
 
 ```
-DBA gõ /analyze
-      │
+DBA gõ /analyze (Telegram)
+      │ Layer 1 TelegramBot nhận
+      │ HTTP POST http://layer2:8000/api/v1/analyze
       ▼
-AnalysisRequest { finding_id, channel, telegram_message_id }
+AnalysisRequest { finding_id, channel="telegram", telegram_message_id }
       │
       ▼
 AgentOrchestrator.run()

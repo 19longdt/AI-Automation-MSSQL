@@ -124,17 +124,22 @@ class Layer1Service:
         )
         dispatcher = self._dispatcher
 
-        # 6. Telegram Bot command handler (optional — cần cả Telegram + Claude API key)
-        if settings.telegram_bot_token and settings.telegram_chat_id and settings.claude_api_key:
-            from .ai.plan_analyzer import PlanAnalyzer
+        # 6. Telegram Bot command handler (optional — cần telegram_bot_token + telegram_chat_id)
+        # /quick cần claude_api_key, /analyze cần layer2_url
+        if settings.telegram_bot_token and settings.telegram_chat_id:
             from .notifications.telegram_bot import TelegramBot
-            analyzer = PlanAnalyzer(settings.claude_api_key, settings.claude_model)
+            analyzer = None
+            if settings.claude_api_key:
+                from .ai.plan_analyzer import PlanAnalyzer
+                # Haiku cho /quick — nhanh, rẻ, không cần tools
+                analyzer = PlanAnalyzer(settings.claude_api_key, settings.haiku_model)
             TelegramBot(
                 bot_token=settings.telegram_bot_token,
                 chat_id=settings.telegram_chat_id,
                 findings_repo=findings_repo,
                 topic_repo=self._topic_repo,
                 analyzer=analyzer,
+                layer2_url=settings.layer2_url,
             ).start()
 
         # 7. TopicRunner

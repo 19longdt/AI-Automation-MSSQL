@@ -2,21 +2,34 @@
 
 ## Mục đích
 
-AI Agent phân tích sự cố MSSQL theo yêu cầu (on-demand). Khi DBA gõ `/analyze`,
-agent tự động query thêm MSSQL DMV để lấy data chẩn đoán, chọn skill phù hợp,
-trả về phân tích chuyên sâu qua Telegram hoặc REST API.
+AI Agent phân tích sự cố MSSQL theo yêu cầu (on-demand).
 
-**Layer 1 không bị sửa.** Layer 2 chỉ đọc từ MongoDB `findings` (write bởi Layer 1)
-và MSSQL cluster (read-only DMV queries).
+**Integration với Layer 1:**
+- DBA gõ `/analyze` trong Telegram → Layer 1 TelegramBot forward `POST http://layer2:8000/api/v1/analyze`
+- (Hoặc: external client call API trực tiếp)
+
+**Cơ chế:**
+Agent tự động query thêm MSSQL DMV để lấy data chẩn đoán, chọn skill phù hợp,
+trả về phân tích chuyên sâu qua Telegram reply hoặc REST API response.
+
+**Data flow:**
+- Layer 2 đọc từ MongoDB `findings` (write bởi Layer 1 monitoring)
+- Query thêm MSSQL cluster (read-only DMV, phục vụ agentic loop)
+- Ghi kết quả vào MongoDB `ai_analyses` + `issue_insights`
+- Optionally: Telegram reply (nếu channel="telegram")
 
 ---
 
 ## Kiến trúc
 
 ```
-Telegram /analyze | POST /api/v1/analyze
-        ↓
-AgentOrchestrator
+Layer 1 TelegramBot (Telegram /analyze)      External API client
+        │ HTTP POST                                   │ POST /api/v1/analyze
+        └────────────────┬───────────────────────────┘
+                         ▼
+                POST /api/v1/analyze (AnalysisRequest)
+                         ▼
+                AgentOrchestrator
     ↓ load skill từ SkillLoader (YAML)
     ↓ build system prompt: base_prompt + specialization + db_context
     ↓ agentic loop: Claude ↔ DiagnosticExecutor → MSSQL DMV

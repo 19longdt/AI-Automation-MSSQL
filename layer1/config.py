@@ -86,6 +86,18 @@ class EnvSettings(BaseSettings):
     claude_api_key: str = Field(default="")
     claude_model: str = Field(default="claude-sonnet-4-6")
 
+    # Layer 2 agent URL — để Layer 1 TelegramBot forward /analyze requests tới Layer 2 agent
+    layer2_url: str = Field(
+        default="http://layer2:8000",
+        description="Base URL của Layer 2 FastAPI agent. Để trống = /analyze disabled.",
+    )
+
+    # Haiku model cho /quick command — phân tích nhanh rẻ trong Layer 1
+    haiku_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Model dùng cho /quick (phân tích nhanh rẻ). Layer 1 TelegramBot sử dụng.",
+    )
+
     # ── Logging ─────────────────────────────────────────────────────────────
     log_level: str = Field(default="INFO")
 
