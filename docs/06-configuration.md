@@ -420,3 +420,7 @@ db.monitor_topics.updateOne(
 )
 // Topic bị skip ở lần chạy tiếp theo, không cần restart
 ```
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

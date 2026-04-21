@@ -362,3 +362,7 @@ Missed job detection:
     Hiện tại: 10:09:00 → 10:09 > 10:07:30 → MISSED
   → log WARNING "MISSED schedule: 'slow_query_check'"
 ```
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

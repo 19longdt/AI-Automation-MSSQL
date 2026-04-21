@@ -11,7 +11,7 @@ Hệ thống tự động giám sát và phân tích sự cố cho cụm **MSSQL
 
 Kiến trúc 2 layer:
 - **Layer 1** (`layer1/`): Python monitoring service — config-driven, generic executor ✅ Implemented
-- **Layer 2** (on-demand via Telegram bot): Claude API phân tích findings khi user yêu cầu `/analyze`
+- **Layer 2** (`layer2/`): FastAPI + Claude AI + Telegram bot — on-demand analysis khi user yêu cầu `/analyze` ✅ Implemented
 
 ---
 
@@ -111,3 +111,7 @@ CLAUDE_MODEL=claude-sonnet-4-6
 ## Plan Document
 
 Roadmap chi tiết: `plan/bubbly-snuggling-brooks.md`
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

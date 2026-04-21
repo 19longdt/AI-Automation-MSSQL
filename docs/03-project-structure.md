@@ -239,3 +239,7 @@ def run_slow_query():
 ```
 
 Nếu bất kỳ bước nào từ 1-4 thất bại → service **không start** (fail fast). Đây là đúng vì không có MongoDB hoặc MSSQL thì service vô nghĩa.
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

@@ -725,3 +725,7 @@ layer1/                          # Python monitoring service
 - **Bước 6:** Topic "tempdb" với detector_type="threshold" → verify finding khi PLE thấp
 - **Bước 7:** Finding → Teams alert đúng format, dedup không spam
 - **Bước 8:** Thêm/sửa query trong MongoDB → verify chạy đúng ở lần kế tiếp (không restart)
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

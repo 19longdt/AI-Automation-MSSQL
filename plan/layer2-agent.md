@@ -806,3 +806,7 @@ DB_CONTEXT_MAX_AGE_HOURS=24
 3. Tool safety: node không hợp lệ → validation error, không execute
 4. Peak hours: `get_index_fragmentation` trong 8–18h → blocked
 5. `GET /health` → MongoDB connected, primary detected, skills_loaded=13
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

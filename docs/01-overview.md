@@ -66,7 +66,7 @@ MSSQL AG Cluster (3 nodes)
            │  Khi phát hiện vấn đề nghiêm trọng
            ▼
 ┌──────────────────────┐
-│  LAYER 2             │  ← AI Agent (chưa implement)
+│  LAYER 2             │  ← AI Agent (FastAPI + Claude API) ✅
 │  Claude AI Agent     │     Phân tích nguyên nhân sâu
 │                      │     Đề xuất cách sửa
 │  Khi cần thiết       │     Admin xem xét và duyệt
@@ -79,7 +79,7 @@ MSSQL AG Cluster (3 nodes)
 - **Lưu** kết quả vào MongoDB
 - **Gửi thông báo** qua Teams/Slack/Telegram khi phát hiện vấn đề
 
-### Layer 2 làm gì? (chưa implement)
+### Layer 2 làm gì?
 - Nhận output từ Layer 1
 - Gọi Claude API để phân tích sâu hơn
 - Đề xuất cách sửa (index mới, rewrite query, update statistics...)
@@ -137,3 +137,7 @@ Muốn thay đổi ngưỡng cảnh báo?
 | Plan XML parser | lxml | Parse execution plan XML từ SQL Server |
 | Notifications | pymsteams, slack-sdk | Gửi alert đa kênh |
 | AI (Layer 2) | Anthropic Claude API | Phân tích và đề xuất fix |
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

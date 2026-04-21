@@ -4,20 +4,20 @@ services:
   # 3 chế độ build:
   #
   #   Separate (default):
-  #     docker build -f Dockerfile -t ai-automation-mssql/layer1:vX .
-  #     LAYER1_IMAGE=ai-automation-mssql/layer1:vX docker compose up -d layer1
+  #     docker build -f Dockerfile -t 19longdt/ai-automation-mssql-layer1:vX .
+  #     LAYER1_IMAGE=19longdt/ai-automation-mssql-layer1:vX docker compose up -d layer1
   #
   #   Combined (1 image cho cả 2 layers):
-  #     docker build -f Dockerfile.combined -t ai-automation-mssql:vX .
-  #     LAYER1_IMAGE=ai-automation-mssql:vX LAYER2_IMAGE=ai-automation-mssql:vX docker compose up -d
+  #     docker build -f Dockerfile.combined -t 19longdt/ai-automation-mssql:vX .
+  #     LAYER1_IMAGE=19longdt/ai-automation-mssql:vX LAYER2_IMAGE=19longdt/ai-automation-mssql:vX docker compose up -d
   #
-  #   Registry:
-  #     LAYER1_IMAGE=ghcr.io/org/layer1:vX docker compose pull && docker compose up -d
+  #   Registry pull (không cần source):
+  #     LAYER1_IMAGE=19longdt/ai-automation-mssql-layer1:vX docker compose pull && docker compose up -d
   layer1:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${LAYER1_IMAGE:-ai-automation-mssql/layer1:latest}
+    image: ${LAYER1_IMAGE:-19longdt/ai-automation-mssql-layer1:latest}
     container_name: layer1-monitor
     restart: unless-stopped
     command: ["python", "-m", "layer1.scheduler"]
@@ -52,13 +52,13 @@ services:
   # Dùng Telegram bot token RIÊNG (L2_TELEGRAM_BOT_TOKEN) để tránh polling conflict
   # với Layer 1 bot.
   #
-  # Build separate:  docker build -f Dockerfile.layer2 -t ai-automation-mssql/layer2:vX .
+  # Build separate:  docker build -f Dockerfile.layer2 -t 19longdt/ai-automation-mssql-layer2:vX .
   # Build combined:  dùng chung LAYER2_IMAGE với layer1 (xem comment layer1 service)
   layer2:
     build:
       context: .
       dockerfile: Dockerfile.layer2
-    image: ${LAYER2_IMAGE:-ai-automation-mssql/layer2:latest}
+    image: ${LAYER2_IMAGE:-19longdt/ai-automation-mssql-layer2:latest}
     container_name: layer2-agent
     restart: unless-stopped
     command: ["python", "-m", "layer2.main"]
@@ -80,6 +80,14 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+
+    # /health kiểm tra MongoDB + MSSQL — MSSQL timeout mặc định 30s → timeout phải > 30s.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 35s
+      retries: 3
+      start_period: 30s
 
     logging:
       driver: json-file

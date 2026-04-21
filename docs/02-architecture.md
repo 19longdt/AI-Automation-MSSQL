@@ -254,3 +254,7 @@ DBA reply /analyze  ────────────────────
 ```
 
 **Config-driven analysis:** Mỗi topic tự định nghĩa cách phân tích trong `analysis_config` — Python không hardcode logic phân tích nào.
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

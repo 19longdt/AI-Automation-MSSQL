@@ -164,3 +164,7 @@ print(pyodbc.drivers())
 
 **`RuntimeError: Không thể detect AG node roles`**
 → Không kết nối được SQL Server. Kiểm tra `MSSQL_NODES` và port 1433.
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

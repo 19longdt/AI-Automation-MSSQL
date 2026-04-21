@@ -1,73 +1,324 @@
-# db_business_context.yaml — DBA viết thủ công
+# db_business_context.yaml — easyposbackoffice
 #
 # File này được load bởi POST /admin/refresh-db-context và đưa vào
 # system prompt cho Claude AI. Cập nhật khi có thay đổi schema quan trọng.
 #
-# Các section đều optional — chỉ điền những gì DBA biết rõ.
+# Cập nhật: 2026-04-21
+# Nguồn: db-context/*.md (10 files)
 
 # ── Bảng quan trọng ──────────────────────────────────────────────────────────
 critical_tables:
-  - name: Orders
-    description: "Đơn hàng bán lẻ — ~200M rows, partition theo tháng (partition column: order_date)"
-    access_pattern: "High read/write, peak 08:00–18:00. Queries thường filter theo order_date + customer_id."
-    indexes_note: "IX_Orders_CustomerId_OrderDate là index quan trọng nhất. Tránh full scan."
+  # ── Partition tables — norm_quarter YYYYQ (VD: 20261 = Q1 2026) ──────────
+  - name: bill
+    description: >
+      Hóa đơn POS bán lẻ — 250M rows, 56 GB, 22 partitions (psBillQuarter).
+      PK clustered (norm_quarter, id) — norm_quarter đứng trước.
+      Schema dbo. Bảng trung tâm của toàn bộ nghiệp vụ POS.
+    access_pattern: >
+      Bảng volume cao nhất. Ghi liên tục trong giờ mở cửa (peak).
+      Query thường filter theo (norm_quarter, com_id, norm_date) hoặc (norm_quarter, com_id, code).
+      JOIN với: bill_product (norm_quarter, bill_id), invoice (company_id, bill_id, norm_quarter),
+      payment_history (bill_id), mc_receipt (bill_id), rs_inoutward (norm_quarter, bill_id).
+    indexes_note: >
+      idx_bill_comId_normDate (norm_quarter, com_id, norm_date, id): báo cáo doanh thu theo ngày.
+      idx_com_id_norm_quarter_norm_date (com_id, norm_quarter, norm_date): variant — filter com_id trước.
+      idx_com_id_status_code (norm_quarter, tax_authority_code, total_amount, bill_date, code, status, com_id): tra cứu theo mã hóa đơn.
+      idx_customer_id (customer_id, norm_quarter): lịch sử mua hàng theo khách hàng.
+      LUÔN kèm norm_quarter trong WHERE — thiếu sẽ full scan 22 partitions × 250M rows.
 
-  - name: OrderItems
-    description: "Chi tiết đơn hàng — ~800M rows, partition theo tháng"
-    access_pattern: "Join với Orders. Truy vấn thường qua order_id hoặc product_id."
+  - name: bill_product
+    description: >
+      Dòng sản phẩm trong hóa đơn POS — 364M rows, 89 GB, 10 partitions (psBillProductQuarter).
+      PK clustered (id, norm_quarter) — id đứng TRƯỚC (khác với bill!).
+      Lưu đầy đủ: sản phẩm, giá, thuế, topping, combo, voucher, lô hàng, kho xuất.
+    access_pattern: >
+      JOIN với bill qua (norm_quarter, bill_id). In hóa đơn, báo cáo doanh thu theo sản phẩm.
+      JOIN với product_product_unit qua (norm_quarter, product_product_unit_id).
+    indexes_note: >
+      idx_bill_id (norm_quarter, bill_id, total_pre_tax, feature, product_code, com_id, product_id): lookup dòng hàng.
+      idx_billProduct_billId_productCode_included (bill_id, product_code, ...quantity, amount... norm_quarter): covering index in hóa đơn.
+      idx_billProduct_productId (product_id, norm_quarter): thống kê bán hàng theo sản phẩm.
+      idx_bill_product_ppuId (norm_quarter, product_product_unit_id): join với PPU.
+      PK (id, norm_quarter) — id đứng trước — vẫn cần norm_quarter trong WHERE để partition elimination.
 
-  - name: Customers
-    description: "Khách hàng — ~5M rows, không partition"
-    access_pattern: "Lookup thường xuyên. Nên cache ở application layer."
+  - name: invoice
+    description: >
+      Hóa đơn điện tử VAT (hệ thống mới) — 247M rows, 46 GB, 22 partitions (psInvoiceQuarter).
+      PK clustered (id, norm_quarter). Quan hệ 1-1 với bill (UNIQUE per company+bill).
+    access_pattern: >
+      Tra cứu theo (norm_quarter, company_id, bill_id). Đồng bộ trạng thái kiểm tra thuế.
+      JOIN với bill qua bill_id, với invoice_product qua (norm_quarter, invoice_id).
+    indexes_note: >
+      idx_company_id_bill_id_norm_quarter UNIQUE (norm_quarter, bill_id, company_id): đảm bảo 1 bill — 1 invoice.
+      idx_bill_id_tax_check_status (bill_id, tax_check_status, norm_quarter): kiểm tra trạng thái HĐĐT.
+      idx_invoice_company_id_ikey (...ikey, company_id, update_time, norm_quarter): đồng bộ với cơ quan thuế.
+      idx_company_id_arising_date (norm_quarter, tax_authority_code, tax_check_status, arising_date, company_id): lọc theo ngày phát sinh.
 
-  - name: Products
-    description: "Sản phẩm — ~50K rows, không partition"
-    access_pattern: "Read heavy, ít write. Thường dùng IX_Products_Category."
+  - name: invoice_ei
+    description: >
+      Hóa đơn điện tử chuẩn EI legacy — KHÔNG partition. PK clustered (id).
+      Tồn tại song song với invoice cho các công ty dùng hệ thống EI cũ.
+      Không có row count lớn như invoice nhưng có thể gây full scan nếu thiếu filter.
+    access_pattern: >
+      Query phải luôn có WHERE theo thời gian (arising_date hoặc publish_date).
+      JOIN với bill qua bill_id. KHÔNG JOIN trực tiếp với invoice (cấu trúc khác).
+    indexes_note: >
+      idx_invoice_ei_billId (bill_id): lookup theo hóa đơn.
+      idx_invoice_ei_companyId_taxCheckStatus (company_id, tax_check_status): lọc theo trạng thái.
+      idx_invoice_ei_companyId_customerTaxcode (company_id, customer_taxcode): tìm theo MST.
+      KHÔNG partition — full scan nếu thiếu WHERE thời gian. Tránh dùng cho báo cáo lớn.
 
-  - name: Inventory
-    description: "Tồn kho theo kho hàng — ~2M rows"
-    access_pattern: "Update real-time khi có đơn hàng. Blocking thường xảy ra ở đây."
+  - name: rs_inoutward
+    description: >
+      Phiếu nhập/xuất/chuyển kho — 39M rows, 15 GB, 10 partitions (psRsInOutWardQuarter).
+      PK clustered (norm_quarter, id) — norm_quarter đứng trước ✓.
+      Link với bill qua bill_id. CDC capture qua Debezium.
+    access_pattern: >
+      Tạo phiếu kho khi bán hàng (từ bill), nhập hàng, chuyển kho.
+      Query thường theo (norm_quarter, com_id, type, date).
+    indexes_note: >
+      idx_RSInoutward_comId_type_date_billId (com_id, type, date, bill_id, ...norm_quarter): query phiếu kho.
+      idx_rs_inoutward_bill_id_nc (bill_id, norm_quarter): lookup phiếu theo hóa đơn.
+      idx_rs_inoutward_com_id_type_date (covering index đầy đủ cột theo ngày/loại/com_id): báo cáo nhập xuất kho.
+
+  - name: rs_inoutward_detail
+    description: >
+      Chi tiết dòng sản phẩm phiếu kho — 36M rows, 22 GB, 10 partitions (psRsInOutWardDetailQuarter).
+      PK clustered (id, norm_quarter) — id đứng trước!
+    access_pattern: >
+      JOIN với rs_inoutward qua (norm_quarter, rs_inoutward_id).
+      Join với PPU qua (norm_quarter, product_product_unit_id).
+    indexes_note: >
+      idx_rs_inoutward_id (rs_inoutward_id, from_warehouse_id, to_warehouse_id, batch_id, norm_quarter): chi tiết phiếu.
+      idx_rs_inoutward_detail_ppuId_rsInoutwardId (product_product_unit_id, rs_inoutward_id, norm_quarter).
+
+  - name: product_product_unit
+    description: >
+      Bảng junction trung tâm (PPU) — 32M rows, 3 GB, KHÔNG partition.
+      Kết nối: product ↔ bill_product ↔ inventory ↔ price_list_product ↔ rs_inoutward_detail.
+      Gần như mọi query trong hệ thống đều join qua bảng này. CDC capture.
+    access_pattern: >
+      Read-heavy, ít write. Filter thường theo (com_id, product_id) hoặc (product_id, is_primary).
+      Một sản phẩm có thể có nhiều PPU (các đơn vị tính khác nhau: lon, thùng, kg...).
+    indexes_note: >
+      IX_ppu_primary_productid FILTERED (is_primary=1) INCLUDE (unit_name, product_unit_id):
+        chỉ hiệu quả khi filter WHERE is_primary = 1 — đây là filtered index.
+      IX_product_product_unit_productId_isPrimary (product_id, is_primary, product_unit_id, unit_name, min_quantity):
+        non-filtered, dùng khi cần cả is_primary=0 và =1.
+      idx_com_id_product_id (product_id, com_id): lấy tất cả PPU của sản phẩm trong công ty.
+      product_product_unit_com_id_index (com_id, is_primary, id, parent_id): lấy PPU chính của công ty.
+      PK clustered (id) — không phải composite partition PK.
+
+  - name: product
+    description: >
+      Danh mục sản phẩm/dịch vụ — 32M rows, 5 GB, KHÔNG partition, multi-tenant (com_id).
+      Hỗ trợ: sản phẩm thường, combo, dịch vụ, thuốc, IMEI/Serial. CDC capture.
+    access_pattern: >
+      Lookup khi tạo hóa đơn (theo mã, tên). Read-heavy, ít write.
+      JOIN với PPU là bắt buộc — không query sản phẩm trực tiếp trừ catalog.
+    indexes_note: >
+      idx_product_comId_code_active_included (com_id, code, active) INCLUDE (name, out_price, image, code2):
+        covering index tìm theo mã — phổ biến nhất.
+      idx_product_comId_name_included (com_id, name, code2, code, active): tìm theo tên.
+      idx_product_comId_active (active, com_id): lọc sản phẩm đang bán.
+
+  - name: inventory
+    description: >
+      Snapshot tồn kho hiện tại theo PPU/kho/lô — 11M rows, 1.2 GB, KHÔNG partition.
+      Cập nhật async qua inventory_log (job background). CDC capture.
+    access_pattern: >
+      UPDATE sau mỗi bán hàng/nhập kho (qua inventory_log queue). SELECT khi hiển thị tồn kho.
+      Blocking thường xảy ra khi nhiều POS cùng bán một sản phẩm đồng thời.
+    indexes_note: >
+      inventory_com_id_ppu_id_index (ppu_id, com_id): tra cứu tồn kho theo sản phẩm.
+      inventory_com_id_warehouse_id_index (on_hand, ppu_id, product_id, warehouse_id, com_id):
+        covering index — lấy tồn kho theo kho không cần lookup.
+
+  - name: customer
+    description: >
+      Khách hàng — 9.6M rows, 1.3 GB, KHÔNG partition, multi-tenant (com_id).
+      CDC capture qua Debezium. Hỗ trợ cả bán lẻ, doanh nghiệp, nhà thuốc (bác sĩ).
+    access_pattern: >
+      Lookup khi tạo hóa đơn — tìm theo tên, mã khách, MST, hoặc số điện thoại.
+    indexes_note: >
+      idx_customer_comId_name_active_included (active, name, com_id) INCLUDE (code, phone_number, tax_code, code2):
+        tìm theo tên — thường dùng nhất.
+      idx_customer_comId_taxcode_active_included (com_id, tax_code, active): tìm theo MST (xuất HĐĐT).
+      idx_Customer_ComId_Active_Type (com_id, active, type): lọc theo loại khách hàng.
+
+  - name: payment_history
+    description: >
+      Lịch sử thanh toán hóa đơn — 84M rows, 14 GB, KHÔNG partition.
+      Ghi nhận từng lần thanh toán: phương thức, số tiền, thối tiền.
+    access_pattern: >
+      INSERT khi thanh toán. SELECT theo bill_id để lấy lịch sử.
+      KHÔNG có index nonclustered theo bill_id — đây là missing index quan trọng.
+    indexes_note: >
+      ⚠️ KHÔNG có index theo bill_id. JOIN bill → payment_history sẽ là clustered scan 84M rows
+      trừ khi có filter phụ (norm_date, norm_quarter).
+      idx_payment_history_refId (ref_id): tra cứu theo giao dịch cổng thanh toán.
+
+  - name: mc_receipt
+    description: >
+      Phiếu thu tiền — 83M rows, 24 GB, KHÔNG partition (dù có cột norm_quarter).
+    access_pattern: >
+      Tạo khi thu tiền mặt/chuyển khoản thanh toán công nợ. Báo cáo phiếu thu theo ngày/loại.
+    indexes_note: >
+      idx_mc_receipt_com_id_rs_inoutward_id: covering index rất wide (tất cả cột).
+      idx_mcReceipt_comId_type_date_included (type_desc, date, id, customer_name, amount, com_id): báo cáo.
+
+  # ── ecommerce schema (riêng) ──────────────────────────────────────────────
+  - name: ecommerce.bill
+    description: >
+      Đơn hàng từ sàn TMĐT (Shopee, Lazada...) — 22M rows, 10 GB. Schema ecommerce.
+      KHÔNG partition. Cấu trúc khác dbo.bill — có order_code, shop_id thay vì norm_quarter.
+    access_pattern: >
+      Query theo (com_id, shop_id, order_code) hoặc theo thời gian tạo đơn.
+    indexes_note: >
+      bill_pk2 UNIQUE (order_code, com_id, shop_id): chống trùng đơn.
+      idx_bill_com_id_orderStatus_createTime (order_create_time, order_status, com_id): lọc đơn hàng.
+      KHÔNG có norm_quarter — KHÔNG được JOIN với dbo.bill trực tiếp, luôn specify schema.
 
 # ── Known performance patterns ────────────────────────────────────────────────
 known_patterns:
-  - pattern: "Orders full scan"
-    description: "Query không dùng partition column trong WHERE → full scan 200M rows"
-    example: "WHERE YEAR(order_date) = 2026 thay vì WHERE order_date >= '2026-01-01'"
-    recommendation: "Rewrite filter dùng range (>=, <) thay vì function trên partition column"
+  - pattern: "Partition full scan — thiếu norm_quarter trong WHERE"
+    description: >
+      Query trên bảng partition (bill, bill_product, invoice, rs_inoutward...)
+      không kèm norm_quarter trong WHERE → SQL Server scan TẤT CẢ partitions.
+      bill có 22 partitions × 250M rows — thảm họa hiệu năng.
+    example: "SELECT * FROM bill WHERE com_id = 1 AND bill_date >= '2026-01-01'"
+    recommendation: >
+      Thêm norm_quarter: WHERE norm_quarter = 20261 AND com_id = 1 AND norm_date >= 20260101.
+      Với range nhiều quý: WHERE norm_quarter BETWEEN 20261 AND 20264 AND ...
 
-  - pattern: "Inventory blocking"
-    description: "UPDATE Inventory với explicit transaction giữ lock lâu trong peak hours"
-    recommendation: "Dùng READ_COMMITTED_SNAPSHOT hoặc xem xét optimistic locking"
+  - pattern: "Partition elimination bị bypass — function trên partition key"
+    description: >
+      Dùng hàm trên norm_quarter hoặc cột thời gian (YEAR, MONTH, CONVERT, DATEPART, FORMAT...)
+      → partition elimination không hoạt động dù WHERE có norm_quarter.
+    example: "WHERE YEAR(bill_date) = 2026 AND MONTH(bill_date) = 1"
+    recommendation: "Rewrite dùng range sargable: WHERE norm_quarter = 20261 AND norm_date BETWEEN 20260101 AND 20260131"
 
-  - pattern: "CDC version store pressure"
-    description: "TempDB version store tăng mạnh 08:00–10:00 do CDC scan + high DML"
-    recommendation: "Monitor sys.dm_tran_version_store_space_usage, xem xét tách CDC sang Secondary"
+  - pattern: "invoice_ei full scan — không có partition, thiếu WHERE thời gian"
+    description: >
+      invoice_ei KHÔNG partition (khác với invoice). Không có filter thời gian → full table scan.
+      Đặc biệt nguy hiểm khi JOIN với invoice (partition) mà không filter riêng invoice_ei.
+    recommendation: "Luôn filter invoice_ei theo arising_date HOẶC publish_date. Không dùng cho báo cáo lớn."
+
+  - pattern: "payment_history missing index theo bill_id"
+    description: >
+      payment_history 84M rows, KHÔNG partition, KHÔNG có index theo bill_id.
+      Query JOIN bill → payment_history → clustered scan 84M rows.
+    recommendation: >
+      Đây là missing index candidate. Workaround: thêm filter norm_date hoặc norm_quarter
+      trên payment_history để giảm scan range. Hoặc xem xét thêm index (bill_id) nếu query phổ biến.
+
+  - pattern: "Cross-schema confusion — dbo.bill vs ecommerce.bill"
+    description: >
+      Có 2 schemas với bảng tên trùng: dbo.bill (250M, partition) và ecommerce.bill (22M, không partition).
+      Query không specify schema → implicit dbo → sai data hoặc sai execution plan.
+    recommendation: "Luôn dùng schema prefix đầy đủ: dbo.bill, ecommerce.bill. Không JOIN trực tiếp hai schema."
+
+  - pattern: "inventory_log — thiếu status filter không dùng được index hiệu quả"
+    description: >
+      inventory_log có index inventory_check_index bắt đầu bằng (com_id, status, ...).
+      Query không include status → index bị bỏ qua hoặc dùng kém hiệu quả.
+    recommendation: "Luôn filter theo status: WHERE com_id = X AND status = 0 (chờ xử lý)."
+
+  - pattern: "CDC Debezium + high DML — TempDB version store pressure"
+    description: >
+      Debezium capture 10 bảng trên Primary (EASYPOS-DB1). CDC scan transaction log
+      liên tục → tăng I/O và TempDB version store trong giờ cao điểm.
+      Các bảng CDC: product, product_product_unit, inventory, customer, rs_inoutward...
+    recommendation: >
+      Monitor sys.dm_tran_version_store_space_usage và CDC latency.
+      Xem xét chuyển reporting CDC-dependent queries sang Secondary (EASYPOS-DB2/DB3 readable).
+
+  - pattern: "PPU filtered index không được dùng — thiếu is_primary = 1"
+    description: >
+      IX_ppu_primary_productid là FILTERED index (WHERE is_primary = 1). SQL Server chỉ dùng
+      index này khi query WHERE is_primary = 1 rõ ràng. Thiếu filter → dùng index không filtered,
+      hoặc full scan 32M rows.
+    recommendation: "Thêm WHERE ppu.is_primary = 1 khi chỉ cần đơn vị tính chính của sản phẩm."
+
+  - pattern: "PK clustered order bất đối xứng giữa các bảng partition"
+    description: >
+      bill và rs_inoutward: PK (norm_quarter, id) — norm_quarter đứng trước → scan theo partition tốt.
+      bill_product, invoice, rs_inoutward_detail: PK (id, norm_quarter) — id đứng trước →
+      range scan theo norm_quarter không aligned với clustered order, phải dùng index riêng.
+    recommendation: >
+      Với bill_product/invoice/rs_inoutward_detail: dùng nonclustered indexes có norm_quarter đứng đầu
+      thay vì clustered scan. Luôn kèm norm_quarter trong WHERE để partition elimination.
 
 # ── Resource Governor pools ───────────────────────────────────────────────────
 resource_governor:
+  classifier_note: >
+    Connections phân loại theo login name/app name vào workload group.
+    Monitoring tool (Layer 1 + Layer 2 DMV queries) chạy trong PoolMonitor — max 5% CPU.
   pools:
-    - name: PoolOLTP
-      description: "Queries từ application servers — giới hạn 70% CPU"
-      workload_groups: ["WGOrderProcessing", "WGReporting"]
+    - name: default
+      description: "Main OLTP — application servers kết nối mặc định. Reserved 50–60% CPU."
+      min_cpu_percent: 50
+      max_cpu_percent: 60
+      workload_groups: ["default"]
 
-    - name: PoolMaintenance
-      description: "Backup, index rebuild, stats update — giới hạn 20% CPU, chạy off-peak"
-      workload_groups: ["WGMaintenance"]
+    - name: PoolBackoffice
+      description: "Backoffice application queries — giới hạn max 10% CPU tránh ảnh hưởng OLTP."
+      min_cpu_percent: 5
+      max_cpu_percent: 10
+      workload_groups: ["GroupBackoffice"]
 
-    - name: PoolDefault
-      description: "Các connection không classify được — giới hạn 10% CPU"
-      workload_groups: ["WGDefault"]
+    - name: PoolReport
+      description: "Reporting/analytics queries — max 20% CPU, chạy cả on-demand và scheduled."
+      min_cpu_percent: 0
+      max_cpu_percent: 20
+      workload_groups: ["GroupReport"]
 
-# ── AG topology ──────────────────────────────────────────────────────────────
+    - name: PoolMonitor
+      description: >
+        Monitoring tool DMV queries (Layer 1 scheduler + Layer 2 agent) — cố định 5% CPU.
+        Layer 2 AI analysis cũng chạy trong pool này khi execute DMV tools.
+      min_cpu_percent: 5
+      max_cpu_percent: 5
+      workload_groups: ["GroupMonitor"]
+
+    - name: internal
+      description: "SQL Server internal — không giới hạn."
+      min_cpu_percent: 0
+      max_cpu_percent: 100
+      workload_groups: ["internal"]
+
+# ── AG topology ───────────────────────────────────────────────────────────────
 ag_topology:
-  description: "1 Primary + 2 Secondary synchronous commit"
+  description: >
+    3-node Always On AG, tất cả SYNCHRONOUS_COMMIT. Không mất data khi failover.
+    Tất cả secondary cho phép READ_ONLY connections.
+  nodes:
+    primary: "EASYPOS-DB1"
+    secondaries:
+      - name: "EASYPOS-DB2"
+        mode: "SYNCHRONOUS_COMMIT"
+        readable: true
+      - name: "EASYPOS-DB3"
+        mode: "SYNCHRONOUS_COMMIT"
+        readable: true
   readable_secondary: true
-  secondary_usage: "Reporting queries được route sang Secondary để giảm tải Primary"
-  cdc_note: "CDC chỉ chạy trên Primary. Secondary replica không có CDC."
+  secondary_usage: >
+    Secondary (EASYPOS-DB2, EASYPOS-DB3) cho phép READ_ONLY.
+    Reporting queries và CDC-dependent reads có thể route sang secondary để giảm tải Primary.
+  cdc_note: >
+    CDC chạy trên Primary (EASYPOS-DB1) qua Debezium connector.
+    Các bảng được capture: customer, inventory, outbox_event, price_list,
+    product, product_group, product_product_unit, product_unit, rs_inoutward, warehouse.
+    debezium_heartbeat: bảng heartbeat để monitor CDC lag.
+    CDC scan transaction log liên tục → tăng tải I/O và TempDB version store trong giờ cao điểm.
 
 # ── Maintenance windows ───────────────────────────────────────────────────────
 maintenance:
-  index_rebuild: "Chủ Nhật 02:00–05:00 +07 — PoolMaintenance"
-  stats_update: "Hàng ngày 03:00 +07 — auto stats update enabled"
-  backup_full: "Chủ Nhật 01:00 +07"
-  backup_diff: "Hàng ngày 23:00 +07"
+  index_rebuild: "Chưa xác định — cần kiểm tra SQL Server Agent jobs"
+  stats_update: "Auto statistics update enabled (mặc định SQL Server)"
+  backup_full: "Chưa xác định — cần kiểm tra SQL Server Agent jobs"
+  backup_diff: "Chưa xác định — cần kiểm tra SQL Server Agent jobs"
+  notes: >
+    Monitoring tool (Layer 1) chạy trong PoolMonitor (max 5% CPU).
+    Tránh schedule heavy DMV queries trong giờ cao điểm khi default pool đang dùng 50-60% CPU.
+    Partition tables có 10–22 partitions — index rebuild partition-by-partition (ONLINE) nếu có thể.

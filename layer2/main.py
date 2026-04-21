@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     _setup_logging()
 
     MongoConnection.initialize(settings)
-    create_all_indexes()
+    create_all_indexes(MongoConnection.get_db())
 
     sl = SkillLoader()
     sl.load_all(SKILLS_DIR)
@@ -110,6 +110,46 @@ def _setup_logging() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
+
+    if not settings.logstash_host:
+        return
+
+    # Optional dependency — chỉ import khi LOGSTASH_HOST có set.
+    try:
+        from logstash_async.handler import AsynchronousLogstashHandler
+        from logstash_async.formatter import LogstashFormatter
+    except ImportError:
+        logging.getLogger().error(
+            "LOGSTASH_HOST configured but python-logstash-async not installed; skipping."
+        )
+        return
+
+    import socket as _socket
+
+    # UDP transport — tương thích Logstash input: udp { port => 5044 codec => json }
+    handler = AsynchronousLogstashHandler(
+        host=settings.logstash_host,
+        port=settings.logstash_port,
+        database_path=settings.logstash_database_path or None,
+        transport="logstash_async.transport.UdpTransport",
+    )
+    # extra_prefix=None: extra fields ở top-level — Logstash filter check [app_name] top-level.
+    handler.setFormatter(LogstashFormatter(
+        extra_prefix=None,
+        extra={
+            "app_name": settings.logstash_app_name,
+            "service": "layer2-agent",
+            "hostname": _socket.gethostname(),
+        },
+    ))
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().info(
+        "Logstash handler attached: %s:%s app_name=%s database_path=%s",
+        settings.logstash_host,
+        settings.logstash_port,
+        settings.logstash_app_name,
+        settings.logstash_database_path or "<in-memory>",
+    )
 
 
 # ── App ───────────────────────────────────────────────────────────────────────

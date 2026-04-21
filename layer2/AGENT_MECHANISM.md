@@ -325,3 +325,7 @@ analysis_text + <insight>JSON</insight>
 | `storage/repositories/session_repo.py` | Multi-turn Telegram session (TTL 8h) |
 | `utils/cost_calculator.py` | USD cost từ token usage + MODEL_PRICING table |
 | `skills/_base.yaml` | Base system prompt (cache block) + `<insight>` instruction |
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

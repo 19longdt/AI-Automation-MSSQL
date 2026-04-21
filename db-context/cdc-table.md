@@ -1,0 +1,13 @@
+| table\_name | capture\_instance |
+| :--- | :--- |
+| customer | dbo\_customer |
+| debezium\_heartbeat | dbo\_debezium\_heartbeat |
+| inventory | dbo\_inventory |
+| outbox\_event | dbo\_outbox\_event |
+| price\_list | dbo\_price\_list |
+| product | dbo\_product |
+| product\_group | dbo\_product\_group |
+| product\_product\_unit | dbo\_product\_product\_unit |
+| product\_unit | dbo\_product\_unit |
+| rs\_inoutward | dbo\_rs\_inoutward |
+| warehouse | dbo\_warehouse |

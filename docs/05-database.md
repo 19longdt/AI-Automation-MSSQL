@@ -384,3 +384,7 @@ agent_job_monitor      | 10:03:00         | —        | running | STUCK ⚠️
 | `node_roles` | Không TTL | Cache roles |
 | `approval_queue` | Không TTL | Audit trail |
 | `audit_log` | Không TTL | Compliance |
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn

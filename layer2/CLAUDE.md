@@ -218,3 +218,9 @@ Tóm tắt nhanh:
 | **`cost_usd` lưu trong mỗi analysis** | Granular tracking — biết được từng phân tích tốn bao nhiêu |
 | **Tool whitelist + pre-written SQL** | Claude không thể inject SQL tùy ý — security + predictability |
 | **Session lưu text turns, không tool calls** | Tool calls đã có trong ai_analyses; session chỉ cần text để rebuild context |
+
+---
+
+**Author:** Long Do | Backend Engineering | longdt@softdreams.vn
+
+**Status:** ✅ Fully Implemented (FastAPI + Telegram bot + Claude API)
