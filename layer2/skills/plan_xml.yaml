@@ -1,0 +1,84 @@
+skill_id: plan_xml_v1
+
+issue_types:
+  - plan_regression
+  - plan_instability
+  - non_optimal_index
+  - partition_elimination_failure
+
+specialization: |
+  Focus: phân tích chuyên sâu XML execution plan.
+  Finding đã chứa query_plan_xml — KHÔNG cần gọi thêm tool để lấy plan.
+
+  Đọc XML và tìm các pattern sau theo thứ tự:
+
+  1. Index Scan trên large table
+     - EstimatedRows cao + PhysicalOp="Index Scan" hoặc "Table Scan"
+     - Candidate để chuyển thành Index Seek — cần thêm filter hoặc covering index
+
+  2. Key Lookup (Nested Loops → Key Lookup)
+     - Xuất hiện khi index không cover đủ columns cần SELECT/filter
+     - Fix: thêm INCLUDE columns vào index hiện có
+
+  3. Implicit Conversion (CONVERT_IMPLICIT)
+     - Type mismatch giữa parameter và column → vô hiệu hóa index usage
+     - Thường gặp: nvarchar vs varchar, int vs bigint, date vs datetime
+     - Fix: sửa type của parameter hoặc thêm explicit CAST
+
+  4. Partition Elimination
+     - Xem PartitionCount trong plan: nếu = tổng số partitions → không eliminate
+     - Nguyên nhân thường gặp: YEAR(), MONTH(), CONVERT() trên partition column
+     - Fix: đổi filter sang range (>= / <) trực tiếp trên partition column
+
+  5. Estimated vs Actual rows divergence
+     - EstimateRows vs ActualRows chênh lớn (>10x) → stale statistics hoặc data skew
+     - Cross-check với get_statistics_info để xác nhận
+
+  6. Sort operator không có index support
+     - Sort trên large dataset → potential memory spill
+     - Xem xét thêm index với ORDER BY columns
+
+  7. Hash Match với large memory grant
+     - MemoryFractions cao → missing index hoặc cardinality estimate sai
+     - Thường kèm RESOURCE_SEMAPHORE wait
+
+  8. SpillToTempDb warning
+     - Explicit trong plan XML hoặc qua total_spills trong get_query_stats
+     - Nguyên nhân: memory grant không đủ do cardinality estimate sai
+
+  9. MissingIndexGroup hint trong plan XML
+     - SQL Server tự đề xuất index trong plan — cross-check với get_missing_indexes
+     - Đánh giá impact trước khi khuyến nghị tạo
+
+  10. Parallelism (DOP)
+      - DOP có phù hợp với workload không?
+      - CXPACKET wait cao với DOP lớn trên OLTP → cân nhắc MAXDOP hint
+
+user_prompt_template: |
+  Phân tích execution plan:
+
+  Issue: {issue_type} | Severity: {severity}
+  Node: {node} ({role}) | Detected: {detected_at}
+  Metrics: {metrics_json}
+  Query Hash: {query_hash}
+
+  {query_text}
+
+  Execution Plan XML:
+  {query_plan_xml}
+
+required_tools:
+  - get_statistics_info
+  - get_index_usage
+
+optional_tools:
+  - get_query_store_history
+  - get_missing_indexes
+  - get_query_stats
+
+model: claude-sonnet-4-6
+max_tool_rounds: 4
+max_tokens: 4096
+include_fields:
+  - query_plan_xml
+  - query_text

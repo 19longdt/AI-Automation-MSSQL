@@ -54,8 +54,16 @@ class FindingsRepo:
         )
         return [Finding(**doc) for doc in docs]
 
+    def find_by_id(self, finding_id: str) -> Finding | None:
+        """Tìm finding theo finding_id đầy đủ (exact match). Dùng cho /analyze command."""
+        doc = self.collection.find_one({"finding_id": finding_id})
+        if not doc:
+            return None
+        doc.pop("_id", None)
+        return Finding(**doc)
+
     def find_by_id_prefix(self, prefix: str) -> Finding | None:
-        """Tìm finding theo 8+ ký tự đầu của finding_id. Dùng cho /analyze command."""
+        """Tìm finding theo prefix của finding_id — fallback khi user nhập ID ngắn."""
         import re
         doc = self.collection.find_one(
             {"finding_id": {"$regex": f"^{re.escape(prefix)}"}}

@@ -1,0 +1,71 @@
+skill_id: slow_query_v1
+
+issue_types:
+  - slow_query
+  - high_variation_query
+
+specialization: |
+  Focus: slow query và query có execution time biến động bất thường.
+
+  Kiểm tra theo thứ tự ưu tiên sau:
+
+  1. Query Store history (get_query_store_history)
+     - So sánh plan_id hiện tại với các plan trước — có plan regression không?
+     - Thời điểm performance bắt đầu xấu đi khớp với deploy hoặc index change không?
+     - Nếu có nhiều plan cho cùng query_hash → parameter sniffing candidate
+
+  2. Parameter sniffing (get_query_stats — group by plan_handle)
+     - Cùng query_hash có nhiều plan_handle với avg_elapsed_time chênh lệch lớn không?
+     - Đặc biệt nguy hiểm khi query có parameter là partition column hoặc column có data skew
+
+  3. Statistics freshness (get_statistics_info)
+     - Bảng lớn với last_updated cũ hoặc rows_sampled thấp → cardinality estimate sai
+     - Nếu actual rows >> estimated rows trong plan → stale statistics
+
+  4. Wait stats (get_wait_stats)
+     - PAGEIOLATCH_SH: I/O bound — scan large table hoặc thiếu index
+     - RESOURCE_SEMAPHORE: memory grant thiếu → spill to TempDB
+     - LCK_M_*: blocking — kiểm tra blocking chain riêng
+     - CXPACKET cao bất thường: parallelism không hiệu quả
+
+  5. TempDB spills (get_query_stats — cột total_spills)
+     - total_spills cao → memory grant không đủ hoặc cardinality estimate sai
+     - CDC version store gây áp lực TempDB → spill ngưỡng thấp hơn bình thường
+
+  6. Index usage (get_index_usage nếu cần)
+     - user_seeks=0, user_scans cao → index không được dùng đúng
+     - Kết hợp với Query Store để xác nhận plan dùng index nào
+
+  7. Partition elimination
+     - Nếu query có filter trên partition column: kiểm tra filter có dạng range (>=, <) hay dùng function (YEAR(), MONTH(), CONVERT())
+     - Function trên partition column → SQL Server không thể eliminate partitions → full scan
+
+user_prompt_template: |
+  Phân tích finding sau:
+
+  Issue: {issue_type} | Severity: {severity}
+  Node: {node} ({role}) | Detected: {detected_at}
+  Metrics: {metrics_json}
+  Query Hash: {query_hash}
+
+  {query_text}
+
+  {query_plan_xml}
+
+required_tools:
+  - get_query_stats
+  - get_query_store_history
+  - get_statistics_info
+  - get_wait_stats
+
+optional_tools:
+  - get_index_usage
+  - get_missing_indexes
+  - get_memory_grant
+  - get_resource_governor_stats
+
+model: claude-sonnet-4-6
+max_tool_rounds: 6
+max_tokens: 4096
+include_fields:
+  - query_plan_xml

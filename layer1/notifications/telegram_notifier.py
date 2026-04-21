@@ -57,7 +57,7 @@ class TelegramNotifier(BaseNotifier):
             if not self._post_document(filename, content, caption=None):
                 logger.warning(
                     "TelegramNotifier: attachment %s failed (finding=%s)",
-                    filename, finding.finding_id[:8],
+                    filename, finding.finding_id,
                 )
         return True
 
@@ -112,8 +112,7 @@ class TelegramNotifier(BaseNotifier):
                 if len(text_value) <= _INLINE_TEXT_MAX:
                     inline_texts.append((k, text_value))
                 else:
-                    filename = self._safe_filename(finding.finding_id[:8], k)
-                    attachments.append((filename, text_value.encode("utf-8")))
+                    attachments.append((self._safe_filename(finding.finding_id, k), text_value.encode("utf-8")))
                 continue
             scalar_metrics[k] = v
 
@@ -140,17 +139,18 @@ class TelegramNotifier(BaseNotifier):
             lines.append(f"📎 <b>Attachments:</b> <i>{attached_names}</i>")
 
         lines.append("")
-        lines.append(f"🔗 ID: <code>{finding.finding_id[:8]}</code>")
+        lines.append(f"🔗 ID: <code>{finding.finding_id}</code>")
         lines.append("<i>Reply /analyze để phân tích với Claude AI</i>")
 
         return "\n".join(lines), attachments
 
     @staticmethod
-    def _safe_filename(finding_prefix: str, field_key: str) -> str:
-        """Build tên file đính kèm từ finding_id prefix + field key.
+    def _safe_filename(finding_id: str, field_key: str) -> str:
+        """Build tên file đính kèm từ finding_id đầy đủ + field key.
         Giữ ký tự an toàn, thay khác bằng '_'. Luôn đuôi .txt."""
+        safe_id = "".join(c if c.isalnum() or c in "-" else "_" for c in finding_id)
         safe_key = "".join(c if c.isalnum() or c in "._-" else "_" for c in field_key)
-        return f"{finding_prefix}_{safe_key}.txt"
+        return f"{safe_id}_{safe_key}.txt"
 
     def _post(self, text: str) -> bool:
         """HTTP POST sendMessage JSON."""

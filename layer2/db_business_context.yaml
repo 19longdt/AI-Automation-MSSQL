@@ -1,0 +1,73 @@
+# db_business_context.yaml — DBA viết thủ công
+#
+# File này được load bởi POST /admin/refresh-db-context và đưa vào
+# system prompt cho Claude AI. Cập nhật khi có thay đổi schema quan trọng.
+#
+# Các section đều optional — chỉ điền những gì DBA biết rõ.
+
+# ── Bảng quan trọng ──────────────────────────────────────────────────────────
+critical_tables:
+  - name: Orders
+    description: "Đơn hàng bán lẻ — ~200M rows, partition theo tháng (partition column: order_date)"
+    access_pattern: "High read/write, peak 08:00–18:00. Queries thường filter theo order_date + customer_id."
+    indexes_note: "IX_Orders_CustomerId_OrderDate là index quan trọng nhất. Tránh full scan."
+
+  - name: OrderItems
+    description: "Chi tiết đơn hàng — ~800M rows, partition theo tháng"
+    access_pattern: "Join với Orders. Truy vấn thường qua order_id hoặc product_id."
+
+  - name: Customers
+    description: "Khách hàng — ~5M rows, không partition"
+    access_pattern: "Lookup thường xuyên. Nên cache ở application layer."
+
+  - name: Products
+    description: "Sản phẩm — ~50K rows, không partition"
+    access_pattern: "Read heavy, ít write. Thường dùng IX_Products_Category."
+
+  - name: Inventory
+    description: "Tồn kho theo kho hàng — ~2M rows"
+    access_pattern: "Update real-time khi có đơn hàng. Blocking thường xảy ra ở đây."
+
+# ── Known performance patterns ────────────────────────────────────────────────
+known_patterns:
+  - pattern: "Orders full scan"
+    description: "Query không dùng partition column trong WHERE → full scan 200M rows"
+    example: "WHERE YEAR(order_date) = 2026 thay vì WHERE order_date >= '2026-01-01'"
+    recommendation: "Rewrite filter dùng range (>=, <) thay vì function trên partition column"
+
+  - pattern: "Inventory blocking"
+    description: "UPDATE Inventory với explicit transaction giữ lock lâu trong peak hours"
+    recommendation: "Dùng READ_COMMITTED_SNAPSHOT hoặc xem xét optimistic locking"
+
+  - pattern: "CDC version store pressure"
+    description: "TempDB version store tăng mạnh 08:00–10:00 do CDC scan + high DML"
+    recommendation: "Monitor sys.dm_tran_version_store_space_usage, xem xét tách CDC sang Secondary"
+
+# ── Resource Governor pools ───────────────────────────────────────────────────
+resource_governor:
+  pools:
+    - name: PoolOLTP
+      description: "Queries từ application servers — giới hạn 70% CPU"
+      workload_groups: ["WGOrderProcessing", "WGReporting"]
+
+    - name: PoolMaintenance
+      description: "Backup, index rebuild, stats update — giới hạn 20% CPU, chạy off-peak"
+      workload_groups: ["WGMaintenance"]
+
+    - name: PoolDefault
+      description: "Các connection không classify được — giới hạn 10% CPU"
+      workload_groups: ["WGDefault"]
+
+# ── AG topology ──────────────────────────────────────────────────────────────
+ag_topology:
+  description: "1 Primary + 2 Secondary synchronous commit"
+  readable_secondary: true
+  secondary_usage: "Reporting queries được route sang Secondary để giảm tải Primary"
+  cdc_note: "CDC chỉ chạy trên Primary. Secondary replica không có CDC."
+
+# ── Maintenance windows ───────────────────────────────────────────────────────
+maintenance:
+  index_rebuild: "Chủ Nhật 02:00–05:00 +07 — PoolMaintenance"
+  stats_update: "Hàng ngày 03:00 +07 — auto stats update enabled"
+  backup_full: "Chủ Nhật 01:00 +07"
+  backup_diff: "Hàng ngày 23:00 +07"

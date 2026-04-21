@@ -5,8 +5,8 @@ Chạy trong daemon thread song song với APScheduler.
 Long-poll getUpdates (timeout=25s) để nhận command từ user.
 
 Hỗ trợ 2 cách gọi /analyze:
-  1. Reply vào alert message → bot đọc finding_id từ dòng "🔗 ID: ..."
-  2. /analyze <8-char-id>  → tìm finding theo prefix
+  1. Reply vào alert message → bot đọc finding_id đầy đủ từ dòng "🔗 ID: ..."
+  2. /analyze <finding_id>  → tìm finding theo ID đầy đủ (UUIDv4)
 
 Sau khi resolve finding, load analysis_config từ monitor_topics →
 build prompt → gọi Claude API → gửi kết quả về Telegram.
@@ -106,32 +106,33 @@ class TelegramBot:
 
         logger.info("TelegramBot: /analyze received from %s", sender)
 
-        finding_id_prefix = self._resolve_finding_id(text, message)
+        finding_id = self._resolve_finding_id(text, message)
 
-        if not finding_id_prefix:
+        if not finding_id:
             logger.warning("TelegramBot: /analyze without finding_id from %s", sender)
             self._send(chat_id, "Usage: /analyze &lt;finding_id&gt;\nHoặc reply trực tiếp vào alert message.")
             return
 
         logger.info(
-            "TelegramBot: looking up finding prefix=%s requested_by=%s",
-            finding_id_prefix, sender,
+            "TelegramBot: looking up finding id=%s requested_by=%s",
+            finding_id, sender,
         )
 
-        finding = self._findings_repo.find_by_id_prefix(finding_id_prefix)
+        finding = self._findings_repo.find_by_id(finding_id) \
+            or self._findings_repo.find_by_id_prefix(finding_id)
         if not finding:
             logger.warning(
-                "TelegramBot: finding not found prefix=%s requested_by=%s",
-                finding_id_prefix, sender,
+                "TelegramBot: finding not found id=%s requested_by=%s",
+                finding_id, sender,
             )
-            self._send(chat_id, f"❌ Không tìm thấy finding: <code>{finding_id_prefix}</code>")
+            self._send(chat_id, f"❌ Không tìm thấy finding: <code>{finding_id}</code>")
             return
 
         topic = self._topic_repo.find_by_id(finding.topic_id)
         if not topic or not topic.analysis_config:
             logger.warning(
                 "TelegramBot: no analysis_config for topic=%s finding=%s",
-                finding.topic_id, finding_id_prefix,
+                finding.topic_id, finding_id,
             )
             self._send(
                 chat_id,
@@ -143,7 +144,7 @@ class TelegramBot:
         self._send(chat_id, "⏳ Đang phân tích với Claude AI...")
         logger.info(
             "TelegramBot: calling Claude API finding=%s topic=%s requested_by=%s",
-            finding.finding_id[:8], finding.topic_id, sender,
+            finding.finding_id, finding.topic_id, sender,
         )
 
         try:
@@ -151,12 +152,12 @@ class TelegramBot:
             self._send(chat_id, self._format_analysis_result(finding, result))
             logger.info(
                 "TelegramBot: analysis sent finding=%s requested_by=%s",
-                finding.finding_id[:8], sender,
+                finding.finding_id, sender,
             )
         except Exception as exc:
             logger.error(
                 "TelegramBot: analyze failed finding=%s requested_by=%s error=%s",
-                finding_id_prefix, sender, exc,
+                finding_id, sender, exc,
             )
             self._send(chat_id, f"❌ Lỗi phân tích: {exc}")
 
@@ -184,7 +185,7 @@ class TelegramBot:
             f"🕐 Time:   {time_str}",
             "",
         ])
-        footer = f"\n\n🔗 Finding: <code>{finding.finding_id[:8]}</code>"
+        footer = f"\n\n🔗 Finding: <code>{finding.finding_id}</code>"
         # Telegram giới hạn 4096 ký tự — cắt phần analysis nếu cần
         max_analysis = 4096 - len(header) - len(footer)
         return header + html.escape(analysis_text[:max_analysis]) + footer
@@ -203,7 +204,8 @@ class TelegramBot:
         reply_text = (message.get("reply_to_message") or {}).get("text", "")
         for line in reply_text.splitlines():
             if "ID:" in line:
-                m = re.search(r"ID:\s*([0-9a-f]{8,})", line)
+                # Match full UUIDv4: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                m = re.search(r"ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", line)
                 if m:
                     return m.group(1)
 

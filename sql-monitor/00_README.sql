@@ -1,0 +1,106 @@
+-- ============================================================================
+-- SQL SERVER 2019 ENTERPRISE - MONITORING TOOLKIT
+-- ============================================================================
+--
+-- THU TU CHAY KHI CO VAN DE PERFORMANCE:
+--
+--   BUOC 1: Xac dinh bottleneck tong the
+--   → 07_check_waits.sql (Section 1: Top Wait Types)
+--     Xem SQL Server dang cho gi nhieu nhat → biet nen drill down huong nao
+--
+--   BUOC 2: Drill down theo bottleneck
+--   → Neu wait la PAGEIOLATCH/IO     → 03_check_disk_io.sql
+--   → Neu wait la LCK_M_*            → 04_check_session_blocking.sql
+--   → Neu wait la SOS_SCHEDULER_YIELD → 01_check_cpu.sql
+--   → Neu wait la RESOURCE_SEMAPHORE  → 02_check_memory.sql
+--   → Neu wait la CXPACKET           → Kiem tra MAXDOP setting
+--
+--   BUOC 3: Tim query cu the gay van de
+--   → 06_check_query_slow.sql
+--
+--   BUOC 4: Toi uu index
+--   → 05_check_index.sql (Missing Index, Unused Index, Fragmentation)
+--
+-- THU TU CHAY KHI "UNG DUNG BI TREO":
+--   1. 04_check_session_blocking.sql → Tim blocking chain
+--   2. 06_check_query_slow.sql       → Tim query cham
+--   3. 01_check_cpu.sql              → CPU co bi full khong
+--
+-- CHAY DINH KY (PROACTIVE MONITORING):
+--   Hang ngay:   01_check_cpu.sql, 06_check_query_slow.sql (Section 1)
+--   Hang tuan:   05_check_index.sql (Missing + Unused Index)
+--   Hang thang:  05_check_index.sql (Fragmentation), 03_check_disk_io.sql
+--   Sau restart:  07_check_waits.sql (reset baseline)
+--
+-- ============================================================================
+-- DANH SACH FILE:
+-- ============================================================================
+--
+-- 01_check_cpu.sql
+--    - CPU hien tai (SQL vs Other vs Idle)
+--    - Lich su CPU 30 phut
+--    - Top query ton CPU (dang chay + plan cache)
+--    - Scheduler health
+--
+-- 02_check_memory.sql
+--    - Tong quan memory SQL Server
+--    - Buffer pool usage theo database
+--    - Page Life Expectancy (PLE) - chi so quan trong nhat
+--    - Memory grants (query cho cap phat RAM)
+--    - Memory clerks breakdown
+--    - Kiem tra cau hinh memory
+--
+-- 03_check_disk_io.sql
+--    - I/O latency theo file (QUAN TRONG NHAT cho disk)
+--    - Pending I/O requests
+--    - Top database theo I/O
+--    - File growth events
+--    - File size va free space
+--
+-- 04_check_session_blocking.sql
+--    - Blocking chain hien tai
+--    - Head blocker detection
+--    - Open transactions (sleeping + open tran = nguy hiem)
+--    - Lock detail
+--    - Deadlock history
+--
+-- 05_check_index.sql
+--    - Missing index (SQL Server de xuat + auto-generate CREATE INDEX)
+--    - Unused index (xoa de tang performance ghi)
+--    - Index fragmentation (REBUILD vs REORGANIZE)
+--    - Duplicate index
+--    - SQL Server uptime (de biet stats co tin cay khong)
+--
+-- 06_check_query_slow.sql
+--    - Active slow queries (dang chay)
+--    - Top query cham trong plan cache (tich luy)
+--    - Query Store regressed queries
+--    - Parameter sniffing detection
+--    - Statistics cu can update
+--
+-- 07_check_waits.sql
+--    - Top wait types (phan loai va goi y action)
+--    - Signal wait ratio (CPU bottleneck?)
+--    - Real-time waiting tasks
+--
+-- ============================================================================
+-- LUU Y CHUNG:
+-- ============================================================================
+-- 1. Hau het DMV stats bi RESET khi restart SQL Server
+--    → Luon kiem tra uptime truoc khi ra quyet dinh (05_check_index.sql Section 5)
+--
+-- 2. KHONG chay 05_check_index.sql Section 3 (Fragmentation) trong gio cao diem
+--    → Query nay scan moi index, co the gay I/O spike
+--
+-- 3. Cac query trong toolkit nay KHONG thay doi data, chi doc DMV
+--    NGOAI TRU: DBCC SQLPERF CLEAR (07_check_waits.sql Section 4) - can uncomment
+--
+-- 4. Nen chay tren SSMS voi Results to Grid de xem query plan XML
+--
+-- 5. Enterprise 2019 features can luu y:
+--    - Query Store co Custom Capture Policy
+--    - Intelligent Query Processing (Adaptive Joins, Memory Grant Feedback)
+--    - ONLINE index operations khong block query
+--    - Accelerated Database Recovery (faster rollback)
+--    - Memory-Optimized TempDB Metadata
+-- ============================================================================

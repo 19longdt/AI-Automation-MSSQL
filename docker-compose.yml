@@ -1,16 +1,26 @@
 services:
 
   # ── Layer 1: Python Monitoring Service ──────────────────────────────────────
-  # LAYER1_IMAGE cho phép chỉ định image từ registry mà không cần source code.
-  # Nếu không set → dùng local image tên "ai-automation-mssql/layer1:latest".
+  # 3 chế độ build:
   #
-  # Build local:   docker compose build
-  # Dùng registry: LAYER1_IMAGE=ghcr.io/org/layer1:v1.2 docker compose pull && docker compose up -d
+  #   Separate (default):
+  #     docker build -f Dockerfile -t ai-automation-mssql/layer1:vX .
+  #     LAYER1_IMAGE=ai-automation-mssql/layer1:vX docker compose up -d layer1
+  #
+  #   Combined (1 image cho cả 2 layers):
+  #     docker build -f Dockerfile.combined -t ai-automation-mssql:vX .
+  #     LAYER1_IMAGE=ai-automation-mssql:vX LAYER2_IMAGE=ai-automation-mssql:vX docker compose up -d
+  #
+  #   Registry:
+  #     LAYER1_IMAGE=ghcr.io/org/layer1:vX docker compose pull && docker compose up -d
   layer1:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: ${LAYER1_IMAGE:-ai-automation-mssql/layer1:latest}
     container_name: layer1-monitor
     restart: unless-stopped
+    command: ["python", "-m", "layer1.scheduler"]
 
     # Đọc env vars từ file .env trong cùng thư mục
     env_file: .env
@@ -26,6 +36,46 @@ services:
     volumes:
       # Mount để persistent queue survive container restart.
       - logstash_buffer:/var/lib/layer1/logstash
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Layer 2: AI Analysis Agent ───────────────────────────────────────────────
+  # Chạy FastAPI + Telegram bot phân tích on-demand.
+  # Dùng Telegram bot token RIÊNG (L2_TELEGRAM_BOT_TOKEN) để tránh polling conflict
+  # với Layer 1 bot.
+  #
+  # Build separate:  docker build -f Dockerfile.layer2 -t ai-automation-mssql/layer2:vX .
+  # Build combined:  dùng chung LAYER2_IMAGE với layer1 (xem comment layer1 service)
+  layer2:
+    build:
+      context: .
+      dockerfile: Dockerfile.layer2
+    image: ${LAYER2_IMAGE:-ai-automation-mssql/layer2:latest}
+    container_name: layer2-agent
+    restart: unless-stopped
+    command: ["python", "-m", "layer2.main"]
+
+    env_file: .env
+
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+      # Layer 2 dùng bot token riêng — set L2_TELEGRAM_BOT_TOKEN trong .env
+      TELEGRAM_BOT_TOKEN: ${L2_TELEGRAM_BOT_TOKEN}
+      LOGSTASH_DATABASE_PATH: /var/lib/layer2/logstash/queue.db
+
+    volumes:
+      - logstash_buffer_l2:/var/lib/layer2/logstash
+
+    ports:
+      - "8000:8000"
 
     depends_on:
       mongodb:
@@ -68,4 +118,6 @@ volumes:
   mongodb_data:
     driver: local
   logstash_buffer:
+    driver: local
+  logstash_buffer_l2:
     driver: local

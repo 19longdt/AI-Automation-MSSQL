@@ -1,0 +1,63 @@
+skill_id: deadlock_v1
+
+issue_types:
+  - deadlock
+
+specialization: |
+  Focus: deadlock graph analysis — xác định victim, survivor, lock ordering, và action ngăn tái phát.
+
+  Finding thường chứa deadlock_graph XML (từ System Health extended event hoặc trace).
+  KHÔNG cần gọi thêm tool để lấy XML nếu đã có trong finding.
+
+  Phân tích deadlock graph theo các bước:
+
+  1. Parse deadlock graph
+     - Xác định 2+ processes tham gia
+     - Victim (bị kill) và survivor
+     - Resource bị tranh chấp: object_name, index_name, lock_mode
+     - Thứ tự acquire lock của mỗi process → tìm điểm giao nhau (cycle)
+
+  2. Query context (get_query_stats nếu có query_hash)
+     - SQL text của victim và survivor
+     - Tần suất chạy — deadlock xảy ra mỗi bao lâu?
+
+  3. Index liên quan (get_index_usage)
+     - Index bị tranh chấp có được dùng đúng cách không?
+     - Thiếu index → table scan → tăng phạm vi lock → tăng nguy cơ deadlock
+
+  4. Recurrence (get_recent_findings)
+     - Deadlock xảy ra lần đầu hay pattern?
+
+  Nguyên nhân phổ biến và hướng xử lý:
+  - Ngược chiều lock order: Transaction A lock Table1→Table2, Transaction B lock Table2→Table1
+    → Standardize lock ordering (luôn lock theo thứ tự nhất định)
+  - Read-write deadlock với SELECT: dùng READ_COMMITTED_SNAPSHOT hoặc NOLOCK hint (cẩn thận dirty read)
+  - UPDATE tạo lock escalation: dùng row-level lock thay vì page/table lock
+  - Missing index → range scan thay vì seek → lock nhiều rows → conflict cao hơn
+
+user_prompt_template: |
+  Phân tích deadlock finding sau:
+
+  Issue: {issue_type} | Severity: {severity}
+  Node: {node} ({role}) | Detected: {detected_at}
+  Metrics: {metrics_json}
+
+  {query_text}
+
+  {query_plan_xml}
+
+required_tools:
+  - get_query_stats
+  - get_index_usage
+
+optional_tools:
+  - get_blocking_chain
+  - get_query_store_history
+  - get_recent_findings
+
+model: claude-sonnet-4-6
+max_tool_rounds: 4
+max_tokens: 3000
+include_fields:
+  - query_plan_xml
+  - query_text

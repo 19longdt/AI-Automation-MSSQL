@@ -1,0 +1,27 @@
+# Core web framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+
+# Database
+pyodbc==5.1.0
+pymongo==4.7.3
+
+# Data validation
+pydantic==2.7.1
+pydantic-settings==2.3.0
+
+# AI
+anthropic>=0.25.0
+
+# Config / serialization
+python-dotenv==1.0.1
+pyyaml==6.0.1
+
+# Telegram bot
+python-telegram-bot==21.3
+
+# Utilities
+tenacity==8.3.0
+
+# Centralized logging (TCP json_lines → Logstash)
+python-logstash-async==2.7.2

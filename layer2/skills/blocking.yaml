@@ -1,0 +1,58 @@
+skill_id: blocking_v1
+
+issue_types:
+  - blocking_chain
+  - blocked_query_snapshot
+  - blocked_query_trend
+
+specialization: |
+  Focus: blocking chain, session giữ lock lâu, và xu hướng blocking tăng dần.
+
+  Kiểm tra theo thứ tự ưu tiên:
+
+  1. Blocking chain hiện tại (get_blocking_chain)
+     - Xác định head blocker: session nào đang giữ lock gốc?
+     - Transaction duration của head blocker — mở bao lâu rồi?
+     - Lock type: shared (S), exclusive (X), update (U), intent (IS/IX)?
+     - Command đang chạy: SELECT, INSERT, UPDATE, DELETE, hay AWAITING COMMAND?
+     - AWAITING COMMAND với transaction dài → application chưa commit/rollback
+
+  2. Wait stats của victim sessions (get_wait_stats)
+     - LCK_M_S / LCK_M_X / LCK_M_U: xác nhận loại lock đang chờ
+     - Wait time tích lũy → đánh giá mức độ nghiêm trọng
+
+  3. Query context của head blocker (get_query_stats)
+     - SQL text của session đang giữ lock
+     - Plan handle → xem query có dùng index hợp lý không?
+     - Nếu head blocker là UPDATE/DELETE trên Inventory hoặc Orders → blocking thường xuyên trong peak hours
+
+  4. Recurrence check (get_recent_findings)
+     - Blocking xảy ra lần đầu hay recurring?
+     - Nếu recurring với cùng head blocker query → systemic issue
+
+  Phân tích kết quả:
+  - Head blocker là SELECT (S lock lâu) → xem xét READ_COMMITTED_SNAPSHOT isolation
+  - Head blocker là UPDATE chưa commit → application bug (missing commit) hoặc long transaction
+  - Blocking_chain_depth > 5 → cascading blocks, cần giải quyết root transaction
+  - blocked_query_trend tăng dần → workload tăng hoặc index thay đổi gây nhiều scan hơn
+
+user_prompt_template: |
+  Phân tích blocking finding sau:
+
+  Issue: {issue_type} | Severity: {severity}
+  Node: {node} ({role}) | Detected: {detected_at}
+  Metrics: {metrics_json}
+
+required_tools:
+  - get_blocking_chain
+  - get_wait_stats
+
+optional_tools:
+  - get_query_stats
+  - get_query_store_history
+  - get_recent_findings
+
+model: claude-sonnet-4-6
+max_tool_rounds: 4
+max_tokens: 3000
+include_fields: []

@@ -1,0 +1,54 @@
+skill_id: generic
+
+issue_types:
+  - generic
+
+specialization: |
+  Fallback skill cho issue_type chưa có skill chuyên biệt.
+
+  Tiếp cận tổng quát — thu thập đủ context trước khi phân tích:
+
+  1. Wait stats hiện tại (get_wait_stats)
+     - Top 5 wait types — định hướng vùng vấn đề: I/O, CPU, lock, memory, network?
+
+  2. Query đang chạy tốn nhiều tài nguyên (get_query_stats)
+     - Top queries theo CPU, elapsed time, logical reads
+     - Có query nào bất thường không?
+
+  3. Blocking nếu có LCK waits (get_blocking_chain)
+
+  4. Resource Governor nếu CPU/memory wait cao (get_resource_governor_stats)
+
+  5. Findings gần đây để context (get_recent_findings)
+     - Có related issues không?
+
+  Không ép buộc phân tích theo framework cố định — dựa vào data thu thập được để xác định
+  root cause thực sự. Nếu không có đủ data, đề xuất DBA thu thập thêm thông tin cụ thể.
+
+user_prompt_template: |
+  Phân tích finding sau:
+
+  Issue: {issue_type} | Severity: {severity}
+  Node: {node} ({role}) | Detected: {detected_at}
+  Metrics: {metrics_json}
+
+  {query_text}
+
+required_tools: []
+
+optional_tools:
+  - get_wait_stats
+  - get_query_stats
+  - get_blocking_chain
+  - get_resource_governor_stats
+  - get_recent_findings
+  - get_tempdb_usage
+  - get_ag_status
+  - get_memory_pressure
+  - get_cdc_status
+
+model: claude-sonnet-4-6
+max_tool_rounds: 4
+max_tokens: 3000
+include_fields:
+  - query_text
