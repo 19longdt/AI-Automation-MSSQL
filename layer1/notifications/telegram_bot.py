@@ -1,14 +1,17 @@
 """
-telegram_bot.py — Telegram Bot polling + /quick + /analyze command handlers.
+telegram_bot.py — Layer 1 Telegram Bot polling + /quick command handler.
 
 Chạy trong daemon thread song song với APScheduler.
-Long-poll getUpdates (timeout=25s) để nhận command từ user.
+Long-poll getUpdates (timeout=25s) để nhận /quick command từ user.
 
-Hỗ trợ 2 lệnh:
+Hỗ trợ 1 lệnh:
   /quick <finding_id>  → Layer 1 Haiku model (nhanh, phân tích sơ bộ)
-  /analyze <finding_id> → Layer 2 agent (full orchestration, tools, Sonnet)
+                         Gửi file .txt + caption metadata
 
-Cả 2 lệnh hỗ trợ reply vào alert message để lấy finding_id tự động.
+Hỗ trợ reply vào alert message để lấy finding_id tự động.
+
+NOTE: /analyze command được xử lý bởi Layer 2 bot riêng (token khác) —
+      tránh conflict với multi-turn session của Layer 2.
 """
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ import html
 import json
 import logging
 import re
-import socket
+import secrets
 import threading
 import time
 import urllib.error
@@ -35,10 +38,11 @@ logger = logging.getLogger(__name__)
 
 class TelegramBot:
     """
-    Polling bot nhận /quick + /analyze commands.
+    Polling bot Layer 1 nhận /quick command.
 
-    /quick: Dùng Haiku model Layer 1 — phân tích nhanh, rẻ
-    /analyze: Forward tới Layer 2 agent — full orchestration
+    /quick: Dùng Haiku model Layer 1 — phân tích nhanh, rẻ, gửi file .txt
+
+    /analyze: Được xử lý bởi Layer 2 bot riêng (token TELEGRAM_BOT_TOKEN khác).
 
     Thread-safe: chỉ 1 daemon thread, không share state với APScheduler.
     """
@@ -50,13 +54,11 @@ class TelegramBot:
         findings_repo: FindingsRepo,
         topic_repo: TopicRepo,
         analyzer: PlanAnalyzer | None,  # None nếu không có claude_api_key
-        layer2_url: str = "",
     ) -> None:
         self._chat_id = chat_id
         self._findings_repo = findings_repo
         self._topic_repo = topic_repo
         self._analyzer = analyzer
-        self._layer2_url = layer2_url.rstrip("/") if layer2_url else ""
         self._api_base = f"https://api.telegram.org/bot{bot_token}"
 
     def start(self) -> None:
@@ -110,7 +112,69 @@ class TelegramBot:
         if text.startswith("/quick"):
             self._handle_quick(chat_id, text, message, sender)
         elif text.startswith("/analyze"):
-            self._handle_analyze(chat_id, text, message, sender)
+            self._handle_analyze(chat_id, text, sender)
+
+    def _handle_analyze(self, chat_id: int | str, text: str, sender: str) -> None:
+        """Xử lý /analyze — phân tích sâu với Layer 2 agent."""
+        from ..config import settings
+
+        if not settings.layer2_url:
+            logger.warning("TelegramBot: /analyze requested but LAYER2_URL not configured")
+            self._send(chat_id, "⚠️ <b>/analyze không khả dụng</b> — <code>LAYER2_URL</code> chưa set.")
+            return
+
+        parts = text.split(maxsplit=1)
+        finding_id = parts[1].strip() if len(parts) > 1 else ""
+        if not finding_id:
+            logger.warning("TelegramBot: /analyze without finding_id from %s", sender)
+            self._send(chat_id, "Usage: /analyze &lt;finding_id&gt;")
+            return
+
+        logger.info(
+            "TelegramBot: /analyze forwarding to Layer 2 finding_id=%s requested_by=%s",
+            finding_id[:8], sender,
+        )
+        self._send(chat_id, f"⏳ Phân tích sâu <code>{html.escape(finding_id[:8])}</code>... (Layer 2 agent)")
+
+        try:
+            payload = json.dumps({
+                "finding_id": finding_id,
+                "channel": "telegram",
+                "requested_by": sender,
+            }).encode()
+            url = f"{settings.layer2_url}/api/v1/analyze"
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            logger.debug("TelegramBot: /analyze POST to %s", url)
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                result = json.loads(resp.read())
+
+            analysis_text = result.get("analysis_text", "")
+            cost_usd = result.get("cost_usd", 0.0)
+            tool_calls = result.get("tool_calls", [])
+            duration_ms = result.get("total_duration_ms", 0)
+
+            caption = self._format_analyze_caption(finding_id, analysis_text, cost_usd, len(tool_calls), duration_ms)
+            filename = f"analyze_{finding_id[:8]}.txt"
+            self._send_document(chat_id, filename, analysis_text.encode("utf-8"), caption)
+            logger.info(
+                "TelegramBot: /analyze completed finding=%s requested_by=%s cost=%.6f duration=%dms",
+                finding_id[:8], sender, cost_usd, duration_ms,
+            )
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode(errors="replace")
+            logger.error("TelegramBot: /analyze HTTP %d: %s", exc.code, body[:200])
+            self._send(chat_id, f"❌ Layer 2 error ({exc.code}): {html.escape(body[:100])}")
+        except Exception as exc:
+            logger.error(
+                "TelegramBot: /analyze failed finding=%s requested_by=%s error=%s",
+                finding_id[:8], sender, exc,
+            )
+            self._send(chat_id, f"❌ Lỗi phân tích: {html.escape(str(exc)[:100])}")
 
     def _handle_quick(self, chat_id: int | str, text: str, message: dict, sender: str) -> None:
         """Xử lý /quick — phân tích nhanh với Haiku model (Layer 1)."""
@@ -161,7 +225,14 @@ class TelegramBot:
 
         try:
             analysis_response = self._analyzer.analyze(finding, topic.analysis_config)
-            self._send(chat_id, self._format_quick_result(finding, analysis_response))
+            root_cause, quick_fix, detail_text = self._extract_quick_summary(analysis_response.analysis_text)
+            logger.debug(
+                "TelegramBot /quick: extracted root_cause_len=%d quick_fix_len=%d detail_text_len=%d",
+                len(root_cause), len(quick_fix), len(detail_text),
+            )
+            caption = self._format_quick_caption(finding, analysis_response, root_cause, quick_fix)
+            filename = f"quick_{finding.finding_id[:8]}.txt"
+            self._send_document(chat_id, filename, detail_text.encode("utf-8"), caption)
             logger.info(
                 "TelegramBot: /quick analysis sent finding=%s requested_by=%s tokens=%d duration=%dms cost=%.4f",
                 finding.finding_id[:8], sender,
@@ -176,105 +247,6 @@ class TelegramBot:
             )
             self._send(chat_id, f"❌ Lỗi phân tích: {exc}")
 
-    def _handle_analyze(self, chat_id: int | str, text: str, message: dict, sender: str) -> None:
-        """Xử lý /analyze — forward tới Layer 2 agent."""
-        if not self._layer2_url:
-            logger.warning("TelegramBot: /analyze requested but LAYER2_URL not configured")
-            self._send(chat_id, "⚠️ <b>/analyze không khả dụng</b> — <code>LAYER2_URL</code> chưa set.")
-            return
-
-        finding_id = self._resolve_finding_id(text, message)
-        if not finding_id:
-            logger.warning("TelegramBot: /analyze without finding_id from %s", sender)
-            self._send(chat_id, "Usage: /analyze &lt;finding_id&gt;\nHoặc reply trực tiếp vào alert message.")
-            return
-
-        logger.info(
-            "TelegramBot: /analyze looking up finding id=%s requested_by=%s",
-            finding_id[:8], sender,
-        )
-
-        # Verify finding exists locally trước khi gửi Layer 2
-        finding = self._findings_repo.find_by_id(finding_id) \
-            or self._findings_repo.find_by_id_prefix(finding_id)
-        if not finding:
-            logger.warning(
-                "TelegramBot: /analyze finding not found id=%s requested_by=%s",
-                finding_id[:8], sender,
-            )
-            self._send(chat_id, f"❌ Không tìm thấy finding: <code>{finding_id}</code>")
-            return
-
-        self._send(chat_id, "🤖 Đang phân tích sâu với AI Agent...")
-        logger.info(
-            "TelegramBot: /analyze forwarding to Layer 2 finding=%s requested_by=%s",
-            finding.finding_id[:8], sender,
-        )
-
-        try:
-            # POST to Layer 2
-            payload = json.dumps({
-                "finding_id": finding_id,
-                "channel": "telegram",
-                "requested_by": sender,
-            }).encode()
-            req = urllib.request.Request(
-                f"{self._layer2_url}/api/v1/analyze",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                result_json = json.loads(resp.read())
-
-            analysis_text = result_json.get("analysis_text", "")
-            cost = result_json.get("cost_usd", 0.0)
-            tool_calls = len(result_json.get("tool_calls", []))
-            input_tokens = result_json.get("input_tokens", 0)
-            output_tokens = result_json.get("output_tokens", 0)
-            cache_read_tokens = result_json.get("cache_read_tokens", 0)
-            cache_creation_tokens = result_json.get("cache_creation_tokens", 0)
-            duration_ms = result_json.get("total_duration_ms", 0)
-
-            # Format và gửi kết quả
-            self._send(chat_id, self._format_layer2_result(
-                finding, analysis_text, cost, tool_calls,
-                input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-                duration_ms
-            ))
-            logger.info(
-                "TelegramBot: /analyze result sent finding=%s requested_by=%s cost=%.4f tools=%d tokens=%d cache_hit=%s duration=%dms",
-                finding.finding_id[:8], sender, cost, tool_calls,
-                input_tokens + output_tokens,
-                "YES" if cache_read_tokens > 0 else "NO",
-                duration_ms,
-            )
-        except socket.timeout:
-            logger.error(
-                "TelegramBot: /analyze Layer 2 timeout finding=%s requested_by=%s",
-                finding_id[:8], sender,
-            )
-            self._send(chat_id, "❌ Layer 2 agent timeout (>120s). Thử lại sau.")
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode(errors="replace")
-            logger.error(
-                "TelegramBot: /analyze Layer 2 HTTP %d finding=%s requested_by=%s body=%s",
-                exc.code, finding_id[:8], sender, body[:200],
-            )
-            self._send(chat_id, f"❌ Layer 2 lỗi: HTTP {exc.code}. Xem logs chi tiết.")
-        except urllib.error.URLError as exc:
-            logger.error(
-                "TelegramBot: /analyze Layer 2 connection error finding=%s requested_by=%s error=%s",
-                finding_id[:8], sender, exc,
-            )
-            self._send(chat_id, "❌ Không kết nối được Layer 2 agent. Kiểm tra LAYER2_URL.")
-        except Exception as exc:
-            logger.error(
-                "TelegramBot: /analyze unexpected error finding=%s requested_by=%s error=%s",
-                finding_id[:8], sender, exc,
-            )
-            self._send(chat_id, f"❌ Lỗi: {exc}")
-
     @staticmethod
     def _get_sender(message: dict) -> str:
         """Trả về chuỗi định danh người gửi: 'FirstName (@username, id=123)'."""
@@ -287,53 +259,90 @@ class TelegramBot:
         suffix = f"@{username}" if username else f"id={user_id}"
         return f"{name} ({suffix})"
 
-    def _format_quick_result(self, finding: Finding, response) -> str:
-        """Format kết quả /quick (Haiku) — ngắn gọn + metadata + clear separation."""
+    def _format_analyze_caption(self, finding_id: str, analysis_text: str, cost_usd: float, tool_calls_count: int, duration_ms: int) -> str:
+        """Caption cho document /analyze — metadata từ Layer 2 response."""
+        summary_lines = []
+        for line in analysis_text.split("\n")[:3]:
+            if line.strip():
+                summary_lines.append(line[:80])
+        summary = " ".join(summary_lines) if summary_lines else "(no summary)"
+
+        parts = [
+            "🤖 <b>Deep Analysis — Layer 2 Agent</b>",
+            "━━━━━━━━━━━━━━━━━━",
+            f"🔗 ID: <code>{html.escape(finding_id[:8])}</code>",
+            f"⏱️  {duration_ms}ms | 🔧 {tool_calls_count} tools | 💰 ${cost_usd:.6f}",
+            "",
+            f"📝 {html.escape(summary)}",
+            "",
+            "📄 Xem phân tích đầy đủ trong file đính kèm",
+        ]
+        return "\n".join(parts)
+
+    def _format_quick_caption(self, finding: Finding, response, root_cause: str, quick_fix: str) -> str:
+        """Caption cho document /quick — metadata + summary + link file."""
         time_str = finding.detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
         total_tokens = response.input_tokens + response.output_tokens
 
-        metadata = "\n".join([
+        parts = [
             f"⚡ <b>Quick Analysis — {html.escape(finding.issue_type.value)}</b>",
             "━━━━━━━━━━━━━━━━━━",
             f"🖥 Node: <code>{html.escape(finding.node)}</code> | 📋 <code>{html.escape(finding.topic_id)}</code>",
             f"🕐 {time_str} | 🤖 {html.escape(response.model)}",
             f"⏱️  {response.duration_ms}ms | 📊 {total_tokens}t | 💰 ${response.cost_usd:.6f}",
-        ])
+            f"🔗 ID: <code>{finding.finding_id}</code>",
+        ]
+        if root_cause:
+            parts.append("")
+            parts.append(f"💡 <b>Root cause:</b> {html.escape(root_cause)}")
+        if quick_fix:
+            parts.append(f"⚡ <b>Fix ngay:</b> {html.escape(quick_fix)}")
+        parts.append("")
+        parts.append("📄 Xem phân tích đầy đủ trong file đính kèm")
+        return "\n".join(parts)
 
-        divider = "\n" + "━" * 50 + "\n"
+    @staticmethod
+    def _extract_quick_summary(analysis_text: str) -> tuple[str, str, str]:
+        """
+        Parse structured output từ plan_analyzer.
+        Trả về (root_cause, quick_fix, full_detail_text).
+        full_detail_text là phần sau dòng '---' (phần phân tích chi tiết).
+        Nếu không có separator, toàn bộ text là full_detail_text.
+        """
+        root_cause = ""
+        quick_fix = ""
+        full_text = analysis_text
 
-        footer = f"\n\n🔗 ID: <code>{finding.finding_id[:8]}</code>"
-        # Estimate lengths để đảm bảo analysis_text không bị cắt quá ngắn
-        max_analysis = 4096 - len(metadata) - len(divider) - len(footer) - 50
+        lines = analysis_text.splitlines()
+        separator_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("ROOT_CAUSE:"):
+                root_cause = stripped[len("ROOT_CAUSE:"):].strip()
+            elif stripped.startswith("QUICK_FIX:"):
+                quick_fix = stripped[len("QUICK_FIX:"):].strip()
+            elif stripped == "---":
+                separator_idx = i
+                break
 
-        return metadata + divider + html.escape(response.analysis_text[:max_analysis]) + footer
+        if separator_idx is not None:
+            full_text = "\n".join(lines[separator_idx + 1:]).strip()
 
-    def _format_layer2_result(
-        self, finding: Finding, analysis_text: str, cost_usd: float, tool_calls_count: int,
-        input_tokens: int, output_tokens: int, cache_read_tokens: int, cache_creation_tokens: int,
-        duration_ms: int
-    ) -> str:
-        """Format kết quả /analyze (Layer 2 agent) — metadata + analysis + clear separation."""
-        time_str = finding.detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
-        total_tokens = input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens
-        cache_status = f"HIT ({cache_read_tokens:,} cached)" if cache_read_tokens > 0 else "MISS"
+        return root_cause, quick_fix, full_text
 
-        metadata = "\n".join([
-            f"🔍 <b>Agent Analysis — {html.escape(finding.issue_type.value)}</b>",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            f"🖥 Node: <code>{html.escape(finding.node)}</code> | 📋 <code>{html.escape(finding.topic_id)}</code>",
-            f"🕐 {time_str} | 🤖 <code>claude-sonnet-4-6</code>",
-            f"⏱️  {duration_ms}ms | 🔧 {tool_calls_count} tools | 💾 {cache_status}",
-            f"📊 {total_tokens:,}t (in: {input_tokens:,}, out: {output_tokens:,}) | 💰 ${cost_usd:.6f}",
-        ])
-
-        divider = "\n" + "━" * 50 + "\n"
-
-        footer = f"\n\n🔗 ID: <code>{finding.finding_id[:8]}</code>"
-        # Estimate lengths để đảm bảo analysis_text không bị cắt quá ngắn
-        max_analysis = 4096 - len(metadata) - len(divider) - len(footer) - 50
-
-        return metadata + divider + html.escape(analysis_text[:max_analysis]) + footer
+    @staticmethod
+    def _truncate_to_sentence(text: str, max_chars: int) -> str:
+        """Lấy tối đa max_chars ký tự từ text, cắt tại cuối câu gần nhất."""
+        if not text:
+            return ""
+        if len(text) <= max_chars:
+            return text.strip()
+        chunk = text[:max_chars]
+        for sep in (".", "!", "?", "\n"):
+            idx = chunk.rfind(sep)
+            if idx > max_chars // 2:
+                return chunk[:idx + 1].strip()
+        return chunk.strip() + "..."
 
     def _resolve_finding_id(self, text: str, message: dict) -> str | None:
         """
@@ -379,3 +388,46 @@ class TelegramBot:
             logger.error("TelegramBot send HTTP %d: %s", exc.code, body)
         except Exception as exc:
             logger.error("TelegramBot send failed: %s", exc)
+
+    def _send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str) -> None:
+        """Gửi file document với caption HTML. Dùng multipart/form-data, không raise."""
+        try:
+            boundary = f"----LayerOneBot{secrets.token_hex(12)}"
+            body = bytearray()
+
+            def _field(name: str, value: str) -> None:
+                body.extend(f"--{boundary}\r\n".encode())
+                body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+                body.extend(value.encode("utf-8"))
+                body.extend(b"\r\n")
+
+            _field("chat_id", str(chat_id))
+            # Telegram caption limit: 1024 chars
+            _field("caption", caption[:1024])
+            _field("parse_mode", "HTML")
+
+            body.extend(f"--{boundary}\r\n".encode())
+            body.extend(
+                f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode()
+            )
+            body.extend(b"Content-Type: text/plain; charset=utf-8\r\n\r\n")
+            body.extend(content)
+            body.extend(b"\r\n")
+            body.extend(f"--{boundary}--\r\n".encode())
+
+            req = urllib.request.Request(
+                f"{self._api_base}/sendDocument",
+                data=bytes(body),
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST",
+            )
+            logger.debug("TelegramBot sendDocument: chat_id=%s filename=%s content_size=%d", chat_id, filename, len(content))
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                logger.info("TelegramBot sendDocument: success chat_id=%s filename=%s status=%d", chat_id, filename, resp.status)
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode(errors="replace")
+            logger.error("TelegramBot sendDocument HTTP %d chat_id=%s filename=%s: %s", exc.code, chat_id, filename, err_body[:500])
+        except urllib.error.URLError as exc:
+            logger.error("TelegramBot sendDocument URLError chat_id=%s filename=%s: %s", chat_id, filename, exc)
+        except Exception as exc:
+            logger.error("TelegramBot sendDocument failed chat_id=%s filename=%s: %s", chat_id, filename, exc, exc_info=True)

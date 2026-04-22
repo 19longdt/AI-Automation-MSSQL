@@ -113,8 +113,12 @@ class PlanAnalyzer:
                 lines.append("")
 
         lines += [
-            "Yêu cầu (ngắn gọn, Tiếng Việt, KHÔNG dùng markdown):",
-            "1. Root cause là gì?",
+            "Trả lời theo đúng định dạng sau (giữ nguyên 2 dòng đầu và dấu ---):",
+            "ROOT_CAUSE: <1 câu ngắn gọn — vấn đề chính>",
+            "QUICK_FIX: <1 hành động ưu tiên cao nhất>",
+            "---",
+            "Phân tích chi tiết (Tiếng Việt, KHÔNG dùng markdown):",
+            "1. Root cause chi tiết là gì?",
             "2. Các vấn đề phát hiện được?",
             "3. Action items cụ thể, ưu tiên theo impact.",
         ]

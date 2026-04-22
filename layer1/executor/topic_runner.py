@@ -203,7 +203,7 @@ class TopicRunner:
 
         finding_hash = finding.finding_hash()
         if not self._dedup_repo.should_alert(finding_hash, self._dedup_suppress_min):
-            logger.info(
+            logger.debug(
                 "Dedup suppressed: topic=%s issue_type=%s node=%s suppress_min=%d",
                 finding.topic_id, finding.issue_type.value, finding.node, self._dedup_suppress_min,
             )

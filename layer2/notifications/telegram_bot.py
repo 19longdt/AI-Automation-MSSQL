@@ -64,6 +64,41 @@ class TelegramBot:
         thread = threading.Thread(target=self._poll_loop, daemon=True, name="layer2-telegram-bot")
         thread.start()
 
+    def send_startup(
+        self,
+        skills: list,
+        primary: str | None,
+        secondaries: list[str],
+        model: str,
+        timeout_sec: int,
+        peak_start: int,
+        peak_end: int,
+    ) -> None:
+        """Gửi thông báo khởi động Layer 2 khi deploy mới."""
+        time_str = now_vn().strftime("%Y-%m-%d %H:%M:%S +07")
+        nodes_primary = f"<code>{html.escape(primary)}</code>" if primary else "<i>unknown</i>"
+        nodes_secondary = ", ".join(html.escape(n) for n in secondaries) if secondaries else "<i>none</i>"
+        commands = "/analyze &lt;id&gt; · /summary"
+
+        secondary_line = f"🔄 Secondary: <code>{nodes_secondary}</code>" if secondaries else "🔄 Secondary: <i>none</i>"
+        parts = [
+            "🤖 <b>Layer 2 Agent — Deploy mới</b>",
+            "━━━━━━━━━━━━━━━━━━",
+            f"🕐 {time_str}",
+            f"🧠 Model:   <code>{html.escape(model)}</code>",
+            f"🛠 Skills:  {len(skills)} loaded",
+            f"🖥 Primary:   {nodes_primary}",
+            secondary_line,
+            f"⏱ Timeout:  {timeout_sec}s | ⚡ Peak: {peak_start:02d}:00–{peak_end:02d}:00",
+            f"📌 Commands: {commands}",
+        ]
+        text = "\n".join(parts)
+        try:
+            self._send(self._chat_id, text)
+            logger.info("TelegramBot: startup notification sent")
+        except Exception as exc:
+            logger.error("TelegramBot: send_startup failed: %s", exc)
+
     # ── Poll loop ─────────────────────────────────────────────────────────────
 
     def _poll_loop(self) -> None:

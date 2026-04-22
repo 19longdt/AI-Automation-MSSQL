@@ -130,7 +130,7 @@ class BaselineDetector:
             if k != config.metric_field and isinstance(v, (int, float, str, bool, type(None))):
                 metrics[k] = v
 
-        logger.info(
+        logger.debug(
             "baseline_detector: FINDING topic=%s field=%s value=%.2f baseline_avg=%s node=%s",
             topic.topic_id, config.metric_field, value, baseline_avg, node,
         )

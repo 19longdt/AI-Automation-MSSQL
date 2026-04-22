@@ -59,6 +59,51 @@
 
 Chọn **một** trong 3 cách build:
 
+### Cách 0 — Auto build script (khuyến nghị nhất)
+
+**Version quản lý tự động** — mỗi layer có version riêng, auto-increment patch.
+
+Scripts:
+- `build.sh` (Linux/Mac)
+- `build.ps1` (Windows PowerShell)
+
+**Cách dùng:**
+
+```bash
+# Build cả 2 layer, increment version từng layer
+./build.sh
+# → layer1: v0.0.4 (từ .version.layer1)
+# → layer2: v0.0.5 (từ .version.layer2)
+
+# Build chỉ layer1
+./build.sh layer1
+
+# Build chỉ layer2
+./build.sh layer2
+
+# Set layer1 version = 0.1.0 + build (rồi increment → v0.1.1)
+./build.sh --set-version layer1 0.1.0
+
+# Set layer2 version = 0.2.0 + build
+./build.sh --set-version layer2 0.2.0
+```
+
+**Windows PowerShell:**
+```powershell
+# Build cả 2 layer
+.\build.ps1
+
+# Build chỉ layer1
+.\build.ps1 -Layer layer1
+
+# Build chỉ layer2
+.\build.ps1 -Layer layer2
+```
+
+**Files:**
+- `.version.layer1` — version layer1 hiện tại
+- `.version.layer2` — version layer2 hiện tại
+
 ### Cách A — Separate images (khuyến nghị)
 
 Build và push riêng từng layer — deploy độc lập, update từng layer không ảnh hưởng layer kia.
@@ -203,16 +248,50 @@ LAYER2_IMAGE=19longdt/ai-automation-mssql:v1.0.0
 
 ### Bước 4: Pull và start
 
-**Chỉ Layer 1:**
+**Cách thủ công:**
+
+Chỉ Layer 1:
 ```bash
 docker compose pull layer1
 docker compose up -d layer1
 ```
 
-**Cả 2 layer:**
+Cả 2 layer:
 ```bash
 docker compose pull
 docker compose up -d
+```
+
+**Cách tự động dùng deploy script:**
+
+Từ build machine:
+```bash
+# Pull + restart layer1 trên server
+./deploy.sh --remote layer1
+
+# Pull + restart layer2 trên server
+./deploy.sh --remote layer2
+
+# Pull + restart cả 2 layer
+./deploy.sh --remote
+```
+
+**Config cho deploy script:**
+```bash
+# Trước khi chạy, set biến môi trường
+export SERVER_HOST=10.100.112.1
+export SERVER_USER=deploy
+export DOCKER_COMPOSE_PATH=/opt/ai-automation-mssql
+
+# Rồi chạy deploy
+./deploy.sh --remote layer1
+```
+
+**Hoặc edit trong script:**
+```bash
+SERVER_HOST="10.100.112.1"
+SERVER_USER="deploy"
+DOCKER_COMPOSE_PATH="/opt/ai-automation-mssql"
 ```
 
 **Thêm Layer 2 vào hệ thống đang chạy Layer 1:**
@@ -312,7 +391,41 @@ docker compose up -d                   # start lại tất cả
 
 ### Update lên version mới
 
-**Chỉ update Layer 1** (trên build machine):
+#### Cách 0 — Full-auto dùng build + deploy script (khuyến nghị)
+
+**Chỉ update Layer 1:**
+```bash
+# Build machine
+./build.sh layer1              # Build + push, auto-increment version
+./deploy.sh --remote layer1    # Pull + restart trên server
+```
+
+**Chỉ update Layer 2:**
+```bash
+# Build machine
+./build.sh layer2
+./deploy.sh --remote layer2
+```
+
+**Update cả 2 layer:**
+```bash
+# Build machine
+./build.sh                     # Auto-increment cả layer1 và layer2
+./deploy.sh --remote           # Pull + restart cả 2
+```
+
+**Set version cụ thể:**
+```bash
+# Build layer1 version 0.1.0 (rồi increment → v0.1.1)
+./build.sh --set-version layer1 0.1.0
+./deploy.sh --remote layer1
+
+# Build layer2 version 0.2.0 (rồi increment → v0.2.1)
+./build.sh --set-version layer2 0.2.0
+./deploy.sh --remote layer2
+```
+
+#### Cách 1 — Chỉ update Layer 1 (manual)
 ```bash
 VERSION=v1.0.1
 docker build -f Dockerfile -t 19longdt/ai-automation-mssql-layer1:${VERSION} \
@@ -330,7 +443,7 @@ docker compose pull layer1
 docker compose up -d layer1
 ```
 
-**Chỉ update Layer 2** (trên build machine):
+#### Cách 2 — Chỉ update Layer 2 (manual)
 ```bash
 VERSION=v1.0.1
 docker build -f Dockerfile.layer2 -t 19longdt/ai-automation-mssql-layer2:${VERSION} \
@@ -347,7 +460,7 @@ docker compose pull layer2
 docker compose up -d layer2
 ```
 
-**Update all-in-one** (trên build machine):
+#### Cách 3 — Update all-in-one (manual)
 ```bash
 VERSION=v1.0.1
 docker build -f Dockerfile.combined -t 19longdt/ai-automation-mssql:${VERSION} \

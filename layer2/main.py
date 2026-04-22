@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     app.state.orchestrator = orch
     app.state.db_context_repo = db_context_repo
 
-    _start_telegram_bot(orch)
+    _start_telegram_bot(orch, sl, nrc)
 
     refresh_task = asyncio.create_task(_node_role_refresh_loop(nrc))
 
@@ -82,7 +82,11 @@ async def lifespan(app: FastAPI):
     logger.info("Layer 2 shutdown.")
 
 
-def _start_telegram_bot(orch: AgentOrchestrator) -> None:
+def _start_telegram_bot(
+    orch: AgentOrchestrator,
+    sl: SkillLoader,
+    nrc: NodeRoleCache,
+) -> None:
     if not settings.telegram_bot_token or not settings.telegram_chat_id:
         logger.info("TelegramBot: skip (TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID chưa set).")
         return
@@ -90,6 +94,15 @@ def _start_telegram_bot(orch: AgentOrchestrator) -> None:
     bot = TelegramBot(settings.telegram_bot_token, settings.telegram_chat_id, orch)
     bot.start()
     logger.info("TelegramBot started.")
+    bot.send_startup(
+        skills=sl.list_skills(),
+        primary=nrc.get_primary_host(),
+        secondaries=nrc.get_secondary_hosts(),
+        model=settings.claude_model,
+        timeout_sec=settings.agent_timeout_sec,
+        peak_start=settings.peak_hours_start,
+        peak_end=settings.peak_hours_end,
+    )
 
 
 async def _node_role_refresh_loop(nrc: NodeRoleCache) -> None:

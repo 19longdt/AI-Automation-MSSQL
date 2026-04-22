@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class Layer2Settings(BaseSettings):
-    """Config đọc từ env vars / .env.layer2. Load 1 lần khi startup."""
+    """Config đọc từ env vars / .env (chung với Layer 1). Load 1 lần khi startup."""
 
     model_config = SettingsConfigDict(
-        env_file=".env.layer2",
+        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
@@ -68,8 +68,12 @@ class Layer2Settings(BaseSettings):
     claude_api_key: str = Field(...)
     claude_model: str = Field(default="claude-sonnet-4-6")
 
-    # ── Telegram ───────────────────────────────────────────────────────────────
-    telegram_bot_token: str = Field(default="")
+    # ── Telegram (Layer 2 bot — token riêng tránh polling conflict với Layer 1) ─
+    telegram_bot_token: str = Field(
+        default="",
+        validation_alias="l2_telegram_bot_token",
+        description="Layer 2 bot token — set L2_TELEGRAM_BOT_TOKEN trong .env. Để trống = bot disabled.",
+    )
     telegram_chat_id: str = Field(default="")
 
     # ── Agent Runtime ──────────────────────────────────────────────────────────

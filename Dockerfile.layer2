@@ -27,10 +27,11 @@ RUN apt-get update \
 WORKDIR /app
 
 # Cài Python dependencies trước khi copy source — tận dụng Docker layer cache.
+# Layer 2 có requirements.txt riêng tại layer2/requirements.txt
 COPY layer2/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
+# Copy source code — layer2/ vào /app/layer2/ để python -m layer2.main tìm được
 COPY layer2/ ./layer2/
 
 # Chạy bằng non-root user để giảm attack surface.

@@ -139,7 +139,6 @@ class Layer1Service:
                 findings_repo=findings_repo,
                 topic_repo=self._topic_repo,
                 analyzer=analyzer,
-                layer2_url=settings.layer2_url,
             ).start()
 
         # 7. TopicRunner
