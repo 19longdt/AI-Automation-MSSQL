@@ -325,7 +325,7 @@ Daemon thread (song song với APScheduler):
         → getUpdates (long-poll timeout=25s)
         → Dispatch:
            /quick <id>   → PlanAnalyzer(haiku_model) → reply ngay (5s)
-           /analyze <id> → HTTP POST http://layer2:8000/api/v1/analyze → reply khi done (30–90s)
+           reply to Layer 1 alert → extract finding_id → /quick or forward to Layer 2
 ```
 
 **Thread safety:**
@@ -350,23 +350,25 @@ Khi alert được gửi, user nhận Telegram message kèm `🔗 ID: <code>03cc
 - Dùng Haiku model (Claude) → `HAIKU_MODEL=claude-haiku-4-5-20251001`
 - Cần `CLAUDE_API_KEY` trong `.env`
 
-### `/analyze` — Phân tích sâu (Layer 2, Sonnet agent)
+### Reply vào Layer 1 Alert
 ```
-/analyze (reply vào alert)  → Layer 2 agent with tools, 30–90 giây
-/analyze <finding_id>       → Hoặc gõ trực tiếp
+reply (bất kỳ text) vào alert → Layer 1 bot extract finding_id
+  - Nếu text bắt đầu `/quick` → chạy Haiku analysis (Layer 1)
+  - Ngược lại → forward to Layer 2 (gọi POST /api/v1/analyze với telegram_chat_id)
+
+reply `/quick` vào alert → PlanAnalyzer(haiku_model) → Layer 1 gửi document
+reply (other text) vào alert → Layer 2 bot xử lý, gửi document trực tiếp
 ```
-- 🤖 Full orchestration: tools, prompt caching, agentic loop
-- Dùng Sonnet model (Claude) + Layer 2 agent
-- Cần `LAYER2_URL=http://layer2:8000` trong `.env`
-- Response bao gồm: analysis + tool_calls_count + cost_usd
+
+**Note**: Layer 1 bot **không xử lý `/analyze` command** nữa — chỉ Layer 2 bot listen `/analyze` (token khác).
 
 **Điều kiện để bot hoạt động:**
-- `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` phải set trong `.env`
+- `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` phải set trong `.env` (Layer 1)
 - **Để dùng `/quick`**: `CLAUDE_API_KEY` phải set
-- **Để dùng `/analyze`**: `LAYER2_URL` phải set
+- **Để dùng `/analyze`**: `LAYER2_URL` phải set + Layer 2 bot token `L2_TELEGRAM_BOT_TOKEN`
 - Topic trong MongoDB phải có `analysis_config` (nếu thiếu `/quick` báo rõ thay vì crash)
 
-**Không tự động phân tích** — chỉ khi DBA chủ động gõ lệnh.
+**Không tự động phân tích** — chỉ khi DBA chủ động reply alert hoặc gõ `/quick` command.
 
 ---
 

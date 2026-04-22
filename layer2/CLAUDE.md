@@ -5,12 +5,15 @@
 AI Agent phân tích sự cố MSSQL theo yêu cầu (on-demand).
 
 **Integration với Layer 1:**
-- DBA gõ `/analyze` trong Telegram → Layer 1 TelegramBot forward `POST http://layer2:8000/api/v1/analyze`
-- (Hoặc: external client call API trực tiếp)
+- **Reply to Layer 1 alert**: Layer 1 TelegramBot extract finding_id, forward `POST http://layer2:8000/api/v1/analyze` với `telegram_chat_id` → Layer 2 bot gửi document trực tiếp
+- **Direct `/analyze` command**: Layer 2 bot listen `/analyze` (token khác), gửi Telegram trực tiếp
+- **Reply to Layer 2 document**: Layer 2 bot nhận reply → multi-turn session; nếu session không tồn tại → fallback extract finding_id từ Layer 1 alert text → trigger analysis mới
+- (Hoặc: external client call API — Layer 2 chỉ trả JSON, không gửi Telegram)
 
 **Cơ chế:**
 Agent tự động query thêm MSSQL DMV để lấy data chẩn đoán, chọn skill phù hợp,
-trả về phân tích chuyên sâu qua Telegram reply hoặc REST API response.
+trả về phân tích chuyên sâu. Nếu `telegram_chat_id` có trong request → Layer 2 bot gửi Telegram trực tiếp;
+ngược lại API chỉ trả JSON response.
 
 **Data flow:**
 - Layer 2 đọc từ MongoDB `findings` (write bởi Layer 1 monitoring)
@@ -23,20 +26,23 @@ trả về phân tích chuyên sâu qua Telegram reply hoặc REST API response.
 ## Kiến trúc
 
 ```
-Layer 1 TelegramBot (Telegram /analyze)      External API client
-        │ HTTP POST                                   │ POST /api/v1/analyze
-        └────────────────┬───────────────────────────┘
-                         ▼
-                POST /api/v1/analyze (AnalysisRequest)
-                         ▼
-                AgentOrchestrator
+Layer 1 reply-to-alert       Layer 2 /analyze cmd      External API client
+        │                            │                        │
+        └──────────┬────────────────┬────────────────────────┘
+                   │ POST /api/v1/analyze (AnalysisRequest)
+                   │ + telegram_chat_id (from Layer 1 only)
+                   ▼
+            AgentOrchestrator
     ↓ load skill từ SkillLoader (YAML)
     ↓ build system prompt: base_prompt + specialization + db_context
     ↓ agentic loop: Claude ↔ DiagnosticExecutor → MSSQL DMV
     ↓ parse <insight> block → InsightRepo.upsert()
     ↓ tính cost_usd = calculate_cost(model, tokens)
     ↓ AnalysisRepo.update_completed(result)
-Telegram reply | API response
+    │
+    └─→ Nếu telegram_chat_id: TelegramBot.send_analysis_result() gửi Telegram
+    │                                      
+    └─→ API response trả JSON
 ```
 
 ---
@@ -74,7 +80,7 @@ layer2/
 │
 ├── models/
 │   ├── skill.py               ← AnalysisSkill Pydantic model
-│   └── analysis.py            ← AnalysisRequest, AnalysisResult (có cost_usd),
+│   └── analysis.py            ← AnalysisRequest (+ telegram_chat_id), AnalysisResult,
 │                                 ToolCallRecord, InsightData, InsightAction
 │
 ├── executor/
@@ -91,13 +97,17 @@ layer2/
 │       └── session_repo.py    ← Multi-turn Telegram session (TTL 8h)
 │
 ├── notifications/
-│   └── telegram_bot.py        ← Bot polling: /analyze, /summary, multi-turn reply (Phase 6)
+│   └── telegram_bot.py        ← Bot polling: /analyze, /summary, multi-turn reply
+│                                 + send_analysis_result() public method (for API-triggered sends)
+│                                 Reply handler: nếu không tìm thấy session → fallback parse
+│                                 finding_id từ Layer 1 alert format → trigger new analysis
 │
 ├── api/
 │   └── routes/
-│       ├── analysis.py        ← POST /analyze, GET /analyses/{id} (Phase 6)
-│       ├── insights.py        ← GET /insights, GET /insights/summary (Phase 6)
-│       ├── skills.py          ← GET /skills (Phase 6)
+│       ├── analysis.py        ← POST /analyze (+ call bot.send_analysis_result if telegram_chat_id),
+│       │                         GET /analyses/{id}
+│       ├── insights.py        ← GET /insights, GET /insights/summary
+│       ├── skills.py          ← GET /skills
 │       ├── admin.py           ← POST /admin/refresh-db-context (Phase 6)
 │       └── health.py          ← GET /health (Phase 6)
 │
@@ -152,8 +162,10 @@ Skills là **code artifact**, lưu trong git. Thay đổi prompt → sửa YAML 
 [3] MongoDB db_context                 ← schema, AG config, Resource Governor
 ```
 
-**`_base.yaml`** phải chứa instruction output `<insight>JSON</insight>` block ở cuối mỗi response.
-Orchestrator parse block này, strip khỏi analysis_text trước khi gửi DBA.
+**`_base.yaml`** chứa:
+- Instruction output plain text (KHÔNG markdown): `Định dạng output: plain text, KHÔNG dùng markdown`
+- Instruction output `<insight>JSON</insight>` block ở cuối mỗi response
+- Orchestrator parse insight block này, strip khỏi analysis_text trước khi gửi DBA
 
 **Skill YAML fields** (xem `models/skill.py`):
 - `skill_id`, `issue_types`, `specialization`, `user_prompt_template`
@@ -196,15 +208,17 @@ docker compose up -d layer2
 
 ```python
 # Startup sequence (main.py):
-1. Layer2Settings load
+1. _setup_logging()
 2. MongoConnection.initialize()
 3. create_all_indexes()
 4. SkillLoader.load_all(skills_dir)     ← fail fast nếu _base.yaml missing
-5. NodeRoleCache.refresh()
-6. DbContextRepo.is_stale() → auto-refresh nếu cần
-7. TelegramBot.start() (daemon thread)
+5. NodeRoleCache.initialize()           ← fail fast nếu cluster unreachable
+6. TelegramBot.start() (daemon thread) + send_startup() notification
+7. asyncio background task: NodeRoleCache.refresh() mỗi node_role_refresh_sec
 8. uvicorn.run(app)
 ```
+
+**Lưu ý:** `DbContextRepo` được khởi tạo nhưng không auto-refresh tại startup — context được load lazy khi `ContextBuilder` dùng đến.
 
 ---
 
@@ -227,10 +241,14 @@ Tóm tắt nhanh:
 |---|---|
 | **Skills trong YAML, không MongoDB** | Thay đổi prompt = code change = review + commit + deploy — intentional friction |
 | **`<insight>` block trong `_base.yaml`** | Dùng chung → nằm trong prompt cache static block → cache hit cho mọi skill |
+| **Plain text format instruction trong `_base.yaml`** | Claude mặc định dùng markdown; chỉ thị trực tiếp tốt hơn post-processing regex |
 | **Eager load skills tại startup** | Fail fast — phát hiện YAML broken ngay khi deploy, không phải khi có request |
 | **`cost_usd` lưu trong mỗi analysis** | Granular tracking — biết được từng phân tích tốn bao nhiêu |
 | **Tool whitelist + pre-written SQL** | Claude không thể inject SQL tùy ý — security + predictability |
 | **Session lưu text turns, không tool calls** | Tool calls đã có trong ai_analyses; session chỉ cần text để rebuild context |
+| **Layer 2 bot gửi Telegram trực tiếp** | `send_analysis_result()` public method; dùng được từ bot-internal + API route |
+| **`telegram_chat_id` trong AnalysisRequest** | Layer 1 forward request + đích chat; Layer 2 bot biết gửi kết quả đâu |
+| **Layer 1 bot chỉ `/quick` + reply-to-alert** | `/analyze` quyền của Layer 2 bot (token khác); Layer 1 chỉ forward |
 
 ---
 
