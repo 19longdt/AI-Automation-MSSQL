@@ -116,6 +116,7 @@ class AgentOrchestrator:
         # 2. Select skill
         skill = self._skill_loader.get_skill(issue_type)
         result.skill_id = skill.skill_id
+        result.model = skill.model or settings.claude_model
 
         # 3. Persist RUNNING sớm để callers có thể poll status
         result.status = AnalysisStatus.RUNNING
@@ -137,6 +138,11 @@ class AgentOrchestrator:
 
         # 7. Parse <insight> block — strips it from analysis_text
         insight = _extract_insight(result)
+
+        if insight:
+            result.root_cause_summary = insight.root_cause_summary
+            high_priority = [a.description for a in insight.actions if a.priority == "high"]
+            result.top_actions = high_priority[:2] if high_priority else [a.description for a in insight.actions[:2]]
 
         # 8. Tính cost từ token usage thực tế
         result.cost_usd = calculate_cost(

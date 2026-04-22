@@ -255,6 +255,10 @@ def _setup_logging() -> None:
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
+    # Suppress APScheduler job execution logs (too noisy)
+    logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler.schedulers.base").setLevel(logging.WARNING)
+
     if not settings.logstash_host:
         return
 

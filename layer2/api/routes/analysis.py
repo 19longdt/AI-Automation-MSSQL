@@ -19,11 +19,20 @@ async def trigger_analysis(request: Request, body: AnalysisRequest) -> AnalysisR
     """
     Trigger on-demand analysis cho 1 finding.
     Blocking — chờ đến khi analysis hoàn tất (có thể 30–90s).
+    Nếu body.telegram_chat_id có → Layer 2 bot gửi kết quả trực tiếp qua Telegram.
     """
     orch = request.app.state.orchestrator
     loop = asyncio.get_event_loop()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         result = await loop.run_in_executor(pool, orch.run, body)
+
+    if body.telegram_chat_id:
+        bot = getattr(request.app.state, "telegram_bot", None)
+        if bot is not None:
+            await loop.run_in_executor(None, bot.send_analysis_result, result, body.telegram_chat_id)
+        else:
+            logger.warning("trigger_analysis: telegram_chat_id set but TelegramBot not available")
+
     return result
 
 

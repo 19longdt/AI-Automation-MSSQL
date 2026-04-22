@@ -63,6 +63,10 @@ class AnalysisRequest(BaseModel):
         default=None,
         description="message_id của alert message — dùng để track multi-turn session",
     )
+    telegram_chat_id: str | None = Field(
+        default=None,
+        description="Chat ID để Layer 2 bot gửi kết quả trực tiếp (khi gọi từ Layer 1).",
+    )
     requested_by: str | None = None
     follow_up_text: str | None = Field(
         default=None,
@@ -93,6 +97,14 @@ class AnalysisResult(BaseModel):
     cache_creation_tokens: int = 0
     cost_usd: float = 0.0
     total_duration_ms: int | None = None
+
+    # Fields từ orchestrator sau analysis
+    model: str = Field(default="", description="Claude model đã dùng (e.g. claude-sonnet-4-6)")
+    root_cause_summary: str = Field(default="", description="Tóm tắt nguyên nhân từ InsightData")
+    top_actions: list[str] = Field(
+        default_factory=list,
+        description="Top 2 high-priority action descriptions từ InsightData",
+    )
 
     started_at: datetime = Field(default_factory=now_vn)
     completed_at: datetime | None = None

@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     app.state.orchestrator = orch
     app.state.db_context_repo = db_context_repo
 
-    _start_telegram_bot(orch, sl, nrc)
+    _start_telegram_bot(app, orch, sl, nrc)
 
     refresh_task = asyncio.create_task(_node_role_refresh_loop(nrc))
 
@@ -83,16 +83,19 @@ async def lifespan(app: FastAPI):
 
 
 def _start_telegram_bot(
+    app: FastAPI,
     orch: AgentOrchestrator,
     sl: SkillLoader,
     nrc: NodeRoleCache,
 ) -> None:
     if not settings.telegram_bot_token or not settings.telegram_chat_id:
         logger.info("TelegramBot: skip (TELEGRAM_BOT_TOKEN hoặc TELEGRAM_CHAT_ID chưa set).")
+        app.state.telegram_bot = None
         return
     from .notifications.telegram_bot import TelegramBot
     bot = TelegramBot(settings.telegram_bot_token, settings.telegram_chat_id, orch)
     bot.start()
+    app.state.telegram_bot = bot
     logger.info("TelegramBot started.")
     bot.send_startup(
         skills=sl.list_skills(),

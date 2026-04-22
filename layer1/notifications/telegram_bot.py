@@ -111,11 +111,22 @@ class TelegramBot:
 
         if text.startswith("/quick"):
             self._handle_quick(chat_id, text, message, sender)
-        elif text.startswith("/analyze"):
-            self._handle_analyze(chat_id, text, sender)
+        elif message.get("reply_to_message"):
+            self._handle_reply_to_alert(chat_id, text, message, sender)
 
-    def _handle_analyze(self, chat_id: int | str, text: str, sender: str) -> None:
-        """Xử lý /analyze — phân tích sâu với Layer 2 agent."""
+    def _handle_reply_to_alert(self, chat_id: int | str, text: str, message: dict, sender: str) -> None:
+        """Reply vào Layer 1 alert → /quick hoặc forward to Layer 2."""
+        finding_id = self._resolve_finding_id("", message)
+        if not finding_id:
+            return  # Reply vào message không phải Layer 1 alert
+
+        if text.strip().startswith("/quick"):
+            self._handle_quick(chat_id, f"/quick {finding_id}", message, sender)
+        else:
+            self._forward_to_layer2(finding_id, chat_id, sender)
+
+    def _forward_to_layer2(self, finding_id: str, chat_id: int | str, sender: str) -> None:
+        """Forward finding analysis request tới Layer 2 agent qua HTTP."""
         from ..config import settings
 
         if not settings.layer2_url:
@@ -123,15 +134,8 @@ class TelegramBot:
             self._send(chat_id, "⚠️ <b>/analyze không khả dụng</b> — <code>LAYER2_URL</code> chưa set.")
             return
 
-        parts = text.split(maxsplit=1)
-        finding_id = parts[1].strip() if len(parts) > 1 else ""
-        if not finding_id:
-            logger.warning("TelegramBot: /analyze without finding_id from %s", sender)
-            self._send(chat_id, "Usage: /analyze &lt;finding_id&gt;")
-            return
-
         logger.info(
-            "TelegramBot: /analyze forwarding to Layer 2 finding_id=%s requested_by=%s",
+            "TelegramBot: forwarding to Layer 2 finding_id=%s requested_by=%s",
             finding_id[:8], sender,
         )
         self._send(chat_id, f"⏳ Phân tích sâu <code>{html.escape(finding_id[:8])}</code>... (Layer 2 agent)")
@@ -140,6 +144,7 @@ class TelegramBot:
             payload = json.dumps({
                 "finding_id": finding_id,
                 "channel": "telegram",
+                "telegram_chat_id": str(chat_id),
                 "requested_by": sender,
             }).encode()
             url = f"{settings.layer2_url}/api/v1/analyze"
@@ -149,30 +154,39 @@ class TelegramBot:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            logger.debug("TelegramBot: /analyze POST to %s", url)
+            logger.debug("TelegramBot: forwarding to Layer 2 %s", url)
             with urllib.request.urlopen(req, timeout=120) as resp:
                 result = json.loads(resp.read())
 
-            analysis_text = result.get("analysis_text", "")
-            cost_usd = result.get("cost_usd", 0.0)
-            tool_calls = result.get("tool_calls", [])
-            duration_ms = result.get("total_duration_ms", 0)
-
-            caption = self._format_analyze_caption(finding_id, analysis_text, cost_usd, len(tool_calls), duration_ms)
-            filename = f"analyze_{finding_id[:8]}.txt"
-            self._send_document(chat_id, filename, analysis_text.encode("utf-8"), caption)
+            # Layer 2 bot đã gửi Telegram message trực tiếp — chỉ cần log
             logger.info(
-                "TelegramBot: /analyze completed finding=%s requested_by=%s cost=%.6f duration=%dms",
-                finding_id[:8], sender, cost_usd, duration_ms,
+                "TelegramBot: Layer 2 analysis done finding=%s requested_by=%s cost=%.6f duration=%dms",
+                finding_id[:8], sender,
+                result.get("cost_usd", 0.0),
+                result.get("total_duration_ms", 0),
             )
         except urllib.error.HTTPError as exc:
             body = exc.read().decode(errors="replace")
             logger.error("TelegramBot: /analyze HTTP %d: %s", exc.code, body[:200])
-            self._send(chat_id, f"❌ Layer 2 error ({exc.code}): {html.escape(body[:100])}")
+            self._send(chat_id, f"❌ Layer 2 lỗi HTTP {exc.code}: {html.escape(body[:100])}")
+        except urllib.error.URLError as exc:
+            reason = str(exc.reason)
+            logger.error("TelegramBot: /analyze URLError: %s", reason)
+            if "timed out" in reason.lower():
+                self._send(
+                    chat_id,
+                    "⏰ Layer 2 không phản hồi (timeout 120s).\nKiểm tra <code>layer2</code> container status.",
+                )
+            else:
+                self._send(
+                    chat_id,
+                    f"❌ Không kết nối được Layer 2: {html.escape(reason[:80])}\n"
+                    f"Kiểm tra <code>LAYER2_URL</code> và service status.",
+                )
         except Exception as exc:
             logger.error(
                 "TelegramBot: /analyze failed finding=%s requested_by=%s error=%s",
-                finding_id[:8], sender, exc,
+                finding_id[:8], sender, exc, exc_info=True,
             )
             self._send(chat_id, f"❌ Lỗi phân tích: {html.escape(str(exc)[:100])}")
 
@@ -258,26 +272,6 @@ class TelegramBot:
         name = f"{first} {last}".strip() or "Unknown"
         suffix = f"@{username}" if username else f"id={user_id}"
         return f"{name} ({suffix})"
-
-    def _format_analyze_caption(self, finding_id: str, analysis_text: str, cost_usd: float, tool_calls_count: int, duration_ms: int) -> str:
-        """Caption cho document /analyze — metadata từ Layer 2 response."""
-        summary_lines = []
-        for line in analysis_text.split("\n")[:3]:
-            if line.strip():
-                summary_lines.append(line[:80])
-        summary = " ".join(summary_lines) if summary_lines else "(no summary)"
-
-        parts = [
-            "🤖 <b>Deep Analysis — Layer 2 Agent</b>",
-            "━━━━━━━━━━━━━━━━━━",
-            f"🔗 ID: <code>{html.escape(finding_id[:8])}</code>",
-            f"⏱️  {duration_ms}ms | 🔧 {tool_calls_count} tools | 💰 ${cost_usd:.6f}",
-            "",
-            f"📝 {html.escape(summary)}",
-            "",
-            "📄 Xem phân tích đầy đủ trong file đính kèm",
-        ]
-        return "\n".join(parts)
 
     def _format_quick_caption(self, finding: Finding, response, root_cause: str, quick_fix: str) -> str:
         """Caption cho document /quick — metadata + summary + link file."""

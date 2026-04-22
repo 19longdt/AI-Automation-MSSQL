@@ -14,6 +14,9 @@ base_system_prompt: |
   - Partition table: function trên partition column sẽ vô hiệu hóa partition elimination
   - Resource Governor pools khác nhau có CPU/memory limit khác nhau — cần check pool khi query chậm bất thường
 
+  Định dạng output: plain text, KHÔNG dùng markdown (không dùng ##, **, *, ``, ---, ...).
+  Dùng dấu xuống dòng và thụt lề để phân tách section.
+
   SAU KHI PHÂN TÍCH XONG, bắt buộc kết thúc response bằng block sau (không thêm text sau block này):
   <insight>
   {

@@ -20,6 +20,7 @@ import html
 import json
 import logging
 import re
+import secrets
 import threading
 import time
 import urllib.error
@@ -151,8 +152,12 @@ class TelegramBot:
             self._send(chat_id, "Usage: <code>/analyze &lt;finding_id&gt;</code>")
             return
 
-        logger.info("TelegramBot: /analyze finding_id=%s requested_by=%s", finding_id, sender)
-        self._send(chat_id, f"⏳ Đang phân tích finding <code>{html.escape(finding_id)}</code>...")
+        self._handle_analyze_by_id(finding_id, chat_id, sender)
+
+    def _handle_analyze_by_id(self, finding_id: str, chat_id: str, sender: str) -> None:
+        """Common entry point cho /analyze command và reply từ Layer 1 alert."""
+        logger.info("TelegramBot: /analyze finding_id=%s requested_by=%s", finding_id[:8], sender)
+        self._send(chat_id, f"⏳ Đang phân tích <code>{html.escape(finding_id[:8])}</code>...")
 
         request = AnalysisRequest(
             finding_id=finding_id,
@@ -184,6 +189,11 @@ class TelegramBot:
 
         session = self._session_repo.find_by_telegram_message_id(reply_to_id)
         if not session:
+            # Không tìm thấy session Layer 2 → thử parse finding_id từ Layer 1 alert
+            reply_text = (message.get("reply_to_message") or {}).get("text", "")
+            finding_id = _extract_finding_id_from_alert(reply_text)
+            if finding_id:
+                self._handle_analyze_by_id(finding_id, chat_id, sender)
             return  # reply vào message khác, không phải analysis
 
         logger.info(
@@ -203,6 +213,50 @@ class TelegramBot:
 
     # ── Core: run analysis + send result ─────────────────────────────────────
 
+    def send_analysis_result(
+        self,
+        result: Any,
+        chat_id: str,
+        session: dict[str, Any] | None = None,
+        follow_up_text: str | None = None,
+    ) -> None:
+        """Gửi kết quả analysis tới Telegram — dùng cho cả bot-internal và API-triggered."""
+        if result.status == AnalysisStatus.TIMEOUT:
+            self._send(
+                chat_id,
+                f"⏰ Phân tích timeout: {html.escape(result.error or 'Timeout')}.\n"
+                f"Thử <code>/quick {result.finding_id[:8]}</code> để phân tích nhanh hơn.",
+            )
+            return
+
+        if result.status != AnalysisStatus.COMPLETED or not result.analysis_text:
+            self._send(chat_id, f"❌ Phân tích thất bại: {html.escape(result.error or 'Không có kết quả.')}")
+            return
+
+        caption = _format_analysis_caption(result)
+        filename = f"analyze_{result.finding_id[:8]}.txt"
+        sent_msg_id = self._send_document(chat_id, filename, result.analysis_text.encode("utf-8"), caption)
+
+        if sent_msg_id:
+            try:
+                if session is None:
+                    self._session_repo.create(
+                        finding_id=result.finding_id,
+                        channel="telegram",
+                        first_turn_text=result.analysis_text,
+                        analysis_id=result.analysis_id,
+                        telegram_message_id=sent_msg_id,
+                    )
+                else:
+                    self._session_repo.append_turns(
+                        session_id=session["session_id"],
+                        user_text=follow_up_text or "",
+                        assistant_text=result.analysis_text,
+                        analysis_id=result.analysis_id,
+                    )
+            except Exception as exc:
+                logger.error("TelegramBot: session update failed: %s", exc)
+
     def _run_and_reply(
         self,
         request: AnalysisRequest,
@@ -218,36 +272,7 @@ class TelegramBot:
             self._send(chat_id, f"❌ Lỗi nội bộ: {html.escape(str(exc))}")
             return
 
-        if result.status != AnalysisStatus.COMPLETED or not result.analysis_text:
-            error_msg = result.error or "Không có kết quả phân tích."
-            self._send(chat_id, f"❌ Phân tích thất bại: {html.escape(error_msg)}")
-            return
-
-        reply_text = _format_analysis(result)
-        sent_msg_id = self._send_get_id(chat_id, reply_text)
-
-        # Session management: bot tự quản lý vì chỉ bot biết sent_message_id
-        if sent_msg_id:
-            try:
-                if session is None:
-                    # Fresh: tạo session, key = bot's sent message_id (để DBA reply vào)
-                    self._session_repo.create(
-                        finding_id=request.finding_id,
-                        channel="telegram",
-                        first_turn_text=result.analysis_text,
-                        analysis_id=result.analysis_id,
-                        telegram_message_id=sent_msg_id,
-                    )
-                else:
-                    # Follow-up: append turns
-                    self._session_repo.append_turns(
-                        session_id=session["session_id"],
-                        user_text=request.follow_up_text or "",
-                        assistant_text=result.analysis_text,
-                        analysis_id=result.analysis_id,
-                    )
-            except Exception as exc:
-                logger.error("TelegramBot: session update failed: %s", exc)
+        self.send_analysis_result(result, chat_id, session, request.follow_up_text)
 
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
@@ -281,8 +306,112 @@ class TelegramBot:
             logger.error("TelegramBot send failed: %s", exc)
         return None
 
+    def _send_document(self, chat_id: str, filename: str, content: bytes, caption: str) -> int | None:
+        """Gửi document với caption. Trả về message_id của message đã gửi."""
+        try:
+            # Truncate caption nếu > 1024 (Telegram limit)
+            if len(caption) > 1024:
+                caption = caption[:1000] + "\n<i>... (truncated)</i>"
+
+            boundary = f"----Layer2Bot{secrets.token_hex(12)}"
+            body = bytearray()
+
+            def _field(name: str, value: str) -> None:
+                body.extend(f"--{boundary}\r\n".encode())
+                body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+                body.extend(value.encode("utf-8"))
+                body.extend(b"\r\n")
+
+            _field("chat_id", str(chat_id))
+            _field("caption", caption)
+            _field("parse_mode", "HTML")
+
+            body.extend(f"--{boundary}\r\n".encode())
+            body.extend(
+                f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode()
+            )
+            body.extend(b"Content-Type: text/plain; charset=utf-8\r\n\r\n")
+            body.extend(content)
+            body.extend(b"\r\n")
+            body.extend(f"--{boundary}--\r\n".encode())
+
+            req = urllib.request.Request(
+                f"{self._api_base}/sendDocument",
+                data=bytes(body),
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST",
+            )
+            logger.debug("TelegramBot: sendDocument filename=%s content_size=%d", filename, len(content))
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+                msg_id = data.get("result", {}).get("message_id")
+                logger.info("TelegramBot: sendDocument success chat_id=%s filename=%s msg_id=%s", chat_id, filename, msg_id)
+                return msg_id
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode(errors="replace")
+            logger.error("TelegramBot: sendDocument HTTP %d filename=%s: %s", exc.code, filename, body[:200])
+        except Exception as exc:
+            logger.error("TelegramBot: sendDocument failed filename=%s: %s", filename, exc, exc_info=True)
+        return None
+
 
 # ── Formatting helpers ────────────────────────────────────────────────────────
+
+def _format_analysis_caption(result: Any) -> str:
+    """Format caption cho document — hiển thị metadata + root cause + fix nhanh."""
+    finding = result.finding_snapshot or {}
+    node = html.escape(finding.get("node", "?"))
+    topic = html.escape(finding.get("topic_id", "?"))
+
+    detected_at = finding.get("detected_at")
+    time_str = ""
+    if detected_at:
+        if hasattr(detected_at, "strftime"):
+            time_str = detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
+        else:
+            time_str = str(detected_at)
+
+    # Tokens formatting
+    total_tokens = result.input_tokens + result.output_tokens
+    input_t = result.input_tokens
+    output_t = result.output_tokens
+    cache_r = result.cache_read_tokens
+
+    cache_status = f"HIT ({cache_r:,} cached)" if cache_r > 0 else "MISS"
+
+    parts = [
+        f"🖥 Node:        <code>{node}</code>",
+        f"📋 Topic:       <code>{topic}</code>",
+        f"🕐 Time:        {time_str}",
+        f"🤖 Model:       <code>{html.escape(result.model)}</code>",
+        f"⏱️  Response:    {result.total_duration_ms or 0}ms",
+        f"🔧 Tool calls:  {len(result.tool_calls)}",
+        f"📊 Tokens:      {total_tokens:,} (in: {input_t:,}, out: {output_t:,})",
+        f"💾 Cache:       {cache_status}",
+        f"💰 Cost:        ${result.cost_usd:.6f}",
+    ]
+
+    # Root cause + fix nhanh từ insight
+    if result.root_cause_summary or result.top_actions:
+        parts.append("")
+        parts.append("━━━━━━━━━━━━━━━━━━")
+
+    if result.root_cause_summary:
+        parts.append(f"💡 Root cause:  {html.escape(result.root_cause_summary)}")
+
+    if result.top_actions:
+        parts.append(f"⚡ Fix ngay:    {html.escape(result.top_actions[0])}")
+        if len(result.top_actions) > 1:
+            parts.append(f"                {html.escape(result.top_actions[1])}")
+
+    parts.extend([
+        "",
+        "📄 Phân tích đầy đủ trong file đính kèm",
+        "<i>Reply để hỏi thêm</i>",
+    ])
+
+    return "\n".join(parts)
+
 
 def _format_analysis(result: Any) -> str:
     finding = result.finding_snapshot or {}
@@ -366,3 +495,9 @@ def _sender_str(message: dict) -> str:
     name = f"{first} {last}".strip() or "Unknown"
     suffix = f"@{username}" if username else f"id={uid}"
     return f"{name} ({suffix})"
+
+
+def _extract_finding_id_from_alert(text: str) -> str | None:
+    """Parse UUID từ Layer 1 alert message format '🔗 ID: <code>UUID</code>'."""
+    m = re.search(r"ID:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", text)
+    return m.group(1) if m else None
