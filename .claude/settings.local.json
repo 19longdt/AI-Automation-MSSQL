@@ -6,7 +6,9 @@
       "Bash(find /d/GIT/AI-Automation-MSSQL -type f -name \"*.py\" -exec wc -l {} +)",
       "Bash(awk '{print $NF}')",
       "Bash(grep -v \"^$\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(ls -la /d/GIT/AI-Automation-MSSQL/layer2/*.py)",
+      "Bash(ls -la /d/GIT/AI-Automation-MSSQL/*.txt)"
     ]
   }
 }
