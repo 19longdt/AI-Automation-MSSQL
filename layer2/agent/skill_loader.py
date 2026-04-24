@@ -90,6 +90,7 @@ class SkillLoader:
             raise ValueError(
                 f"Skill YAML '{yaml_path.name}' không hợp lệ: {exc}"
             ) from exc
+        self._validate_tool_names(skill, yaml_path.name)
 
         if skill.skill_id in self._skills_by_id:
             logger.warning(
@@ -113,6 +114,22 @@ class SkillLoader:
             "Loaded skill '%s' covering issue_types: %s",
             skill.skill_id, skill.issue_types,
         )
+
+    def _validate_tool_names(self, skill: AnalysisSkill, source_name: str) -> None:
+        from .tool_registry import TOOL_REGISTRY
+
+        known = set(TOOL_REGISTRY.keys())
+        required_unknown = sorted(set(skill.required_tools) - known)
+        optional_unknown = sorted(set(skill.optional_tools) - known)
+        if required_unknown or optional_unknown:
+            parts: list[str] = []
+            if required_unknown:
+                parts.append(f"required_tools unknown={required_unknown}")
+            if optional_unknown:
+                parts.append(f"optional_tools unknown={optional_unknown}")
+            raise ValueError(
+                f"Skill YAML '{source_name}' dùng tool không tồn tại: " + "; ".join(parts)
+            )
 
     def get_skill(self, issue_type: str) -> AnalysisSkill:
         """

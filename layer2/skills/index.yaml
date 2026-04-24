@@ -5,73 +5,43 @@ issue_types:
   - index_fragmentation
 
 specialization: |
-  Focus: vấn đề liên quan đến index — thiếu index hoặc index bị phân mảnh.
-  Xác định issue_type trong finding để chọn analysis path phù hợp.
+  Focus: missing index or index fragmentation. Can recommend syntax but never execute DDL.
 
-  === PATH A: missing_index ===
+  Neu finding gan voi mot query cu the:
+  - get_query_structure(finding_id) de biet bang, join, predicate
+  - get_plan_analysis(finding_id) de xem scan, lookup, sort, hash, missing index hint
+  - get_table_context(table_name) de biet bang co pattern dac biet nao khong
 
-  Khi issue_type = "missing_index":
-
-  1. Lấy DMV recommendations (get_missing_indexes)
-     - avg_total_user_cost × avg_user_impact = estimated_benefit → sort để ưu tiên
-     - Lọc bỏ các index recommendation trên bảng nhỏ (< 10.000 rows) — overhead không đáng
-
-  2. Cross-check với actual usage (get_index_usage)
-     - Bảng target đã có bao nhiêu indexes? user_seeks/user_scans hiện tại?
-     - Index mới có overlap với index cũ không? (tránh duplicate)
-
-  3. Đánh giá impact & trade-off
-     - Index mới sẽ tăng write latency và transaction log size
-     - Bảng có CDC → mỗi index thêm = thêm row trong change table
-     - Ưu tiên INCLUDE columns thay vì key columns nếu chỉ cần cover SELECT list
-
-  4. Khuyến nghị
-     - Cung cấp CREATE INDEX syntax cụ thể (không execute, chỉ gợi ý)
-     - Đề xuất thời điểm tạo: maintenance window hay online operation được không?
-
-  === PATH B: index_fragmentation ===
-
-  Khi issue_type = "index_fragmentation":
-
-  1. Xem fragmentation data
-     - get_index_fragmentation nếu KHÔNG trong peak hours (8:00–18:00)
-     - Nếu bị block (peak hours) → dùng get_index_usage để ước tính mức độ ảnh hưởng
-       (user_scans cao bất thường so với user_seeks = fragmentation đang ảnh hưởng query)
-
-  2. Quyết định REBUILD vs REORGANIZE vs IGNORE
-     - avg_fragmentation_in_percent < 10%: IGNORE — overhead fix > benefit
-     - 10%–30%: ALTER INDEX REORGANIZE ONLINE — nhẹ, không block
-     - > 30%: ALTER INDEX REBUILD WITH (ONLINE=ON) nếu Enterprise edition
-     - page_count < 1000: IGNORE dù fragmentation cao — small table, không đáng kể
-
-  3. Xem xét fill_factor
-     - fill_factor quá cao → fragment nhanh sau INSERT/UPDATE
-     - fill_factor quá thấp → nhiều pages, I/O tăng
-     - Thường 80–90% phù hợp với OLTP insert-heavy
-
-  4. Maintenance window
-     - REBUILD nên chạy trong cửa sổ bảo trì (Chủ nhật 1:00–5:00 AM)
-     - Kiểm tra db_business_context để biết maintenance windows
+  Sau do xac nhan bang DMV:
+  - get_index_usage va get_missing_indexes la truc chinh
+  - get_index_fragmentation cho issue fragmentation
+  - get_query_stats / get_query_store_history neu can impact that
 
 user_prompt_template: |
-  Phân tích finding:
+  Phan tich finding:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
-  Metrics: {metrics_json}
-
-  {query_text}
+  Finding ID: {finding_id}
+  Query Hash: {query_hash}
+  Metrics:
+  {metrics_json}
 
 required_tools:
   - get_index_usage
   - get_missing_indexes
 
 optional_tools:
+  - get_query_structure
+  - get_plan_analysis
+  - get_table_context
   - get_index_fragmentation
   - get_query_stats
   - get_query_store_history
+  - get_analysis_history
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 5
-max_tokens: 4096
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

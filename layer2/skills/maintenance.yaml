@@ -6,40 +6,10 @@ issue_types:
   - dbcc_overdue
 
 specialization: |
-  Focus: maintenance failures — SQL Agent job lỗi, backup gap, DBCC quá hạn.
-
-  Maintenance schedule hệ thống:
-  - Index rebuild: Chủ Nhật 02:00–05:00 +07 (PoolMaintenance)
-  - Stats update: hàng ngày 03:00 +07
-  - Backup full: Chủ Nhật 01:00 +07
-  - Backup diff: hàng ngày 23:00 +07
-
-  Phân tích theo issue_type:
-
-  job_failure:
-  - Job nào failed: tên job, step lỗi, error message trong metrics
-  - Job thuộc loại nào: backup, index rebuild, CDC cleanup, stats update?
-  - Retry có tự động không hay cần manual intervention?
-  - Nếu index rebuild failed: database consistency vẫn OK, nhưng fragmentation tăng dần
-    → schedule rebuild lại off-peak, không urgent nếu trong 3 ngày tới có maintenance window
-  - Nếu CDC cleanup failed: change tables tích lũy → monitor version store
-
-  backup_gap:
-  - Thời gian từ last successful backup đến now
-  - Loại backup bị miss: full, differential, hay log?
-  - Log backup miss → RPO ảnh hưởng trực tiếp → priority cao nhất
-  - Full/diff backup miss → verify lại, chạy manual nếu cần
-
-  dbcc_overdue:
-  - DBCC CHECKDB last run cách đây bao lâu?
-  - Khuyến nghị: không quá 7 ngày cho VLDB (Very Large Database)
-  - Schedule DBCC CHECKTABLE từng bảng quan trọng thay vì full CHECKDB nếu quá lâu
-  - Chạy với PHYSICAL_ONLY trước để nhanh, full check sau trong maintenance window
-
-  Gọi get_recent_findings để xem các maintenance issue gần đây — có pattern recurring không?
+  Focus: maintenance failures, backup gap, va DBCC overdue.
 
 user_prompt_template: |
-  Phân tích maintenance issue sau:
+  Phan tich maintenance issue sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -51,8 +21,10 @@ optional_tools:
   - get_recent_findings
   - get_query_stats
   - get_wait_stats
+  - get_analysis_history
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 2
 max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import logging
 from datetime import datetime
 
@@ -21,14 +20,33 @@ async def trigger_analysis(request: Request, body: AnalysisRequest) -> AnalysisR
     Blocking — chờ đến khi analysis hoàn tất (có thể 30–90s).
     Nếu body.telegram_chat_id có → Layer 2 bot gửi kết quả trực tiếp qua Telegram.
     """
+    logger.debug(
+        "POST /api/v1/analyze start finding_id=%s channel=%s telegram_chat_id=%s follow_up=%s",
+        body.finding_id,
+        body.channel,
+        body.telegram_chat_id,
+        bool(body.follow_up_text),
+    )
     orch = request.app.state.orchestrator
     loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        result = await loop.run_in_executor(pool, orch.run, body)
+    result = await loop.run_in_executor(None, orch.run, body)
+    logger.debug(
+        "POST /api/v1/analyze done analysis_id=%s status=%s skill_id=%s cost=%.6f duration_ms=%s",
+        result.analysis_id,
+        result.status.value,
+        result.skill_id,
+        result.cost_usd,
+        result.total_duration_ms,
+    )
 
     if body.telegram_chat_id:
         bot = getattr(request.app.state, "telegram_bot", None)
         if bot is not None:
+            logger.debug(
+                "POST /api/v1/analyze sending telegram analysis_id=%s chat_id=%s",
+                result.analysis_id,
+                body.telegram_chat_id,
+            )
             await loop.run_in_executor(None, bot.send_analysis_result, result, body.telegram_chat_id)
         else:
             logger.warning("trigger_analysis: telegram_chat_id set but TelegramBot not available")

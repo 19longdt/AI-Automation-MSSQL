@@ -56,14 +56,21 @@ CLAUDE_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-sonnet-4-6
 
 # ── Logging ───────────────────────────────────────────────────────────
-LOG_LEVEL=INFO   # DEBUG | INFO | WARNING | ERROR
+L1_LOG_LEVEL=INFO   # DEBUG | INFO | WARNING | ERROR
+L2_LOG_LEVEL=INFO   # DEBUG | INFO | WARNING | ERROR
+# LOG_LEVEL=INFO    # fallback legacy cho ca 2 layer
 
 # ── Logstash centralized logging ─────────────────────────────────────
 # Để trống LOGSTASH_HOST → disable (chỉ log ra console/stdout)
-# Dùng UDP transport → Logstash input: udp { port => 5044 codec => json }
+# Tuỳ transport:
+#   tcp -> input tcp { port => 5044 codec => json_lines }
+#   udp -> input udp { port => 5044 codec => json }
 LOGSTASH_HOST=10.100.110.185
 LOGSTASH_PORT=5044
-LOGSTASH_APP_NAME=sds.ep.ai-automation
+LOGSTASH_TRANSPORT=tcp  # tcp | udp (khuyen nghi tcp)
+L1_LOGSTASH_APP_NAME=sds.ep.ai-automation-layer1
+L2_LOGSTASH_APP_NAME=sds.ep.ai-automation-layer2
+# LOGSTASH_APP_NAME=sds.ep.ai-automation   # fallback legacy neu muon dung chung
 # SQLite persistent queue để không mất log khi container restart.
 # Trống = in-memory queue (tiện cho dev, không dùng cho production).
 LOGSTASH_DATABASE_PATH=/var/lib/layer1/logstash/queue.db

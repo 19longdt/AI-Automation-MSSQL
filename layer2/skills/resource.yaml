@@ -4,37 +4,10 @@ issue_types:
   - resource_pool_spike
 
 specialization: |
-  Focus: Resource Governor pool spike — pool nào vượt ngưỡng, query nào gây ra, có cần điều chỉnh không.
-
-  Cấu hình Resource Governor hệ thống:
-  - PoolOLTP: application servers, giới hạn 70% CPU
-  - PoolMaintenance: backup/index rebuild/stats update, giới hạn 20% CPU, chỉ chạy off-peak
-  - PoolDefault: connections không phân loại được, giới hạn 10% CPU
-
-  Phân tích theo thứ tự:
-
-  1. Pool statistics (get_resource_governor_stats)
-     - Pool nào đang spike: max_cpu_percent, active_request_count, queued_request_count
-     - queued_request_count > 0 → requests đang bị hold lại do vượt limit → latency tăng
-     - PoolMaintenance spike trong giờ làm việc → maintenance window bị vi phạm
-     - PoolDefault spike → có connection không được classify đúng → classifier function sai
-
-  2. Top queries trong pool đó (get_query_stats)
-     - Query nào đang consume CPU nhiều nhất trong workload group của pool?
-     - Batch job hay ad-hoc query? Có dùng đúng connection string để vào đúng pool không?
-
-  3. Wait stats để đánh giá impact (get_wait_stats)
-     - Nếu PoolOLTP queued → application requests đang chờ → SLA ảnh hưởng trực tiếp
-     - CPU_REQUEST_WAIT: requests đang đợi CPU slot từ Resource Governor
-
-  Action theo pool:
-  - PoolOLTP spike: tìm query tốn nhiều CPU, optimize hoặc schedule off-peak
-  - PoolMaintenance trong peak hours: kiểm tra SQL Agent job có chạy đúng schedule không, kill nếu cần
-  - PoolDefault spike: review classifier function, đảm bảo mọi app connection vào đúng pool
-  - Cân nhắc tăng tạm thời CPU cap của PoolOLTP nếu workload đột biến có lý do hợp lệ
+  Focus: Resource Governor pool spike, culprit workload, and impact on queued requests.
 
 user_prompt_template: |
-  Phân tích resource pool spike finding sau:
+  Phan tich resource pool spike finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -50,5 +23,6 @@ optional_tools:
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 3
-max_tokens: 2048
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

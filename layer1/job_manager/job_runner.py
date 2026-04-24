@@ -72,7 +72,7 @@ class JobRunner:
             if isinstance(result, int):
                 findings_created = result
             self._repo.finish(doc_id, JobStatus.SUCCESS, findings_created)
-            logger.info(
+            logger.debug(
                 "Job finished: name=%s findings=%d", job_name, findings_created
             )
         except Exception as exc:

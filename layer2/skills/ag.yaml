@@ -4,38 +4,10 @@ issue_types:
   - ag_lag
 
 specialization: |
-  Focus: Always On AG replication lag — xác định nguyên nhân redo/send queue tăng, đánh giá rủi ro.
-
-  Topology hệ thống: 1 Primary + 2 Secondary synchronous commit.
-  Secondary được dùng cho reporting queries. CDC chỉ chạy trên Primary.
-
-  Phân tích theo thứ tự:
-
-  1. AG status overview (get_ag_status)
-     - log_send_queue_kb: dữ liệu chưa gửi từ Primary → Secondary
-     - redo_queue_kb: dữ liệu đã nhận nhưng Secondary chưa apply
-     - synchronization_state: SYNCHRONIZED / SYNCHRONIZING / NOT SYNCHRONIZING
-     - Phân biệt:
-       * send_queue cao nhưng redo_queue thấp → network bottleneck Primary→Secondary
-       * redo_queue cao nhưng send_queue thấp → Secondary redo thread bị chậm (I/O hoặc CPU)
-       * Cả hai cao → Primary DML quá cao, Secondary không theo kịp
-
-  2. Wait stats trên Primary (get_wait_stats)
-     - HADR_SYNC_COMMIT cao: Primary đang chờ Secondary confirm → throughput bị throttle
-     - Nếu HADR_SYNC_COMMIT wait > 50ms average → cần xem xét tách reporting sang Secondary khác
-     - HADR_WORK_QUEUE: AG worker thread queue up → Secondary overloaded
-
-  3. Workload context (get_query_stats nếu cần)
-     - Có batch DML lớn nào đang chạy không? (bulk insert, ETL, index rebuild)
-     - Index rebuild trên Primary sinh log lớn → spike lag tạm thời → kiểm tra có đúng maintenance window không?
-
-  Rủi ro và action:
-  - Lag > RPO threshold → dữ liệu Secondary stale → reporting queries có thể trả kết quả cũ
-  - SYNCHRONIZED → SYNCHRONIZING: failover sẽ mất dữ liệu nếu xảy ra lúc này
-  - Nếu lag do reporting queries quá nặng trên Secondary → route sang một Secondary khác
+  Focus: Always On AG replication lag. Xac dinh nguyen nhan send queue, redo queue, va rui ro failover.
 
 user_prompt_template: |
-  Phân tích AG lag finding sau:
+  Phan tich AG lag finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -51,5 +23,6 @@ optional_tools:
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 3
-max_tokens: 2048
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

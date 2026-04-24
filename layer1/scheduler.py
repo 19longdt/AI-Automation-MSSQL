@@ -275,13 +275,17 @@ def _setup_logging() -> None:
 
     import socket as _socket
 
-    # UDP transport: mỗi record = 1 datagram hoàn chỉnh → tương thích với
-    # Logstash "codec => json" (không cần json_lines).
+    transport_map = {
+        "udp": "logstash_async.transport.UdpTransport",
+        "tcp": "logstash_async.transport.TcpTransport",
+    }
+    transport = transport_map.get(settings.logstash_transport, transport_map["udp"])
+
     handler = AsynchronousLogstashHandler(
         host=settings.logstash_host,
         port=settings.logstash_port,
         database_path=settings.logstash_database_path or None,
-        transport="logstash_async.transport.UdpTransport",
+        transport=transport,
     )
     # extra_prefix=None: đặt extra fields ở top-level thay vì nested dưới key "extra".
     # Logstash filter check [app_name] ở top-level — nếu nested sẽ không thấy → drop toàn bộ log.
@@ -295,9 +299,10 @@ def _setup_logging() -> None:
     ))
     logging.getLogger().addHandler(handler)
     logging.getLogger().info(
-        "Logstash handler attached: %s:%s app_name=%s database_path=%s",
+        "Logstash handler attached: %s:%s transport=%s app_name=%s database_path=%s",
         settings.logstash_host,
         settings.logstash_port,
+        settings.logstash_transport,
         settings.logstash_app_name,
         settings.logstash_database_path or "<in-memory>",
     )

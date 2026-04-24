@@ -4,37 +4,10 @@ issue_types:
   - cdc_failure
 
 specialization: |
-  Focus: CDC (Change Data Capture) failure — capture job lỗi, cleanup lag, version store pressure.
-
-  CDC chỉ chạy trên Primary node. Secondary không có CDC.
-  CDC gồm 2 SQL Agent jobs: capture job (đọc log) và cleanup job (xóa data cũ).
-
-  Phân tích theo thứ tự:
-
-  1. CDC job status (get_cdc_status)
-     - Capture job: last_run_outcome (SUCCESS/FAILED/IN PROGRESS), error message nếu failed
-     - Cleanup job: last_run_outcome, last_run_duration
-     - Nếu capture job failed: error thường là "The process could not read file" hoặc VLF scan error
-       → Log truncation bị block bởi active transaction hoặc log backup chưa chạy
-     - Nếu cleanup job lag: change tables tích lũy lớn → query on change tables chậm
-
-  2. TempDB version store nếu capture lag cao (get_tempdb_usage)
-     - CDC scan + high DML → version store tăng mạnh 08:00–10:00 (peak pattern đã biết)
-     - version_store_mb tăng → long-running snapshot transaction chưa close
-     - oldest_active_transaction_id: transaction nào đang block version cleanup?
-
-  3. Wait stats (get_wait_stats)
-     - PARALLEL_REDO_TRAN_REPLAY: CDC redo thread contention
-     - LOG_RATE_GOVERNOR: log generation rate bị governor throttle
-
-  Hành động theo tình huống:
-  - Capture job failed do log scan error → restart capture job, kiểm tra SQL Server Error Log
-  - Version store spike → tìm và close snapshot transaction mở lâu
-  - Cleanup job lag → tăng retention window tạm thời, schedule cleanup chạy thêm off-peak
-  - Cân nhắc tách CDC sang Secondary replica nếu Primary load quá cao
+  Focus: CDC failure, capture lag, cleanup lag, and TempDB/version store pressure.
 
 user_prompt_template: |
-  Phân tích CDC failure finding sau:
+  Phan tich CDC failure finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -50,5 +23,6 @@ optional_tools:
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 3
-max_tokens: 2048
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

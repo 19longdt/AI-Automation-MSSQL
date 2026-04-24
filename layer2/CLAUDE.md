@@ -85,7 +85,9 @@ layer2/
 │
 ├── executor/
 │   ├── mssql_connection.py    ← pyodbc context manager (per-call, không cache)
-│   └── diagnostic_executor.py ← SQL templates cho 15 DMV tools (Phase 4)
+│   ├── diagnostic_executor.py ← SQL templates cho DMV tools + pre-processing methods
+│   ├── plan_analyzer.py       ← Parse XML execution plan → structured summary (stdlib ET, no AI)
+│   └── query_analyzer.py      ← Parse SQL query text → tables/joins/predicates (regex, no AI)
 │
 ├── storage/
 │   ├── mongo_client.py        ← MongoConnection singleton
@@ -169,7 +171,8 @@ Skills là **code artifact**, lưu trong git. Thay đổi prompt → sửa YAML 
 
 **Skill YAML fields** (xem `models/skill.py`):
 - `skill_id`, `issue_types`, `specialization`, `user_prompt_template`
-- `required_tools`, `optional_tools`, `max_tool_rounds`, `max_tokens`, `include_fields`
+- `required_tools`, `optional_tools`, `max_tool_rounds`, `max_tokens`, `max_cost_usd`, `include_fields`
+- `required_tools` chỉ được enforce cho **fresh analysis** — follow-up mode bỏ qua
 
 ---
 
@@ -228,10 +231,11 @@ Xem `layer2/AGENT_MECHANISM.md` để hiểu toàn bộ luồng.
 
 Tóm tắt nhanh:
 - **Prompt cache**: `_base.yaml` = Block 1 với `cache_control: ephemeral` → cache hit từ lần gọi thứ 2 (rẻ hơn 10×)
-- **Agentic loop**: Claude ↔ tool_use ↔ DiagnosticExecutor lặp đến `end_turn`; khi hết `max_tool_rounds`, bỏ truyền `tools` để force `end_turn`
-- **Insight**: Claude embed `<insight>JSON</insight>` → orchestrator parse, strip khỏi analysis_text, upsert vào `issue_insights`
+- **Agentic loop**: Claude ↔ tool_use ↔ DiagnosticExecutor lặp đến `end_turn`; khi hết `max_tool_rounds`, bỏ truyền `tools` để force `end_turn`; `stop_reason=max_tokens` được detect riêng
+- **Follow-up mode**: khi DBA reply, `is_follow_up=True` → skip required_tools enforcement (Q&A, không phải fresh analysis); Claude vẫn có thể dùng tools nếu cần
+- **Insight**: Claude embed `<insight>JSON</insight>` → orchestrator parse, strip khỏi analysis_text, upsert vào `issue_insights`; nếu thiếu → retry 1 lần với yêu cầu chỉ JSON block
 - **Cost**: tích lũy token usage qua tất cả API calls → `calculate_cost()` → lưu `cost_usd` mỗi analysis
-- **Multi-turn**: `follow_up_text + telegram_message_id` → load session → rebuild context từ previous turns
+- **Multi-turn session**: quản lý hoàn toàn bởi `TelegramBot.send_analysis_result()` (biết `sent_msg_id`); orchestrator KHÔNG tạo/update session
 
 ---
 
@@ -246,6 +250,9 @@ Tóm tắt nhanh:
 | **`cost_usd` lưu trong mỗi analysis** | Granular tracking — biết được từng phân tích tốn bao nhiêu |
 | **Tool whitelist + pre-written SQL** | Claude không thể inject SQL tùy ý — security + predictability |
 | **Session lưu text turns, không tool calls** | Tool calls đã có trong ai_analyses; session chỉ cần text để rebuild context |
+| **Session managed by TelegramBot, không Orchestrator** | Chỉ bot biết `sent_msg_id` (key session lookup); orchestrator không có thông tin này |
+| **is_follow_up skip required_tools** | Follow-up là Q&A, không phải fresh analysis; enforce required_tools gây loop vì Claude thiếu context (node, query_hash) |
+| **max_tokens detect riêng** | Khi response bị cắt, insight ở cuối mất → retry chỉ yêu cầu JSON block thay vì cả response |
 | **Layer 2 bot gửi Telegram trực tiếp** | `send_analysis_result()` public method; dùng được từ bot-internal + API route |
 | **`telegram_chat_id` trong AnalysisRequest** | Layer 1 forward request + đích chat; Layer 2 bot biết gửi kết quả đâu |
 | **Layer 1 bot chỉ `/quick` + reply-to-alert** | `/analyze` quyền của Layer 2 bot (token khác); Layer 1 chỉ forward |

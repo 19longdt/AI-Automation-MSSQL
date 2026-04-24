@@ -4,36 +4,10 @@ issue_types:
   - tempdb_pressure
 
 specialization: |
-  Focus: TempDB usage spike — phân biệt nguồn gốc áp lực và đề xuất giảm tải.
-
-  TempDB trong hệ thống này chịu 3 áp lực chính:
-  - CDC version store: scan + high DML đồng thời 08:00–10:00
-  - Query spills: sort/hash join không đủ memory grant
-  - User temp tables/table variables trong stored procedures
-
-  Phân tích theo thứ tự:
-
-  1. Breakdown TempDB usage (get_tempdb_usage)
-     - version_store_mb: nếu > 20% tổng → CDC pressure hoặc long-running snapshot transaction
-     - internal_objects_mb: sort/hash spills → memory grant issues
-     - user_objects_mb: temp tables/variables chưa cleanup → application leak
-     - Xem xét file space distribution — nếu primary file overloaded → uneven file growth
-
-  2. CDC status nếu version store cao (get_cdc_status)
-     - CDC cleanup job có chạy đúng schedule không?
-     - Oldest active transaction ID — có snapshot transaction không cleanup?
-     - sys.dm_tran_version_store_space_usage: database nào đóng góp nhiều nhất?
-
-  3. Query spills nếu internal_objects cao (get_query_stats)
-     - total_spills cao → query nào gây spill?
-     - Correlate với get_memory_grant để xem granted vs requested vs ideal
-
-  4. Wait stats (get_wait_stats)
-     - PAGELATCH_UP trên TempDB pages → contention trên allocation pages
-     - Nếu hệ thống chỉ có ít TempDB data files → thêm files = số CPU (max 8)
+  Focus: TempDB pressure, breakdown by version store, spills, and user objects.
 
 user_prompt_template: |
-  Phân tích TempDB pressure finding sau:
+  Phan tich TempDB pressure finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -45,10 +19,15 @@ required_tools:
 optional_tools:
   - get_cdc_status
   - get_query_stats
+  - get_query_structure
+  - get_plan_analysis
+  - get_table_context
   - get_wait_stats
   - get_memory_grant
+  - get_analysis_history
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 3
-max_tokens: 2048
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

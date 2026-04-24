@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -99,15 +99,33 @@ class EnvSettings(BaseSettings):
     )
 
     # ── Logging ─────────────────────────────────────────────────────────────
-    log_level: str = Field(default="INFO")
+    log_level: str = Field(
+        default="INFO",
+        validation_alias=AliasChoices("L1_LOG_LEVEL", "LOG_LEVEL"),
+    )
 
     # ── Logstash centralized logging ────────────────────────────────────────
     # Để trống logstash_host = disable, vẫn log ra console.
     logstash_host: str = Field(default="")
     logstash_port: int = Field(default=5044)
-    logstash_app_name: str = Field(default="sds.ep.ai-automation")
+    logstash_app_name: str = Field(
+        default="sds.ep.ai-automation-layer1",
+        validation_alias=AliasChoices("L1_LOGSTASH_APP_NAME", "LOGSTASH_APP_NAME"),
+    )
+    logstash_transport: str = Field(
+        default="udp",
+        validation_alias=AliasChoices("L1_LOGSTASH_TRANSPORT", "LOGSTASH_TRANSPORT"),
+    )
     # SQLite path cho persistent queue. Trống = in-memory queue (mất log nếu crash).
     logstash_database_path: str = Field(default="")
+
+    @field_validator("logstash_transport", mode="before")
+    @classmethod
+    def validate_logstash_transport(cls, v: object) -> str:
+        text = str(v or "udp").strip().lower()
+        if text not in {"udp", "tcp"}:
+            raise ValueError("LOGSTASH_TRANSPORT must be 'udp' or 'tcp'")
+        return text
 
     def get_connection_string(self, host: str) -> str:
         """Tạo pyodbc connection string cho 1 node."""

@@ -4,38 +4,10 @@ issue_types:
   - wait_anomaly
 
 specialization: |
-  Focus: wait type anomaly — xác định loại wait bất thường, correlate với workload, đề xuất action.
-
-  Phân tích theo thứ tự:
-
-  1. Top wait types (get_wait_stats)
-     - Wait type nào tăng đột biến so với baseline?
-     - Phân nhóm:
-       * I/O waits (PAGEIOLATCH_*, IO_COMPLETION): storage bottleneck hoặc thiếu index
-       * Lock waits (LCK_M_*): blocking → chạy get_blocking_chain
-       * Memory waits (RESOURCE_SEMAPHORE, CMEMTHREAD): memory pressure
-       * Network waits (ASYNC_NETWORK_IO): application không đọc result nhanh
-       * CPU waits (SOS_SCHEDULER_YIELD, CXPACKET): CPU pressure hoặc parallelism issue
-       * TempDB waits (PAGELATCH_UP trên tempdb): TempDB contention
-       * Log waits (WRITELOG, HADR_SYNC_COMMIT): I/O hoặc AG sync pressure
-
-  2. Correlate với queries (get_query_stats)
-     - Query nào đang accumulate wait type đó nhiều nhất?
-     - Đặc biệt với CXPACKET cao: xem max_dop của query, MAXDOP setting
-
-  3. Blocking nếu LCK waits cao (get_blocking_chain)
-     - Xác định head blocker và đưa về blocking analysis
-
-  4. Resource Governor nếu CPU waits cao (get_resource_governor_stats)
-     - Pool nào đang consume CPU nhiều nhất?
-     - PoolMaintenance có đang chạy index rebuild không?
-
-  Lưu ý:
-  - HADR_SYNC_COMMIT cao → AG Secondary sync đang chậm → kiểm tra network hoặc Secondary load
-  - PAGEIOLATCH_SH trên bảng partition: scan toàn bộ partition → check partition elimination
+  Focus: wait type anomaly, workload correlation, and practical remediation.
 
 user_prompt_template: |
-  Phân tích wait anomaly finding sau:
+  Phan tich wait anomaly finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -45,12 +17,17 @@ required_tools:
   - get_wait_stats
 
 optional_tools:
+  - get_plan_analysis
+  - get_query_structure
+  - get_table_context
   - get_query_stats
   - get_blocking_chain
   - get_resource_governor_stats
   - get_memory_pressure
+  - get_analysis_history
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 3
-max_tokens: 2048
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

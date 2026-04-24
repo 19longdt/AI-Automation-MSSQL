@@ -4,39 +4,40 @@ issue_types:
   - generic
 
 specialization: |
-  Fallback skill cho issue_type chưa có skill chuyên biệt.
+  Fallback skill cho issue_type chua co skill chuyen biet.
 
-  Tiếp cận tổng quát — thu thập đủ context trước khi phân tích:
+  Neu finding co lien quan query/plan, bat dau bang:
+  - get_plan_analysis(finding_id)
+  - get_query_structure(finding_id)
+  - get_table_context(table_name) cho bang chinh
 
-  1. Wait stats hiện tại (get_wait_stats)
-     - Top 5 wait types — định hướng vùng vấn đề: I/O, CPU, lock, memory, network?
-
-  2. Query đang chạy tốn nhiều tài nguyên (get_query_stats)
-     - Top queries theo CPU, elapsed time, logical reads
-     - Có query nào bất thường không?
-
-  3. Blocking nếu có LCK waits (get_blocking_chain)
-
-  4. Resource Governor nếu CPU/memory wait cao (get_resource_governor_stats)
-
-  5. Findings gần đây để context (get_recent_findings)
-     - Có related issues không?
-
-  Không ép buộc phân tích theo framework cố định — dựa vào data thu thập được để xác định
-  root cause thực sự. Nếu không có đủ data, đề xuất DBA thu thập thêm thông tin cụ thể.
+  Sau do chon DMV phu hop theo dau hieu:
+  - get_wait_stats de dinh huong vung van de
+  - get_query_stats de xem query ton tai nguyen
+  - get_blocking_chain neu nghi lock waits
+  - get_resource_governor_stats neu nghi pool pressure
+  - get_tempdb_usage neu nghi spill/version store
+  - get_ag_status neu issue tren secondary/replication
+  - get_memory_pressure neu nghi memory pressure
+  - get_cdc_status neu nghi CDC
+  - get_analysis_history neu can recurrence context
 
 user_prompt_template: |
-  Phân tích finding sau:
+  Phan tich finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
-  Metrics: {metrics_json}
-
-  {query_text}
+  Finding ID: {finding_id}
+  Query Hash: {query_hash}
+  Metrics:
+  {metrics_json}
 
 required_tools: []
 
 optional_tools:
+  - get_plan_analysis
+  - get_query_structure
+  - get_table_context
   - get_wait_stats
   - get_query_stats
   - get_blocking_chain
@@ -46,9 +47,10 @@ optional_tools:
   - get_ag_status
   - get_memory_pressure
   - get_cdc_status
+  - get_analysis_history
 
 model: claude-sonnet-4-6
 max_tool_rounds: 4
-max_tokens: 3000
-include_fields:
-  - query_text
+max_tokens: 2000
+max_cost_usd: 0.10
+include_fields: []

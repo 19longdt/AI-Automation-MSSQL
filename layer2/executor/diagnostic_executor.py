@@ -1,18 +1,12 @@
 """
-diagnostic_executor.py — Pre-written SQL templates cho 15 DMV tools.
-
-Claude gọi tool_name + params → tool_executor → dispatch tới phương thức tương ứng ở đây.
-Mọi SQL phải có TOP N hoặc WHERE thời gian — không query DMV không có giới hạn.
-
-Thread safety: mỗi method tạo connection mới qua mssql_connection() — không cache.
-Sanitize: Decimal → float, datetime → str, bytes → hex string để JSON-serializable.
+diagnostic_executor.py - Pre-written SQL templates and Mongo-backed diagnostic tools.
 """
 from __future__ import annotations
 
 import decimal
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from ..storage.mongo_client import MongoConnection
@@ -22,10 +16,7 @@ from .mssql_connection import mssql_connection
 logger = logging.getLogger(__name__)
 
 
-# ── Row sanitization ────────────────────────────────────────────────────────────
-
 def _sanitize(v: object) -> object:
-    """Convert pyodbc/SQL Server types sang JSON-serializable Python types."""
     if isinstance(v, decimal.Decimal):
         return float(v)
     if isinstance(v, datetime):
@@ -41,23 +32,138 @@ def _rows(cursor: Any) -> list[dict[str, Any]]:
 
 
 def _hex_to_bytes(query_hash: str) -> bytes:
-    """Convert '0xABCD...' hoặc 'ABCD...' sang bytes. Dùng cho binary(8) comparison."""
     return bytes.fromhex(query_hash.lstrip("0x").lstrip("0X"))
 
 
-# ── DiagnosticExecutor ──────────────────────────────────────────────────────────
-
 class DiagnosticExecutor:
-    """Thực thi pre-written SQL templates theo tool name và validated params."""
+    """Execute deterministic diagnostic tools for Layer 2."""
 
-    # ── Query stats ─────────────────────────────────────────────────────────────
+    def get_plan_analysis(self, finding_id: str) -> dict[str, Any]:
+        from .plan_analyzer import analyze_plan
 
-    def get_query_stats(
-        self, node: str, query_hash: str, top_n: int = 10
-    ) -> list[dict[str, Any]]:
+        finding = self._get_finding(finding_id, {"query_plan_xml": 1, "metrics.query_plan_xml": 1})
+        if not finding:
+            return {"error": f"Finding '{finding_id}' khong tim thay"}
+
+        metrics = finding.get("metrics") or {}
+        plan_xml = finding.get("query_plan_xml") or metrics.get("query_plan_xml") or ""
+        if not plan_xml:
+            return {"error": "Finding khong co query_plan_xml"}
+
+        result = analyze_plan(plan_xml)
+        result["finding_id"] = finding_id
+        return result
+
+    def get_query_structure(self, finding_id: str) -> dict[str, Any]:
+        from .query_analyzer import analyze_query
+
+        finding = self._get_finding(finding_id, {"query_text": 1, "metrics.sql_text": 1, "metrics.query_text": 1})
+        if not finding:
+            return {"error": f"Finding '{finding_id}' khong tim thay"}
+
+        metrics = finding.get("metrics") or {}
+        query_text = (
+            finding.get("query_text")
+            or metrics.get("sql_text")
+            or metrics.get("query_text")
+            or ""
+        )
+        if not query_text:
+            return {"error": "Finding khong co query_text"}
+
+        result = analyze_query(query_text)
+        result["finding_id"] = finding_id
+        return result
+
+    def get_table_context(self, table_name: str) -> dict[str, Any]:
+        db_ctx = MongoConnection.get_db()["db_context"].find_one(
+            {"context_id": "main"},
+            projection={"business_context": 1, "collected_at": 1, "_id": 0},
+        )
+        if not db_ctx or not db_ctx.get("business_context"):
+            return {"error": "db_context chua duoc collect. Can refresh db_context truoc khi dung tool nay."}
+
+        business_context = db_ctx.get("business_context") or {}
+        matches = _find_related_table_context(table_name, business_context)
+        result: dict[str, Any] = {
+            "table_name": table_name,
+            "matched_entries": matches[:10],
+        }
+        collected_at = db_ctx.get("collected_at")
+        if isinstance(collected_at, datetime):
+            result["context_collected_at"] = collected_at.isoformat()
+        if not matches:
+            result["info"] = f"Khong tim thay context rieng cho bang '{table_name}'"
+        return result
+
+    def get_analysis_history(
+        self,
+        finding_id: str,
+        issue_type: str | None = None,
+        node: str | None = None,
+    ) -> dict[str, Any]:
+        db = MongoConnection.get_db()
+
+        insight_query: dict[str, Any] = {}
+        if issue_type:
+            insight_query["issue_type"] = issue_type
+        if node:
+            insight_query["node"] = node
+
+        insights = list(
+            db["issue_insights"].find(
+                insight_query,
+                projection={
+                    "_id": 0,
+                    "insight_id": 1,
+                    "issue_type": 1,
+                    "node": 1,
+                    "root_cause_category": 1,
+                    "root_cause_summary": 1,
+                    "affected_tables": 1,
+                    "recurrence_count": 1,
+                    "actions": 1,
+                    "systemic": 1,
+                    "updated_at": 1,
+                },
+                sort=[("recurrence_count", -1), ("updated_at", -1)],
+                limit=5,
+            )
+        )
+        for item in insights:
+            _sanitize_datetimes_in_place(item)
+
+        analyses = list(
+            db["ai_analyses"].find(
+                {"finding_id": finding_id, "status": "completed"},
+                projection={
+                    "_id": 0,
+                    "analysis_id": 1,
+                    "skill_id": 1,
+                    "root_cause_summary": 1,
+                    "top_actions": 1,
+                    "cost_usd": 1,
+                    "started_at": 1,
+                    "completed_at": 1,
+                },
+                sort=[("started_at", -1)],
+                limit=3,
+            )
+        )
+        for item in analyses:
+            _sanitize_datetimes_in_place(item)
+
+        return {
+            "finding_id": finding_id,
+            "related_insights": insights,
+            "previous_analyses": analyses,
+            "total_recurrences": sum(int(item.get("recurrence_count", 0) or 0) for item in insights),
+        }
+
+    def get_query_stats(self, node: str, query_hash: str, top_n: int = 10) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)
-            CONVERT(VARCHAR(20), qs.plan_handle, 1) AS plan_handle_hex,
+            CONVERT(VARCHAR(130), qs.plan_handle, 1) AS plan_handle_hex,
             qs.execution_count,
             qs.total_elapsed_time / 1000.0 / qs.execution_count AS avg_elapsed_ms,
             qs.total_logical_reads / qs.execution_count         AS avg_logical_reads,
@@ -72,8 +178,6 @@ class DiagnosticExecutor:
         ORDER BY avg_elapsed_ms DESC
         """
         return self._run(node, sql, (top_n, _hex_to_bytes(query_hash)))
-
-    # ── Query Store ──────────────────────────────────────────────────────────────
 
     def get_query_store_history(
         self, node: str, query_hash: str, days_back: int = 7, top_n: int = 20
@@ -101,11 +205,7 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n, _hex_to_bytes(query_hash), days_back))
 
-    # ── Statistics ───────────────────────────────────────────────────────────────
-
-    def get_statistics_info(
-        self, node: str, table_name: str, top_n: int = 50
-    ) -> list[dict[str, Any]]:
+    def get_statistics_info(self, node: str, table_name: str, top_n: int = 50) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)
             OBJECT_NAME(s.object_id)  AS table_name,
@@ -125,8 +225,6 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n, table_name))
 
-    # ── Memory grant ─────────────────────────────────────────────────────────────
-
     def get_memory_grant(self, node: str, top_n: int = 20) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)
@@ -145,8 +243,6 @@ class DiagnosticExecutor:
         ORDER BY granted_memory_kb DESC
         """
         return self._run(node, sql, (top_n,))
-
-    # ── Blocking chain ───────────────────────────────────────────────────────────
 
     def get_blocking_chain(self, node: str, top_n: int = 30) -> list[dict[str, Any]]:
         sql = """
@@ -168,7 +264,7 @@ class DiagnosticExecutor:
             r.cpu_time,
             r.total_elapsed_time / 1000 AS elapsed_sec
         FROM sys.dm_exec_requests r
-        CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) st
+        OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) st
         WHERE r.blocking_session_id > 0
            OR r.session_id IN (
                SELECT DISTINCT blocking_session_id
@@ -179,10 +275,7 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n,))
 
-    # ── Wait stats ───────────────────────────────────────────────────────────────
-
     def get_wait_stats(self, node: str, top_n: int = 20) -> list[dict[str, Any]]:
-        # Lọc bỏ SQL Server internal idle waits không liên quan đến workload thực
         sql = """
         SELECT TOP (?)
             wait_type,
@@ -212,11 +305,7 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n,))
 
-    # ── Index usage ──────────────────────────────────────────────────────────────
-
-    def get_index_usage(
-        self, node: str, table_name: str, top_n: int = 50
-    ) -> list[dict[str, Any]]:
+    def get_index_usage(self, node: str, table_name: str, top_n: int = 50) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)
             OBJECT_NAME(i.object_id)  AS table_name,
@@ -237,11 +326,9 @@ class DiagnosticExecutor:
          AND ius.database_id = DB_ID()
         WHERE OBJECT_NAME(i.object_id) = ?
           AND i.type > 0
-        ORDER BY user_seeks + user_scans DESC
+        ORDER BY COALESCE(ius.user_seeks, 0) + COALESCE(ius.user_scans, 0) DESC
         """
         return self._run(node, sql, (top_n, table_name))
-
-    # ── Missing indexes ───────────────────────────────────────────────────────────
 
     def get_missing_indexes(
         self, node: str, table_name: str | None = None, top_n: int = 20
@@ -274,8 +361,6 @@ class DiagnosticExecutor:
         params: tuple = (top_n, table_name) if table_name else (top_n,)
         return self._run(node, sql, params)
 
-    # ── TempDB usage ─────────────────────────────────────────────────────────────
-
     def get_tempdb_usage(self, node: str, top_n: int = 20) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)
@@ -290,8 +375,6 @@ class DiagnosticExecutor:
         ORDER BY total_mb DESC
         """
         return self._run(node, sql, (top_n,))
-
-    # ── AG status ────────────────────────────────────────────────────────────────
 
     def get_ag_status(self, node: str) -> list[dict[str, Any]]:
         sql = """
@@ -317,21 +400,22 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, ())
 
-    # ── Memory pressure ──────────────────────────────────────────────────────────
-
     def get_memory_pressure(self, node: str) -> dict[str, Any]:
-        """Trả về dict với 2 keys: counters (PLE, target/total) và top_clerks."""
         sql_counters = """
         SELECT counter_name, cntr_value
         FROM sys.dm_os_performance_counters
-        WHERE object_name LIKE '%Memory Manager%'
-          AND counter_name IN (
-              'Total Server Memory (KB)',
-              'Target Server Memory (KB)',
-              'Free Memory (KB)',
-              'Stolen Server Memory (KB)',
-              'Page life expectancy'
-          )
+        WHERE (
+            object_name LIKE '%Memory Manager%'
+            AND counter_name IN (
+                'Total Server Memory (KB)',
+                'Target Server Memory (KB)',
+                'Free Memory (KB)',
+                'Stolen Server Memory (KB)'
+            )
+        ) OR (
+            object_name LIKE '%Buffer Manager%'
+            AND counter_name = 'Page life expectancy'
+        )
         """
         sql_clerks = """
         SELECT TOP 10
@@ -344,8 +428,6 @@ class DiagnosticExecutor:
         counters = self._run(node, sql_counters, ())
         clerks = self._run(node, sql_clerks, ())
         return {"counters": counters, "top_clerks": clerks}
-
-    # ── Resource Governor ─────────────────────────────────────────────────────────
 
     def get_resource_governor_stats(self, node: str) -> list[dict[str, Any]]:
         sql = """
@@ -366,8 +448,6 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, ())
 
-    # ── CDC status ───────────────────────────────────────────────────────────────
-
     def get_cdc_status(self, node: str, top_n: int = 10) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)
@@ -385,8 +465,6 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n,))
 
-    # ── Recent findings (MongoDB) ─────────────────────────────────────────────────
-
     def get_recent_findings(
         self,
         node: str | None = None,
@@ -394,10 +472,7 @@ class DiagnosticExecutor:
         hours_back: int = 24,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Query MongoDB findings collection — không query MSSQL."""
-        since = now_vn()
-        from datetime import timedelta
-        since = since - timedelta(hours=hours_back)
+        since = now_vn() - timedelta(hours=hours_back)
 
         query: dict[str, Any] = {"detected_at": {"$gte": since}}
         if node:
@@ -408,25 +483,29 @@ class DiagnosticExecutor:
         col = MongoConnection.get_db()["findings"]
         docs = col.find(
             query,
-            projection={"_id": 0, "finding_id": 1, "issue_type": 1, "severity": 1,
-                        "node": 1, "detected_at": 1, "metrics": 1, "status": 1},
+            projection={
+                "_id": 0,
+                "finding_id": 1,
+                "issue_type": 1,
+                "severity": 1,
+                "node": 1,
+                "detected_at": 1,
+                "metrics": 1,
+                "status": 1,
+            },
             sort=[("detected_at", -1)],
             limit=limit,
         )
         result = []
         for doc in docs:
-            # datetime → str để JSON-serializable
             if isinstance(doc.get("detected_at"), datetime):
                 doc["detected_at"] = doc["detected_at"].isoformat()
             result.append(doc)
         return result
 
-    # ── Index fragmentation ───────────────────────────────────────────────────────
-
     def get_index_fragmentation(
         self, node: str, table_name: str, top_n: int = 30
     ) -> list[dict[str, Any]]:
-        # SAMPLED mode: nhanh hơn DETAILED nhưng vẫn đủ chính xác cho quyết định rebuild/reorganize
         sql = """
         SELECT TOP (?)
             OBJECT_NAME(ips.object_id)  AS table_name,
@@ -446,12 +525,7 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n, table_name))
 
-    # ── Internal helper ───────────────────────────────────────────────────────────
-
-    def _run(
-        self, node: str, sql: str, params: tuple
-    ) -> list[dict[str, Any]]:
-        """Execute SQL trên node, trả về list of rows. Raise exception nếu lỗi."""
+    def _run(self, node: str, sql: str, params: tuple) -> list[dict[str, Any]]:
         start = time.monotonic()
         with mssql_connection(node) as conn:
             cursor = conn.execute(sql, params)
@@ -459,3 +533,61 @@ class DiagnosticExecutor:
         duration_ms = (time.monotonic() - start) * 1000
         logger.debug("DiagnosticExecutor: node=%s rows=%d duration_ms=%.1f", node, len(result), duration_ms)
         return result
+
+    def _get_finding(self, finding_id: str, projection: dict[str, Any]) -> dict[str, Any] | None:
+        return MongoConnection.get_db()["findings"].find_one(
+            {"finding_id": finding_id},
+            projection={**projection, "_id": 0},
+        )
+
+
+def _sanitize_datetimes_in_place(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, item in list(value.items()):
+            if isinstance(item, datetime):
+                value[key] = item.isoformat()
+            else:
+                _sanitize_datetimes_in_place(item)
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            if isinstance(item, datetime):
+                value[idx] = item.isoformat()
+            else:
+                _sanitize_datetimes_in_place(item)
+
+
+def _find_related_table_context(table_name: str, business_context: Any) -> list[dict[str, Any]]:
+    target = table_name.lower()
+    matches: list[dict[str, Any]] = []
+    _walk_context("", business_context, target, matches)
+    return matches
+
+
+def _walk_context(path: str, value: Any, target: str, matches: list[dict[str, Any]]) -> None:
+    if isinstance(value, dict):
+        if _dict_mentions_table(value, target):
+            matches.append({"path": path or "business_context", "value": value})
+        for key, item in value.items():
+            next_path = f"{path}.{key}" if path else str(key)
+            _walk_context(next_path, item, target, matches)
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            next_path = f"{path}[{idx}]" if path else f"[{idx}]"
+            _walk_context(next_path, item, target, matches)
+
+
+def _dict_mentions_table(data: dict[str, Any], target: str) -> bool:
+    for key, value in data.items():
+        if isinstance(value, str):
+            text = value.lower()
+            if text == target or f".{target}" in text or target in text:
+                return True
+        elif key.lower() in {"table", "table_name", "name"} and isinstance(value, str) and value.lower() == target:
+            return True
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, str):
+                    text = item.lower()
+                    if text == target or f".{target}" in text or target in text:
+                        return True
+    return False

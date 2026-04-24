@@ -32,7 +32,6 @@ from .config import settings
 from .executor.node_role_cache import NodeRoleCache
 from .storage.indexes import create_all_indexes
 from .storage.mongo_client import MongoConnection
-from .storage.repositories.db_context_repo import DbContextRepo
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +53,7 @@ async def lifespan(app: FastAPI):
     nrc = NodeRoleCache()
     nrc.initialize()
 
-    db_context_repo = DbContextRepo()
-    ctx_builder = ContextBuilder(sl, db_context_repo)
+    ctx_builder = ContextBuilder(sl)
     tool_exec = ToolExecutor(nrc, settings.peak_hours_start, settings.peak_hours_end)
     orch = AgentOrchestrator(sl, ctx_builder, tool_exec)
 
@@ -63,7 +61,6 @@ async def lifespan(app: FastAPI):
     app.state.skill_loader = sl
     app.state.node_role_cache = nrc
     app.state.orchestrator = orch
-    app.state.db_context_repo = db_context_repo
 
     _start_telegram_bot(app, orch, sl, nrc)
 
@@ -142,12 +139,17 @@ def _setup_logging() -> None:
 
     import socket as _socket
 
-    # UDP transport — tương thích Logstash input: udp { port => 5044 codec => json }
+    transport_map = {
+        "udp": "logstash_async.transport.UdpTransport",
+        "tcp": "logstash_async.transport.TcpTransport",
+    }
+    transport = transport_map.get(settings.logstash_transport, transport_map["udp"])
+
     handler = AsynchronousLogstashHandler(
         host=settings.logstash_host,
         port=settings.logstash_port,
         database_path=settings.logstash_database_path or None,
-        transport="logstash_async.transport.UdpTransport",
+        transport=transport,
     )
     # extra_prefix=None: extra fields ở top-level — Logstash filter check [app_name] top-level.
     handler.setFormatter(LogstashFormatter(
@@ -160,9 +162,10 @@ def _setup_logging() -> None:
     ))
     logging.getLogger().addHandler(handler)
     logging.getLogger().info(
-        "Logstash handler attached: %s:%s app_name=%s database_path=%s",
+        "Logstash handler attached: %s:%s transport=%s app_name=%s database_path=%s",
         settings.logstash_host,
         settings.logstash_port,
+        settings.logstash_transport,
         settings.logstash_app_name,
         settings.logstash_database_path or "<in-memory>",
     )

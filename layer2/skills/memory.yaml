@@ -4,36 +4,10 @@ issue_types:
   - memory_pressure
 
 specialization: |
-  Focus: SQL Server memory pressure — buffer pool, plan cache, memory grants.
-
-  Phân tích theo thứ tự:
-
-  1. Memory overview (get_memory_pressure)
-     - Target memory vs physical memory available
-     - Buffer pool hit ratio — nếu < 90% trong sustained period → thực sự thiếu RAM hoặc có scan lớn
-     - Plan cache size: nếu lớn bất thường → ad-hoc query storm, single-use plan
-     - Memory grants pending: > 0 → query đang chờ memory → throughput ảnh hưởng
-
-  2. Memory grant chi tiết nếu grants pending (get_memory_grant)
-     - Query nào đang giữ large grant?
-     - granted_mb >> required_mb → cardinality estimate sai → update statistics
-     - Nhiều grants nhỏ chờ → Resource Governor memory grant limit đang throttle
-
-  3. Resource Governor pool check (get_resource_governor_stats)
-     - Pool nào đang dùng nhiều memory nhất?
-     - PoolOLTP có bị lấn át bởi PoolMaintenance không (index rebuild peak hours)?
-
-  4. Top memory-consuming queries (get_query_stats)
-     - total_spills cao → không đủ memory grant → spill to TempDB
-     - max_grant_kb >> min_grant_kb → parameter-sensitive query
-
-  Lưu ý hệ thống:
-  - AG Secondary đọc reporting: cần ensure buffer pool không bị flush bởi large reporting scan
-  - CDC enabled: version store consume memory ngoài buffer pool
-  - Resource Governor pool memory cap có thể là nguyên nhân chủ ý, không phải lỗi
+  Focus: SQL Server memory pressure, buffer pool, plan cache, va memory grants.
 
 user_prompt_template: |
-  Phân tích memory pressure finding sau:
+  Phan tich memory pressure finding sau:
 
   Issue: {issue_type} | Severity: {severity}
   Node: {node} ({role}) | Detected: {detected_at}
@@ -50,5 +24,6 @@ optional_tools:
 
 model: claude-haiku-4-5-20251001
 max_tool_rounds: 3
-max_tokens: 2048
+max_tokens: 1500
+max_cost_usd: 0.05
 include_fields: []

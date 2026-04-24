@@ -31,7 +31,6 @@ from typing import TYPE_CHECKING, Any
 from ..models.analysis import AnalysisRequest, AnalysisStatus
 from ..storage.repositories.insight_repo import InsightRepo
 from ..storage.repositories.session_repo import SessionRepo
-from ..utils.cost_calculator import format_cost
 from ..utils.time_utils import now_vn
 
 if TYPE_CHECKING:
@@ -411,42 +410,6 @@ def _format_analysis_caption(result: Any) -> str:
     ])
 
     return "\n".join(parts)
-
-
-def _format_analysis(result: Any) -> str:
-    finding = result.finding_snapshot or {}
-    time_str = ""
-    detected_at = finding.get("detected_at")
-    if detected_at:
-        if hasattr(detected_at, "strftime"):
-            time_str = detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
-        else:
-            time_str = str(detected_at)
-
-    header_lines = [
-        f"🔍 <b>AI Analysis — {html.escape(str(finding.get('issue_type', '')))} </b>",
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        f"🖥 Node:   <code>{html.escape(finding.get('node', ''))}</code>",
-        f"📋 Skill:  <code>{html.escape(result.skill_id)}</code>",
-    ]
-    if time_str:
-        header_lines.append(f"🕐 Time:   {time_str}")
-    header_lines.append("")
-
-    footer_lines = [
-        "",
-        f"🔗 Finding: <code>{html.escape(result.finding_id)}</code>",
-        f"💰 Cost: {format_cost(result.cost_usd)} | "
-        f"🔧 Tools: {len(result.tool_calls)}",
-        "<i>Reply để hỏi thêm</i>",
-    ]
-
-    header = "\n".join(header_lines)
-    footer = "\n".join(footer_lines)
-    max_body = 4096 - len(header) - len(footer) - 10
-    body = html.escape(result.analysis_text[:max_body])
-
-    return header + body + footer
 
 
 def _format_summary(summary: dict) -> str:
