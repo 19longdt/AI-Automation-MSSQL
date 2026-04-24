@@ -133,6 +133,7 @@ MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB=db_monitor
 
 NODE_ROLE_REFRESH_SEC=3600
+DEDUP_SUPPRESS_MINUTES=30
 
 TEAMS_WEBHOOK_URL=https://...
 
@@ -288,9 +289,9 @@ MongoDB `baselines` document:
 | `monitor_topics` | — | upsert per topic | unique `(topic_id)` |
 | `node_roles` | — | upsert per host | unique `(host)` |
 | `raw_metrics` | 30d | `insert_many` per job run | `(topic_id, query_id, collected_at)` |
-| `findings` | 90d | `insert_one` per finding | `(topic_id, detected_at)`, `(issue_type, detected_at)` |
+| `findings` | 90d | `insert_one` per finding | `(topic_id, detected_at)`, `(issue_type, detected_at)`, `(finding_hash, detected_at)` |
 | `baselines` | — | `update_one` upsert | `(metric_type, day_of_week, hour, node)` |
-| `dedup_cache` | 7d | `findOneAndUpdate` | unique `(finding_hash)` |
+| `dedup_cache` | 7d | `findOne` + `updateOne(upsert)` | unique `(finding_hash)` |
 | `job_executions` | 30d | `insert_one` + `update_one` | `(job_name, started_at)` |
 | `ai_analysis` | 90d | (Layer 2) | — |
 | `approval_queue` | — | (Layer 2) | — |
@@ -398,7 +399,7 @@ Tất cả SQL queries trong `monitor_topics` phải có `TOP N` hoặc `WHERE` 
 `max_instances=1`, `coalesce=True`, mọi job idempotent.
 
 ### R9 · MongoDB Writes
-`insert_many` cho raw_metrics. `insert_one` cho findings. `findOneAndUpdate` cho dedup + baselines.
+`insert_many` cho raw_metrics. `insert_one` cho findings. `findOne`/`updateOne` cho dedup. `findOneAndUpdate` cho baselines.
 
 ### R10 · Import Order
 stdlib → third-party → internal (relative imports).
