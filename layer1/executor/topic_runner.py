@@ -169,11 +169,13 @@ class TopicRunner:
         count = 0
         for finding in findings:
             try:
+                finding.finding_hash = finding.compute_finding_hash()
                 status, error = self._compute_alert_state(finding)
                 finding.alert_status = status
                 finding.alert_error = error
                 if status == "sent":
                     finding.alert_sent_at = now_vn()
+                    self._dedup_repo.mark_alerted(finding.finding_hash)
 
                 self._findings_repo.insert(finding)
                 count += 1
@@ -190,9 +192,9 @@ class TopicRunner:
         Returns (alert_status, alert_error). status ∈
           skipped_no_dispatcher | suppressed | sent | failed | skipped_severity.
 
-        Thứ tự: no_dispatcher → dedup → dispatch (severity check trong dispatcher).
-        Lưu ý: dedup chạy TRƯỚC severity → finding bị skip do severity vẫn consume
-        dedup slot — giữ nguyên behavior cũ để không thay đổi UX dedup.
+        Thứ tự: no_dispatcher → dedup check → dispatch.
+        Chỉ mark dedup sau khi dispatch thành công (status=sent), để đảm bảo
+        luôn có ít nhất 1 alert thực sự được gửi trước khi suppress alert trùng.
         """
         if not self._dispatcher:
             logger.warning(
@@ -201,8 +203,9 @@ class TopicRunner:
             )
             return ("skipped_no_dispatcher", "no dispatcher configured")
 
-        finding_hash = finding.finding_hash()
-        if not self._dedup_repo.should_alert(finding_hash, self._dedup_suppress_min):
+        if self._dedup_repo.was_alerted_recently(
+            finding.finding_hash, self._dedup_suppress_min
+        ):
             logger.debug(
                 "Dedup suppressed: topic=%s issue_type=%s node=%s suppress_min=%d",
                 finding.topic_id, finding.issue_type.value, finding.node, self._dedup_suppress_min,

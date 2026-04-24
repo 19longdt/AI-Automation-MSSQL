@@ -59,8 +59,12 @@ class Finding(BaseModel):
         default=None,
         description="Error message khi alert_status=failed; partial errors khi 'sent'",
     )
+    finding_hash: str = Field(
+        default="",
+        description="Dedup hash key (topic_id + issue_type + node + query_hash).",
+    )
 
-    def finding_hash(self) -> str:
+    def compute_finding_hash(self) -> str:
         """Hash dùng cho dedup_cache — cùng topic + issue_type + node + query_hash
         trong window ngắn sẽ không gửi alert trùng.
         topic_id được include để tránh collision giữa các topic khác nhau

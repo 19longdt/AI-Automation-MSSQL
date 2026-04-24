@@ -75,6 +75,11 @@ class EnvSettings(BaseSettings):
         default=3600,
         description="Tần suất refresh role cache (giây). Default 1 giờ.",
     )
+    dedup_suppress_minutes: int = Field(
+        default=30,
+        ge=1,
+        description="Window suppress alert trùng theo finding_hash (phút).",
+    )
 
     # ── Notification Credentials ────────────────────────────────────────────
     teams_webhook_url: str = Field(default="")

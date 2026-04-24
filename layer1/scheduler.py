@@ -151,6 +151,7 @@ class Layer1Service:
             node_role_cache=self._role_cache,
             detector_registry=detector_registry,
             dispatcher=dispatcher,
+            dedup_suppress_minutes=settings.dedup_suppress_minutes,
         )
 
         # 7. JobRunner + HealthChecker (intervals populated in _register_jobs)

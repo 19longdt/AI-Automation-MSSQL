@@ -96,6 +96,11 @@ def _create_findings_indexes(db: Database) -> None:
             sparse=True,
         ),
         IndexModel(
+            [("finding_hash", ASCENDING), ("detected_at", DESCENDING)],
+            name="finding_hash_time",
+            sparse=True,
+        ),
+        IndexModel(
             [("alert_status", ASCENDING), ("detected_at", DESCENDING)],
             name="alert_status_time",
         ),

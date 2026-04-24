@@ -4,9 +4,6 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
-
 from ...utils.time_utils import now_vn
 from ..mongo_client import MongoConnection
 
@@ -21,33 +18,18 @@ class DedupRepo:
     def collection(self):
         return MongoConnection.get_db()[COLLECTION]
 
-    def should_alert(self, finding_hash: str, suppress_minutes: int) -> bool:
-        """
-        Trả về True nếu nên gửi alert (chưa alert trong suppress_minutes gần đây).
-        Dùng findOneAndUpdate để atomic check-and-set — tránh race condition
-        khi nhiều findings cùng hash xuất hiện trong cùng job run.
-        """
-        now = now_vn()
-        cutoff = now - timedelta(minutes=suppress_minutes)
-
-        # Atomic: update record nếu last_alerted_at đã quá suppress window
-        updated = self.collection.find_one_and_update(
-            {"finding_hash": finding_hash, "last_alerted_at": {"$lt": cutoff}},
-            {"$set": {"last_alerted_at": now}},
-            return_document=ReturnDocument.AFTER,
+    def was_alerted_recently(self, finding_hash: str, suppress_minutes: int) -> bool:
+        """Trả về True nếu hash đã alert trong suppress window gần đây."""
+        cutoff = now_vn() - timedelta(minutes=suppress_minutes)
+        doc = self.collection.find_one(
+            {"finding_hash": finding_hash, "last_alerted_at": {"$gte": cutoff}},
+            {"_id": 1},
         )
-        if updated is not None:
-            return True
+        return doc is not None
 
-        # Record chưa tồn tại → tạo mới (lần alert đầu tiên)
-        try:
-            self.collection.insert_one(
-                {"finding_hash": finding_hash, "last_alerted_at": now}
-            )
-            return True
-        except DuplicateKeyError:
-            # Record tồn tại và last_alerted_at còn trong suppress window → suppress
-            return False
+    def should_alert(self, finding_hash: str, suppress_minutes: int) -> bool:
+        """Legacy helper: True nếu chưa alert trong suppress window."""
+        return not self.was_alerted_recently(finding_hash, suppress_minutes)
 
     def mark_alerted(self, finding_hash: str) -> None:
         """Ghi nhận đã alert, update last_alerted_at."""
