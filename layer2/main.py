@@ -94,15 +94,15 @@ def _start_telegram_bot(
     bot.start()
     app.state.telegram_bot = bot
     logger.info("TelegramBot started.")
-    bot.send_startup(
-        skills=sl.list_skills(),
-        primary=nrc.get_primary_host(),
-        secondaries=nrc.get_secondary_hosts(),
-        model=settings.claude_model,
-        timeout_sec=settings.agent_timeout_sec,
-        peak_start=settings.peak_hours_start,
-        peak_end=settings.peak_hours_end,
-    )
+    # bot.send_startup(
+    #     skills=sl.list_skills(),
+    #     primary=nrc.get_primary_host(),
+    #     secondaries=nrc.get_secondary_hosts(),
+    #     model=settings.claude_model,
+    #     timeout_sec=settings.agent_timeout_sec,
+    #     peak_start=settings.peak_hours_start,
+    #     peak_end=settings.peak_hours_end,
+    # )
 
 
 async def _node_role_refresh_loop(nrc: NodeRoleCache) -> None:
@@ -121,6 +121,8 @@ def _setup_logging() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # Keep pymongo less noisy even when global L2_LOG_LEVEL is DEBUG.
+    logging.getLogger("pymongo").setLevel(logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
 

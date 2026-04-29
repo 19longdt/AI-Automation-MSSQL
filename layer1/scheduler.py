@@ -63,11 +63,11 @@ class Layer1Service:
         """Setup toàn bộ dependencies, register jobs, start scheduler."""
         self._setup_infrastructure()
         topic_count = self._register_jobs()
-        if self._dispatcher:
-            self._dispatcher.dispatch_startup(
-                nodes=settings.mssql_nodes,
-                topic_count=topic_count,
-            )
+        # if self._dispatcher:
+        #     self._dispatcher.dispatch_startup(
+        #         nodes=settings.mssql_nodes,
+        #         topic_count=topic_count,
+        #     )
         logger.info("Layer 1 Monitoring Service started — scheduler running.")
         self._scheduler.start()  # blocking
 

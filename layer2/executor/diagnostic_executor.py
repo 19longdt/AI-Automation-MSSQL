@@ -191,8 +191,8 @@ class DiagnosticExecutor:
             qsrs.avg_logical_io_reads,
             qsrs.avg_cpu_time / 1000.0      AS avg_cpu_ms,
             qsrs.count_executions,
-            qsrs.first_execution_time,
-            qsrs.last_execution_time,
+            CONVERT(VARCHAR(30), qsrs.first_execution_time, 127) AS first_execution_time,
+            CONVERT(VARCHAR(30), qsrs.last_execution_time, 127)  AS last_execution_time,
             CONVERT(VARCHAR(20), qsp.query_plan_hash, 1) AS plan_hash_hex
         FROM sys.query_store_query qsq
         JOIN sys.query_store_plan qsp
