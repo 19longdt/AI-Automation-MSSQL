@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HTML Query Plan</title>
+  <style>
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: #000;
+      background: #fff;
+    }
+    .layout {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .topbar {
+      border-bottom: 1px solid #ccc;
+      padding: 8px 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .brand {
+      font-weight: bold;
+      margin-right: 12px;
+    }
+    .tab-btn {
+      border: 1px solid #ccc;
+      background: #fff;
+      color: #000;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .tab-btn.active {
+      background: #eee;
+    }
+    .content {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      padding: 12px;
+    }
+    .panel {
+      display: none;
+      height: 100%;
+      background: #fff;
+      border: 1px solid #ccc;
+      overflow: auto;
+    }
+    .panel.active {
+      display: block;
+    }
+    .panel-pad {
+      padding: 16px;
+      min-height: 100%;
+    }
+    .hint {
+      color: #666;
+      margin-top: 4px;
+      font-size: 13px;
+    }
+    .history-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .history-item {
+      border: 1px solid #ccc;
+      padding: 10px;
+      background: #fff;
+    }
+    .history-empty {
+      color: #666;
+      font-style: italic;
+    }
+    .plan-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #fff;
+    }
+    #tab-plan {
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="topbar">
+      <div class="brand">HTML Query Plan</div>
+      <button class="tab-btn active" data-tab="history">Lịch sử</button>
+      <button class="tab-btn" data-tab="plan">Truy xuất Plan XML</button>
+    </div>
+
+    <div class="content">
+      <section id="tab-history" class="panel active">
+        <div class="panel-pad">
+          <h3 style="margin:0;">Lịch sử</h3>
+          <div class="hint">Gợi ý: bạn có thể lưu lịch sử thao tác/plan tại đây (phiên bản hiện tại đang để khung sẵn).</div>
+          <div id="historyList" class="history-list">
+            <div class="history-empty">Chưa có dữ liệu lịch sử.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-plan" class="panel">
+        <iframe class="plan-frame" src="/examples/upload.html" title="Plan XML Viewer"></iframe>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var buttons = document.querySelectorAll('.tab-btn');
+      var TAB_TO_PATH = {
+        history: '/history',
+        plan: '/extract-query-plan'
+      };
+
+      function tabFromPath(pathname) {
+        if (pathname === '/extract-query-plan' || pathname === '/extract-query-plan/') return 'plan';
+        if (pathname === '/history' || pathname === '/history/') return 'history';
+        return 'history';
+      }
+
+      function activate(tab, skipPushState) {
+        var safeTab = tab === 'plan' ? 'plan' : 'history';
+        for (var i = 0; i < buttons.length; i++) {
+          var isActive = buttons[i].getAttribute('data-tab') === safeTab;
+          buttons[i].classList.toggle('active', isActive);
+        }
+        document.getElementById('tab-history').classList.toggle('active', safeTab === 'history');
+        document.getElementById('tab-plan').classList.toggle('active', safeTab === 'plan');
+
+        if (!skipPushState) {
+          var nextPath = TAB_TO_PATH[safeTab] || '/history';
+          if (window.location.pathname !== nextPath) {
+            window.history.pushState({ tab: safeTab }, '', nextPath);
+          }
+        }
+      }
+
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].addEventListener('click', function () {
+          activate(this.getAttribute('data-tab'));
+        });
+      }
+
+      window.addEventListener('popstate', function () {
+        activate(tabFromPath(window.location.pathname), true);
+      });
+
+      activate(tabFromPath(window.location.pathname), true);
+    })();
+  </script>
+</body>
+</html>
