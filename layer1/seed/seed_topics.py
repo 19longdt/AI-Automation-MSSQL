@@ -253,44 +253,81 @@ ORDER BY r.wait_time DESC
 def _slow_query() -> MonitorTopic:
     return MonitorTopic(
         topic_id="slow_query",
-        display_name="Slow Query / Performance Regression (Baseline)",
+        display_name="Slow Query / Active Sessions with Blocking",
         enabled=True,
         schedule_sec=300,
         nodes=["all"],
         queries=[
             QueryConfig(
-                query_id="query_store_stats",
-                description="Query Store: avg duration của các query chạy trong 30 phút qua",
+                query_id="active_slow_sessions",
+                description="Active sessions real-time với thông tin blocking",
                 sql="""
-SELECT TOP 50
-    CONVERT(VARCHAR(64), HASHBYTES('MD5', qsqt.query_sql_text), 2)
-                                        AS query_hash,
-    qsq.query_id,
-    ROUND(qsp.avg_duration / 1000.0, 2) AS avg_duration_ms,
-    ROUND(qsp.avg_logical_io_reads, 0)  AS avg_logical_reads,
-    qsp.count_executions,
-    qsp.last_execution_time,
-    SUBSTRING(qsqt.query_sql_text, 1, 500) AS query_text
-FROM sys.query_store_query qsq
-JOIN sys.query_store_plan qsp
-    ON qsq.query_id = qsp.query_id
-JOIN sys.query_store_query_text qsqt
-    ON qsq.query_text_id = qsqt.query_text_id
-WHERE qsp.last_execution_time > DATEADD(MINUTE, -30, GETUTCDATE())
-  AND qsp.count_executions >= 5
-  AND qsp.avg_duration > 50000   -- > 50ms
-ORDER BY qsp.avg_duration DESC
+SELECT TOP 10
+    s.session_id,
+    r.status,
+    r.command,
+    s.login_name,
+    s.host_name,
+    r.cpu_time / 1000.0           AS cpu_time_seconds,
+    r.total_elapsed_time / 1000.0 AS elapsed_seconds,
+    r.logical_reads,
+    r.reads,
+    r.writes,
+    SUBSTRING(t.text, 1, 1000)    AS sql_text,
+    qp.query_plan                 AS query_plan_xml,
+    r.blocking_session_id,
+    r.wait_type,
+    r.wait_time / 1000.0          AS wait_seconds,
+    r.wait_resource,
+    bs.login_name                 AS blocker_login,
+    bs.host_name                  AS blocker_host,
+    bs.status                     AS blocker_status,
+    bs.open_transaction_count     AS blocker_open_txn,
+    SUBSTRING(bt.text, 1, 500)    AS blocker_sql_text,
+    CONVERT(NVARCHAR(MAX), COALESCE(
+        blocker_active_plan.query_plan,
+        blocker_cached_plan.query_plan
+    ))                            AS blocker_plan_xml
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s
+    ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
+CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) AS qp
+LEFT JOIN sys.dm_exec_sessions bs
+    ON r.blocking_session_id = bs.session_id
+LEFT JOIN sys.dm_exec_connections bc
+    ON r.blocking_session_id = bc.session_id
+OUTER APPLY sys.dm_exec_sql_text(bc.most_recent_sql_handle) bt
+OUTER APPLY (
+    SELECT TOP 1 qp2.query_plan
+    FROM sys.dm_exec_requests br
+    CROSS APPLY sys.dm_exec_query_plan(br.plan_handle) qp2
+    WHERE br.session_id = r.blocking_session_id
+) blocker_active_plan(query_plan)
+OUTER APPLY (
+    SELECT TOP 1 qp3.query_plan
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp3
+    WHERE qs.sql_handle = bc.most_recent_sql_handle
+      AND NOT EXISTS (
+          SELECT 1 FROM sys.dm_exec_requests br2
+          WHERE br2.session_id = r.blocking_session_id
+      )
+) blocker_cached_plan(query_plan)
+WHERE s.login_name != 'HDDT\\sqleasypos'
+  AND s.host_name  != 'EASYPOS-DB1'
+ORDER BY elapsed_seconds DESC
 """,
                 timeout_sec=30,
             ),
         ],
-        detector_type="baseline",
-        baseline_config=BaselineConfig(
-            metric_field="avg_duration_ms",
-            threshold_pct=50.0,
-            min_executions=10,
-            baseline_weeks=4,
-        ),
+        detector_type="threshold",
+        thresholds={
+            "elapsed_seconds": ThresholdConfig(warning=30.0, critical=300.0),
+        },
+        extra={
+            "issue_type": "slow_query",
+        },
     )
 
 
