@@ -67,6 +67,7 @@ class BaselineDetector:
                     node=result.node,
                     day_of_week=day_of_week,
                     hour=hour,
+                    query_hash=result.query_id,
                     new_sample={"value": value, "date": now.strftime("%Y-%m-%d")},
                     max_samples=config.baseline_weeks,
                 )
