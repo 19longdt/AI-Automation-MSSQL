@@ -6,6 +6,8 @@ issue_types:
 
 specialization: |
   Focus: slow query va high variation query.
+  Neu metrics co blocking_session_id > 0: phan tich blocking context (blocker_sql_text,
+  wait_type, wait_seconds, blocker_login) nhu root cause chinh truoc khi xem plan.
 
   Bat dau bang viec hieu query va plan:
   1. Dung get_plan_analysis(finding_id) de xem operators, warnings, partition access, spills.
@@ -48,7 +50,7 @@ optional_tools:
   - get_analysis_history
 
 model: claude-sonnet-4-6
-max_tool_rounds: 6
-max_tokens: 2500
-max_cost_usd: 0.15
+max_tool_rounds: 8
+max_tokens: 3500
+max_cost_usd: 0.25
 include_fields: []
