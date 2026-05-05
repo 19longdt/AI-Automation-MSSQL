@@ -160,7 +160,13 @@ class DiagnosticExecutor:
             "total_recurrences": sum(int(item.get("recurrence_count", 0) or 0) for item in insights),
         }
 
-    def get_query_stats(self, node: str, query_hash: str, top_n: int = 10) -> list[dict[str, Any]]:
+    def get_query_stats(
+        self,
+        node: str,
+        query_hash: str,
+        top_n: int = 10,
+        finding_time: datetime | None = None,
+    ) -> dict[str, Any]:
         sql = """
         SELECT TOP (?)
             CONVERT(VARCHAR(130), qs.plan_handle, 1) AS plan_handle_hex,
@@ -177,7 +183,37 @@ class DiagnosticExecutor:
         WHERE qs.query_hash = ?
         ORDER BY avg_elapsed_ms DESC
         """
-        return self._run(node, sql, (top_n, _hex_to_bytes(query_hash)))
+        rows = self._run(node, sql, (top_n, _hex_to_bytes(query_hash)))
+        result: dict[str, Any] = {"rows": rows}
+
+        if finding_time and rows:
+            plan_times = []
+            for row in rows:
+                pt = row.get("plan_creation_time")
+                if isinstance(pt, str):
+                    try:
+                        plan_times.append(datetime.fromisoformat(pt))
+                    except ValueError:
+                        pass
+                elif isinstance(pt, datetime):
+                    plan_times.append(pt)
+            if plan_times:
+                all_postdate = all(pt > finding_time for pt in plan_times)
+                result["plan_predates_finding"] = not all_postdate
+                if all_postdate:
+                    result["_timing_note"] = (
+                        "CACHE EVICTED: tat ca plan_creation_time > detected_at. "
+                        "avg_elapsed_ms va avg_logical_reads phan anh plan MOI, khong phan anh su co. "
+                        "Spill data va avg_physical_reads van co gia tri. "
+                        "Dung get_query_store_history cho stats lich su."
+                    )
+            else:
+                result["plan_predates_finding"] = None
+        elif not rows:
+            result["plan_predates_finding"] = None
+            result["_timing_note"] = "Khong co rows — query hash da bi evict hoan toan khoi plan cache."
+
+        return result
 
     def get_query_store_history(
         self, node: str, query_hash: str, days_back: int = 7, top_n: int = 20
@@ -216,7 +252,7 @@ class DiagnosticExecutor:
             sp.rows_sampled,
             CAST(sp.rows_sampled * 100.0 / NULLIF(sp.rows, 0) AS DECIMAL(5,2)) AS sample_pct,
             sp.modification_counter,
-            sp.is_incremental
+            s.is_incremental
         FROM sys.stats s
         CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) sp
         WHERE OBJECT_NAME(s.object_id) = ?

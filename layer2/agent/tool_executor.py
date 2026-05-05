@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from ..executor.diagnostic_executor import DiagnosticExecutor
@@ -91,7 +92,16 @@ class ToolExecutor:
 
     def _truncate_result(self, result: Any, tool_name: str) -> Any:
         """Keep tool payloads compact before they are fed back into the model."""
-        if isinstance(result, list) and len(result) > MAX_TOOL_RESULT_ROWS:
+        if tool_name == "get_query_stats" and isinstance(result, dict) and "rows" in result:
+            rows = result["rows"]
+            if isinstance(rows, list) and len(rows) > MAX_TOOL_RESULT_ROWS:
+                total = len(rows)
+                result = {**result, "rows": list(rows[:MAX_TOOL_RESULT_ROWS])}
+                result["rows"].append({
+                    "_truncated": True, "_tool": tool_name,
+                    "_total_rows": total, "_shown_rows": MAX_TOOL_RESULT_ROWS,
+                })
+        elif isinstance(result, list) and len(result) > MAX_TOOL_RESULT_ROWS:
             total = len(result)
             logger.debug(
                 "Tool '%s' row truncation total_rows=%d shown_rows=%d",
@@ -144,7 +154,18 @@ class ToolExecutor:
                 node=inp.get("node"),
             )
         if tool_name == "get_query_stats":
-            return ex.get_query_stats(node=inp["node"], query_hash=inp["query_hash"], top_n=inp.get("top_n", 10))
+            finding_time: datetime | None = None
+            if raw := inp.get("finding_time"):
+                try:
+                    finding_time = datetime.fromisoformat(str(raw))
+                except ValueError:
+                    pass
+            return ex.get_query_stats(
+                node=inp["node"],
+                query_hash=inp["query_hash"],
+                top_n=inp.get("top_n", 10),
+                finding_time=finding_time,
+            )
         if tool_name == "get_query_store_history":
             return ex.get_query_store_history(
                 node=inp["node"],
