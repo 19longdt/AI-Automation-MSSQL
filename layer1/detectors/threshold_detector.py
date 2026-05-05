@@ -59,6 +59,7 @@ class ThresholdDetector:
                         topic=topic,
                         node=result.node,
                         role=result.role,
+                        query_hash=result.query_id,
                         lower_is_worse=(field in lower_is_worse),
                     )
                     if finding is not None:
@@ -74,6 +75,7 @@ class ThresholdDetector:
         topic: MonitorTopic,
         node: str,
         role: str = "",
+        query_hash: str | None = None,
         lower_is_worse: bool = False,
     ) -> Finding | None:
         """Kiểm tra 1 row, 1 field. Trả về Finding hoặc None."""
@@ -130,6 +132,7 @@ class ThresholdDetector:
             severity=severity,
             node=node,
             role=role,
+            query_hash=query_hash,
             metrics=metrics,
         )
 
