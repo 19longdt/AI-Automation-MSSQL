@@ -1,0 +1,20 @@
+{
+  "name": "layer3",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=@layer3/web\" \"npm run dev --workspace=@layer3/api\"",
+    "build": "npm run build --workspace=@layer3/core && npm run build --workspace=@layer3/web && npm run build --workspace=@layer3/api",
+    "start": "node apps/api/dist/main.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

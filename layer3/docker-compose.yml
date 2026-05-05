@@ -1,0 +1,7 @@
+services:
+  html-query-plan:
+    image: 19longdt/html-query-plan:latest
+    container_name: html-query-plan
+    ports:
+      - "8080:80"
+    restart: unless-stopped

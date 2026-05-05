@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Layer3 Query Plan</title>
+  <link rel="stylesheet" href="/apps/web/css/dashboard.css" />
+  <link rel="stylesheet" type="text/css" href="/css/qp.css" />
+  <script src="/dist/qp.js"></script>
+  <style>
+    html, body { height: 100vh; max-width: 100%; overflow: hidden; }
+    body { display: flex; flex-direction: column; min-height: 0; }
+    .qp-page { flex: 1 1 auto; min-height: 0; max-width: 100%; overflow: hidden; }
+    .qp-panel { height: 100%; display: flex; flex-direction: column; min-height: 0; max-width: 100%; overflow: hidden; }
+    .controls { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+    .muted { color:#666; font-size:12px; }
+    .error-banner {
+      display:none; margin:8px 0; padding:8px 10px;
+      border:1px solid #d9534f; background:#fdecea; color:#8a1f1b;
+      font-family:Consolas, monospace; font-size:12px; white-space:pre-wrap;
+    }
+    .error-banner.show { display:block; }
+    .global-loading-overlay {
+      position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+      background:rgba(0,0,0,0.25); z-index:2000;
+    }
+    .global-loading-overlay.show { display:flex; }
+    .global-loading-box {
+      min-width:280px; padding:12px 16px; border:1px solid #bcbcbc; background:#fff;
+      box-shadow:0 8px 24px rgba(0,0,0,0.2); font-family:Consolas, monospace; font-size:13px;
+      color:#222; text-align:center;
+    }
+    .xml-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; z-index:3000; }
+    .xml-modal-backdrop.open { display:block; }
+    .xml-modal {
+      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+      width:min(1200px, 92vw); height:min(82vh, 900px);
+      background:#fff; border:1px solid #bfbfbf; box-shadow:0 10px 28px rgba(0,0,0,0.28);
+      display:flex; flex-direction:column; box-sizing:border-box; z-index:3001; min-height:0; overflow:hidden;
+    }
+    .xml-modal-header {
+      display:flex; justify-content:space-between; align-items:center; gap:8px;
+      padding:10px 12px; border-bottom:1px solid #d6d6d6; background:#f8f8f8;
+    }
+    .xml-modal-body { flex:1 1 auto; min-height:0; overflow:auto; padding:12px; }
+    .xml-modal textarea { width:100%; height:100%; resize:none; font-family:Consolas, monospace; box-sizing:border-box; }
+    .xml-modal-actions { margin-top:8px; display:flex; gap:8px; align-items:center; }
+    .xml-viewer-grid { display:grid; grid-template-rows:100%; gap:8px; min-height:0; flex:1 1 auto; overflow:hidden; }
+    .xml-viewer-section { min-height:0; display:flex; flex-direction:column; gap:4px; overflow:hidden; }
+    .xml-viewer-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+    .xml-viewer-content {
+      width:100%; flex:1 1 auto; overflow:auto; border:1px solid #d0d0d0; background:#fafafa;
+      box-sizing:border-box; padding:10px; font-family:Consolas, monospace; font-size:12px; min-height:0;
+    }
+    .xml-viewer-content.tree { white-space:normal; }
+    .xml-tree details { margin-left:14px; }
+    .xml-tree summary { cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; }
+    .xml-tree summary::-webkit-details-marker { display:none; }
+    .xml-tree summary::before { content:'▶'; color:#444; font-size:11px; width:12px; display:inline-block; }
+    .xml-tree details[open] > summary::before { content:'▼'; }
+    .xml-tag { color:#003b8e; }
+    .xml-attr { color:#8a2b06; }
+    .xml-text { color:#1f1f1f; margin-left:18px; white-space:pre-wrap; word-break:break-word; }
+    .controls, .muted, .error-banner, .xml-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+    .qp-diagram-scroll {
+      flex:1 1 auto;
+      min-height:0;
+      max-width: 100%;
+      overflow-x:auto;
+      overflow-y:hidden;
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+    #container {
+      min-height:0;
+      min-width: 100%;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    #container .qp-statement-block {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      box-sizing: border-box !important;
+    }
+    #container .qp-statement-header-panel {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      overflow: auto !important;
+      box-sizing: border-box !important;
+    }
+    #container .qp-statement-header,
+    #container .qp-statement-query-panel,
+    #container .qp-query-pane {
+      min-width: 0 !important;
+    }
+    #container .qp-query-tabs {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      background: #efefef;
+      padding: 4px;
+      border-bottom: 1px solid #c8c8c8;
+    }
+    #container .qp-query-pane {
+      overflow: auto !important;
+    }
+    #container .qp-real-query,
+    #container .qp-resolved-query,
+    #container .qp-missing-index-panel,
+    #container .qp-statement-header-row > div {
+      white-space: pre-wrap !important;
+      overflow-wrap: anywhere !important;
+      word-break: break-word !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a href="/dashboard" class="tab">Dashboard</a>
+    <a href="/insights" class="tab">Insights</a>
+    <a href="/query-plan" class="tab active">Query Plan</a>
+  </div>
+
+  <main class="page qp-page">
+    <section class="panel qp-panel">
+      <div class="controls">
+        <input type="file" id="upload" />
+        <button type="button" id="openXmlModal">Paste XML</button>
+        <button type="button" id="clearXml">Clear</button>
+        <span class="muted">Editor mở trong popup, không chiếm layout chính</span>
+      </div>
+
+      <div id="errorBanner" class="error-banner"></div>
+      <div class="qp-diagram-scroll"><div id="container"></div></div>
+    </section>
+  </main>
+
+  <div id="globalLoadingOverlay" class="global-loading-overlay">
+    <div id="globalLoadingText" class="global-loading-box">Đang xử lý...</div>
+  </div>
+
+  <div class="xml-modal-backdrop" id="xmlModalBackdrop">
+    <div class="xml-modal" role="dialog" aria-modal="true" aria-labelledby="xmlModalTitle">
+      <div class="xml-modal-header">
+        <strong id="xmlModalTitle" class="modal-title">Paste ShowPlan XML</strong>
+        <button type="button" id="closeXmlModal" class="modal-close-btn" aria-label="Close dialog">Close</button>
+      </div>
+      <div class="xml-modal-body">
+        <textarea id="xmlInput" placeholder="Paste ShowPlan XML here..."></textarea>
+        <div class="xml-modal-actions">
+          <button type="button" id="renderNow">Render now</button>
+          <span class="muted">Auto render sau 2 giây</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="xml-modal-backdrop" id="xmlViewerBackdrop">
+    <div class="xml-modal" role="dialog" aria-modal="true" aria-labelledby="xmlViewerTitle">
+      <div class="xml-modal-header">
+        <strong id="xmlViewerTitle" class="modal-title">Formatted ShowPlan XML</strong>
+        <button type="button" id="closeXmlViewer" class="modal-close-btn" aria-label="Close dialog">Close</button>
+      </div>
+      <div class="xml-modal-body">
+        <div class="xml-viewer-grid">
+          <div class="xml-viewer-section">
+            <div class="xml-viewer-toolbar">
+              <button type="button" id="expandAllXml">Expand all</button>
+              <button type="button" id="collapseAllXml">Collapse all</button>
+            </div>
+            <div id="xmlViewerContent" class="xml-viewer-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="xml-modal-backdrop" id="beautifyViewerBackdrop">
+    <div class="xml-modal" role="dialog" aria-modal="true" aria-labelledby="beautifyViewerTitle">
+      <div class="xml-modal-header">
+        <strong id="beautifyViewerTitle" class="modal-title">Beautified Query</strong>
+        <button type="button" id="closeBeautifyViewer" class="modal-close-btn" aria-label="Close dialog">Close</button>
+      </div>
+      <div class="xml-modal-body">
+        <div id="beautifyViewerContent" class="xml-viewer-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var renderTimeoutId = null;
+    var xmlModalBackdrop = document.getElementById('xmlModalBackdrop');
+    var xmlInput = document.getElementById('xmlInput');
+    var xmlViewerBackdrop = document.getElementById('xmlViewerBackdrop');
+    var xmlViewerContent = document.getElementById('xmlViewerContent');
+    var beautifyViewerBackdrop = document.getElementById('beautifyViewerBackdrop');
+    var beautifyViewerContent = document.getElementById('beautifyViewerContent');
+    var globalLoadingOverlay = document.getElementById('globalLoadingOverlay');
+    var globalLoadingText = document.getElementById('globalLoadingText');
+    var errorBanner = document.getElementById('errorBanner');
+
+    var currentXmlText = '';
+    var planData = null;
+    var isRendering = false;
+    var actionLoadingCount = 0;
+
+    function beginActionLoading(message) {
+      actionLoadingCount += 1;
+      globalLoadingText.textContent = message || 'Đang xử lý...';
+      globalLoadingOverlay.classList.add('show');
+    }
+    function endActionLoading() {
+      actionLoadingCount = Math.max(0, actionLoadingCount - 1);
+      if (actionLoadingCount === 0) globalLoadingOverlay.classList.remove('show');
+    }
+    function runWithActionLoading(message, fn) {
+      beginActionLoading(message);
+      setTimeout(function () {
+        try { fn(); } finally { setTimeout(endActionLoading, 120); }
+      }, 0);
+    }
+    function showError(message) { errorBanner.textContent = message; errorBanner.classList.add('show'); }
+    function clearError() { errorBanner.textContent = ''; errorBanner.classList.remove('show'); }
+    function savePlanData(xmlText, source) {
+      var rawXml = String(xmlText || '');
+      planData = { source: source || 'unknown', rawXml: rawXml, formattedXml: rawXml, updatedAt: new Date().toISOString() };
+    }
+    function parseXmlOrThrow(xmlText) {
+      var doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+      if (doc.getElementsByTagName('parsererror').length > 0) throw new Error('XML parse error.');
+      return doc;
+    }
+    function renderPlan(xmlText) {
+      if (!xmlText || !xmlText.trim()) return;
+      clearError();
+      isRendering = true;
+      beginActionLoading('Đang parse XML và render diagram...');
+      currentXmlText = xmlText;
+      setTimeout(function () {
+        try {
+          parseXmlOrThrow(xmlText);
+          QP.showPlan(document.getElementById('container'), xmlText);
+        } catch (err) {
+          showError('Không thể render plan. Vui lòng kiểm tra XML.\n' + (err && err.message ? err.message : 'Unknown error'));
+        } finally {
+          isRendering = false;
+          endActionLoading();
+        }
+      }, 0);
+    }
+    function scheduleRender(xmlText) {
+      if (renderTimeoutId != null) clearTimeout(renderTimeoutId);
+      renderTimeoutId = setTimeout(function () { renderPlan(xmlText); closeXmlModal(); }, 2000);
+    }
+    function openXmlModal() { xmlModalBackdrop.classList.add('open'); xmlInput.focus(); }
+    function closeXmlModal() { xmlModalBackdrop.classList.remove('open'); }
+    function closeXmlViewer() { xmlViewerBackdrop.classList.remove('open'); }
+    function closeBeautifyViewer() { beautifyViewerBackdrop.classList.remove('open'); }
+    function buildXmlTreeHtml(xmlText) {
+      if (window.QP && typeof window.QP.buildXmlTreeHtml === 'function') {
+        return window.QP.buildXmlTreeHtml(xmlText);
+      }
+      return '<div class="xml-text">Cannot parse XML.</div>';
+    }
+    function getCurrentPlanXmlText() {
+      return (planData && planData.rawXml) || ((xmlInput.value && xmlInput.value.trim()) ? xmlInput.value : currentXmlText) || '';
+    }
+    function copyTextToClipboardWithFallback(text) {
+      var nav = navigator;
+      if (nav && nav.clipboard && typeof nav.clipboard.writeText === 'function') {
+        nav.clipboard.writeText(String(text || '')).catch(function () { fallbackCopyText(String(text || '')); });
+        return;
+      }
+      fallbackCopyText(String(text || ''));
+    }
+    function fallbackCopyText(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.top = '-10000px';
+      ta.style.left = '-10000px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (_e) {}
+      document.body.removeChild(ta);
+    }
+    function setTreeExpanded(expanded) {
+      var nodes = xmlViewerContent.querySelectorAll('details');
+      for (var i = 0; i < nodes.length; i++) nodes[i].open = expanded;
+    }
+    function openXmlViewer() {
+      var sourceXml = (planData && planData.rawXml) || ((xmlInput.value && xmlInput.value.trim()) ? xmlInput.value : currentXmlText);
+      if (!sourceXml || !sourceXml.trim()) {
+        showError('Khong co XML de hien thi. Hay upload hoac paste XML truoc.');
+        return;
+      }
+      if (!planData || planData.rawXml !== sourceXml) savePlanData(sourceXml, 'viewer');
+      currentXmlText = sourceXml;
+      runWithActionLoading('Dang chuan bi ShowPlan XML...', function () {
+        xmlViewerContent.classList.add('tree');
+        xmlViewerContent.innerHTML = buildXmlTreeHtml(planData.rawXml);
+        xmlViewerBackdrop.classList.add('open');
+        setTreeExpanded(true);
+      });
+    }
+    function openQueryPopup(queryText) {
+      var raw = String(queryText || '');
+      var qpObj = window.QP || null;
+      document.getElementById('beautifyViewerTitle').textContent = 'Query Detail';
+      beautifyViewerContent.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-word">Formatting...</pre>';
+      beautifyViewerBackdrop.classList.add('open');
+
+      if (qpObj && typeof qpObj.beautifySqlWithFallback === 'function') {
+        qpObj.beautifySqlWithFallback(raw).then(function (formatted) {
+          beautifyViewerContent.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-word">' +
+            String(formatted || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+            '</pre>';
+        }).catch(function () {
+          beautifyViewerContent.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-word">' +
+            raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+            '</pre>';
+        });
+        return;
+      }
+
+      beautifyViewerContent.innerHTML = '<pre style="margin:0;white-space:pre-wrap;word-break:break-word">' +
+        raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+        '</pre>';
+    }
+
+    document.getElementById('openXmlModal').addEventListener('click', openXmlModal);
+    document.getElementById('closeXmlModal').addEventListener('click', closeXmlModal);
+    document.getElementById('closeXmlViewer').addEventListener('click', closeXmlViewer);
+    document.getElementById('closeBeautifyViewer').addEventListener('click', closeBeautifyViewer);
+    document.getElementById('expandAllXml').addEventListener('click', function () { setTreeExpanded(true); });
+    document.getElementById('collapseAllXml').addEventListener('click', function () { setTreeExpanded(false); });
+    document.getElementById('renderNow').addEventListener('click', function () { savePlanData(xmlInput.value, 'paste'); renderPlan(xmlInput.value); closeXmlModal(); });
+    document.getElementById('clearXml').addEventListener('click', function () {
+      if (isRendering) return;
+      xmlInput.value = '';
+      currentXmlText = '';
+      planData = null;
+      clearError();
+      document.getElementById('container').innerHTML = '';
+    });
+    xmlModalBackdrop.addEventListener('click', function (e) { if (e.target === xmlModalBackdrop) closeXmlModal(); });
+    xmlViewerBackdrop.addEventListener('click', function (e) { if (e.target === xmlViewerBackdrop) closeXmlViewer(); });
+    beautifyViewerBackdrop.addEventListener('click', function (e) { if (e.target === beautifyViewerBackdrop) closeBeautifyViewer(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeXmlModal(); closeXmlViewer(); closeBeautifyViewer(); } });
+    xmlInput.addEventListener('input', function (e) { clearError(); savePlanData(e.target.value, 'paste'); scheduleRender(e.target.value); });
+    document.getElementById('container').addEventListener('click', function (e) {
+      var target = e.target;
+      if (target && target.classList && target.classList.contains('qp-query-tab') && target.getAttribute('data-tab')) {
+        runWithActionLoading('Dang tai noi dung query...', function () {});
+      }
+    });
+    if (window.QP && typeof window.QP.bindQueryActions === 'function') {
+      window.QP.bindQueryActions(document.getElementById('container'), {
+        onOpenQueryPopup: function (ctx) {
+          openQueryPopup(ctx && ctx.queryText ? ctx.queryText : '');
+        },
+        onShowPlanXml: function () {
+          document.getElementById('xmlViewerTitle').textContent = 'Formatted ShowPlan XML';
+          openXmlViewer();
+        },
+        onCopyPlanXml: function () {
+          copyTextToClipboardWithFallback(getCurrentPlanXmlText());
+        },
+        onBeautify: function (ctx) {
+          if (window.QP && typeof window.QP.applyBeautifyToBlock === 'function' && ctx && ctx.block) {
+            window.QP.applyBeautifyToBlock(ctx.block);
+          }
+        }
+      });
+    }
+    document.getElementById('upload').addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function (evt) {
+        var xmlText = evt.target.result;
+        xmlInput.value = xmlText;
+        savePlanData(xmlText, 'file');
+        renderPlan(xmlText);
+      };
+      reader.onerror = function () { showError('Không thể đọc file XML. Vui lòng thử lại.'); };
+      reader.readAsText(file, 'UTF-8');
+    });
+  </script>
+</body>
+</html>
+
+

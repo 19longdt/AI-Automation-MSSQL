@@ -1,0 +1,9 @@
+.git
+.gitignore
+node_modules
+npm-debug.log*
+docker-compose*.yml
+README_CUSTOM.md
+test
+test_plans
+karma.config.js
