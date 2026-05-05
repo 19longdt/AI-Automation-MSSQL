@@ -14,9 +14,16 @@ specialization: |
 
   Sau do moi xac nhan root cause bang DMV:
   4. get_query_store_history de xac nhan plan regression.
-  5. get_query_stats de xem parameter sniffing, plan variation, spills.
+  5. get_query_stats(finding_time=<detected_at>) de xem parameter sniffing, plan variation, spills.
   6. get_statistics_info cho bang chinh neu nghi stale statistics.
   7. get_wait_stats neu can phan biet I/O, memory, blocking, parallelism.
+
+  QUAN TRONG — truyen finding_time=<detected_at> khi goi get_query_stats de nhan plan_predates_finding:
+  - True: stats lien quan den su co, dung binh thuong.
+  - False: cache evicted — avg_elapsed_ms/avg_logical_reads la cua plan MOI, KHONG dung
+    lam evidence cho root cause. Dung get_query_store_history cho historical stats.
+    Spill data (total_spills, avg_spills) va avg_physical_reads van chinh xac.
+  - null: query hash da evict hoan toan, chi dung duoc get_query_store_history.
 
   Neu can recurrence context:
   8. get_analysis_history de xem finding/pattern da xuat hien truoc day chua.

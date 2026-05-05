@@ -78,13 +78,22 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         name="get_query_stats",
         description=(
             "Lay execution stats tu sys.dm_exec_query_stats cho 1 query hash, grouped by plan_handle "
-            "de phat hien parameter sniffing va plan variation."
+            "de phat hien parameter sniffing va plan variation. "
+            "Truyen finding_time de nhan co plan_predates_finding: False = cache da evict plan cu, "
+            "stats la cua plan MOI (spill/physical_read van dung); True = stats lien quan den su co."
         ),
         input_schema=_schema(
             {
                 "query_hash": _QUERY_HASH,
                 "node": _NODE,
                 "top_n": {**_TOP_N, "default": 10},
+                "finding_time": {
+                    "type": "string",
+                    "description": (
+                        "ISO 8601 timestamp cua finding (detected_at) — dung de tinh plan_predates_finding. "
+                        "Vi du: '2024-01-15T10:42:43'"
+                    ),
+                },
             },
             required=["query_hash", "node"],
         ),
