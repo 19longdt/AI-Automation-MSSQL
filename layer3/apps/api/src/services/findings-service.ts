@@ -10,23 +10,58 @@ export interface FindingsQuery {
   issue_type?: string;
   node?: string;
   status?: string;
+  blocking_status?: string;
   since?: string;
   until?: string;
   limit?: number;
   page?: number;
 }
 
+function applyBlockingStatusFilter(filter: Record<string, unknown>, blockingStatus?: string) {
+  if (blockingStatus === "blocked") {
+    filter.$and = [
+      ...((filter.$and as unknown[]) || []),
+      {
+        $or: [
+          { "metrics.blocking_session_id": { $gt: 0 } },
+          { "metrics.blocking_session_id": { $regex: /^[1-9][0-9]*$/ } }
+        ]
+      }
+    ];
+    return;
+  }
+
+  if (blockingStatus === "not_blocked") {
+    filter.$and = [
+      ...((filter.$and as unknown[]) || []),
+      {
+        $or: [
+          { "metrics.blocking_session_id": { $exists: false } },
+          { "metrics.blocking_session_id": null },
+          { "metrics.blocking_session_id": "" },
+          { "metrics.blocking_session_id": "0" },
+          { "metrics.blocking_session_id": { $lte: 0 } }
+        ]
+      }
+    ];
+  }
+}
+
 export async function listFindings(db: Db, query: FindingsQuery) {
   const filter: Record<string, unknown> = {};
-  if (query.finding_id) filter.finding_id = query.finding_id;
-  if (query.topic_id) filter.topic_id = query.topic_id;
-  if (query.severity) filter.severity = query.severity;
-  if (query.alert_status) filter.alert_status = query.alert_status;
-  if (query.issue_type) filter.issue_type = query.issue_type;
-  if (query.node) filter.node = query.node;
-  if (query.status) filter.status = query.status;
+  if (query.finding_id) {
+    filter.finding_id = query.finding_id;
+  } else {
+    if (query.topic_id) filter.topic_id = query.topic_id;
+    if (query.severity) filter.severity = query.severity;
+    if (query.alert_status) filter.alert_status = query.alert_status;
+    if (query.issue_type) filter.issue_type = query.issue_type;
+    if (query.node) filter.node = query.node;
+    if (query.status) filter.status = query.status;
 
-  applyDetectedAtRangeFilter(filter, query.since, query.until);
+    applyDetectedAtRangeFilter(filter, query.since, query.until);
+    applyBlockingStatusFilter(filter, query.blocking_status);
+  }
 
   const limit = Math.min(Math.max(Number(query.limit || 50), 1), 200);
   const page = Math.max(Number(query.page || 0), 0);

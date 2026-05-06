@@ -36,11 +36,16 @@ function showPlan(container: Element, planXml: string, options?: Options) {
     initQueryTabs(container);
     initQueryCopyButtons(container);
     drawLines(container);
-    initDiagramInteractions(container);
+    initDiagramInteractions(container, hasRuntimeMetrics(container["xml"]));
 
     if (options.jsTooltips) {
         initTooltip(container);
     }
+}
+
+function hasRuntimeMetrics(xmlDoc: XMLDocument): boolean {
+    if (xmlDoc == null) return false;
+    return xmlDoc.getElementsByTagName("RunTimeCountersPerThread").length > 0;
 }
 
 function initQueryCopyButtons(container: Element) {
@@ -208,14 +213,14 @@ function getStatementNodes(xmlDoc: XMLDocument): Element[] {
     return result;
 }
 
-function initDiagramInteractions(container: Element) {
+function initDiagramInteractions(container: Element, hasRuntime: boolean) {
     let diagramPanels = container.querySelectorAll(".qp-diagram-panel");
     for (let i = 0; i < diagramPanels.length; i++) {
-        initDiagramPanel(<HTMLElement>diagramPanels[i]);
+        initDiagramPanel(<HTMLElement>diagramPanels[i], hasRuntime);
     }
 }
 
-function initDiagramPanel(panel: HTMLElement) {
+function initDiagramPanel(panel: HTMLElement, hasRuntime: boolean) {
     let canvas = <HTMLElement>panel.querySelector(".qp-diagram-canvas");
     if (canvas == null) return;
 
@@ -226,11 +231,14 @@ function initDiagramPanel(panel: HTMLElement) {
 
     let toolbar = document.createElement("div");
     toolbar.className = "qp-diagram-toolbar";
+    const planModeClass = hasRuntime ? "runtime" : "compile";
+    const planModeText = hasRuntime ? "Runtime" : "Compile-time";
     toolbar.innerHTML = `
         <button type="button" class="qp-zoom-out" title="Zoom out">-</button>
         <button type="button" class="qp-zoom-in" title="Zoom in">+</button>
         <button type="button" class="qp-zoom-reset" title="Reset zoom">100%</button>
         <span class="qp-zoom-level">100%</span>
+        <span class="qp-plan-mode ${planModeClass}" title="Plan mode">${planModeText}</span>
     `;
     panel.insertBefore(toolbar, panel.firstChild);
 

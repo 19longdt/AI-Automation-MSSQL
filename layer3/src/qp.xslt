@@ -90,6 +90,7 @@
             <div><xsl:apply-templates select="." mode="NodeLabel" /></div>
             <xsl:apply-templates select="." mode="NodeLabel2" />
             <xsl:apply-templates select="." mode="NodeCostLabel" />
+            <xsl:apply-templates select="." mode="NodeMetricsLabel" />
             <xsl:call-template name="ToolTip" />
           </div>
         </div>
@@ -444,6 +445,82 @@
   <xsl:template match="s:StmtCursor|s:Operation|s:StmtCond" mode="NodeCostLabel">
     <div>Cost: 0%</div>
   </xsl:template>
+
+  <!-- Shows key runtime/estimate metrics directly on nodes. -->
+  <xsl:template match="s:RelOp" mode="NodeMetricsLabel">
+    <xsl:variable name="ActualRows" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualRows)" />
+    <xsl:variable name="EstimatedRows" select="number(@EstimateRows)" />
+    <xsl:variable name="ElapsedMs" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms)" />
+    <xsl:variable name="PartitionCount" select="s:RunTimePartitionSummary/s:PartitionsAccessed/@PartitionCount" />
+    <xsl:variable name="PtnStartRaw" select="s:*/s:SeekPredicates/s:SeekPredicateNew/s:SeekKeys/s:StartRange[s:RangeColumns/s:ColumnReference[contains(@Column,'PtnId')]]/s:RangeExpressions/s:ScalarOperator[1]/@ScalarString" />
+    <xsl:variable name="PtnEndRaw" select="s:*/s:SeekPredicates/s:SeekPredicateNew/s:SeekKeys/s:EndRange[s:RangeColumns/s:ColumnReference[contains(@Column,'PtnId')]]/s:RangeExpressions/s:ScalarOperator[1]/@ScalarString" />
+    <xsl:variable name="PtnPrefixRaw" select="s:*/s:SeekPredicates/s:SeekPredicateNew/s:SeekKeys/s:Prefix[s:RangeColumns/s:ColumnReference[contains(@Column,'PtnId')]]/s:RangeExpressions/s:ScalarOperator[1]/@ScalarString" />
+    <xsl:variable name="PtnStart" select="number(translate($PtnStartRaw, '() ', ''))" />
+    <xsl:variable name="PtnEnd" select="number(translate($PtnEndRaw, '() ', ''))" />
+    <xsl:variable name="PtnPrefix" select="number(translate($PtnPrefixRaw, '() ', ''))" />
+    <xsl:variable name="DerivedPartitionCount">
+      <xsl:choose>
+        <xsl:when test="$PtnStart = $PtnStart and $PtnEnd = $PtnEnd and $PtnEnd &gt;= $PtnStart">
+          <xsl:value-of select="$PtnEnd - $PtnStart + 1" />
+        </xsl:when>
+        <xsl:when test="$PtnPrefix = $PtnPrefix">1</xsl:when>
+        <xsl:otherwise />
+      </xsl:choose>
+    </xsl:variable>
+    <xsl:if test="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms">
+      <div>
+        Elapsed:
+        <xsl:call-template name="round">
+          <xsl:with-param name="value" select="$ElapsedMs" />
+        </xsl:call-template>
+        ms
+      </div>
+    </xsl:if>
+    <xsl:if test="s:RunTimeInformation">
+      <div>
+        Rows:
+        <xsl:call-template name="round">
+          <xsl:with-param name="value" select="$ActualRows" />
+        </xsl:call-template>
+        /
+        <xsl:call-template name="round">
+          <xsl:with-param name="value" select="$EstimatedRows" />
+        </xsl:call-template>
+        <xsl:if test="$EstimatedRows &gt; 0">
+          ,
+          Ratio:
+          <xsl:call-template name="round">
+            <xsl:with-param name="value" select="$ActualRows div $EstimatedRows" />
+          </xsl:call-template>
+          x
+        </xsl:if>
+      </div>
+    </xsl:if>
+    <xsl:if test="not(s:RunTimeInformation)">
+      <div>
+        Rows est:
+        <xsl:call-template name="round">
+          <xsl:with-param name="value" select="$EstimatedRows" />
+        </xsl:call-template>
+      </div>
+    </xsl:if>
+    <xsl:if test="@Partitioned='true' or @Partitioned='1'">
+      <xsl:if test="$PartitionCount and number($PartitionCount) &gt; 0">
+        <div>
+          PScanned:
+          <xsl:value-of select="$PartitionCount" />
+        </div>
+      </xsl:if>
+      <xsl:if test="(not($PartitionCount) or number($PartitionCount) &lt;= 0) and string-length(normalize-space($DerivedPartitionCount)) &gt; 0">
+        <div>
+          PScanned:
+          <xsl:value-of select="$DerivedPartitionCount" />
+        </div>
+      </xsl:if>
+    </xsl:if>
+  </xsl:template>
+
+  <xsl:template match="s:StmtSimple|s:StmtUseDb|s:StmtCursor|s:Operation|s:StmtCond" mode="NodeMetricsLabel" />
 
   <!-- 
   ================================
