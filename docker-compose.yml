@@ -98,6 +98,46 @@ services:
   # ── MongoDB Community ────────────────────────────────────────────────────────
   # Bỏ service này nếu dùng MongoDB external (Atlas, replica set riêng...).
   # Khi đó sửa MONGODB_URI trong .env thành URI của MongoDB external.
+  # Layer 3: Web dashboard + API
+  #
+  # Build separate:
+  #   docker build -f layer3/Dockerfile -t 19longdt/ai-automation-mssql-layer3:vX layer3
+  #   LAYER3_IMAGE=19longdt/ai-automation-mssql-layer3:vX docker compose up -d layer3
+  layer3:
+    build:
+      context: ./layer3
+      dockerfile: Dockerfile
+    image: ${LAYER3_IMAGE:-19longdt/ai-automation-mssql-layer3:latest}
+    container_name: layer3-dashboard
+    restart: unless-stopped
+
+    env_file: .env
+
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+      L2_API_URL: http://layer2:8000
+      API_PORT: 3000
+
+    ports:
+      - "3000:3000"
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   mongodb:
     image: mongo:7.0
     container_name: mongodb

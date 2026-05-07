@@ -140,23 +140,23 @@ Phần này mô tả luồng deploy theo kiểu build image, push lên registry,
 ### 8.1 Build image
 Ví dụ:
 ```powershell
-docker build -t your-registry/html-query-plan:latest .
+docker build -t 19longdt/ai-automation-mssql-layer3:latest .
 ```
 
 ### 8.2 Push image
 ```powershell
-docker push your-registry/html-query-plan:latest
+docker push 19longdt/ai-automation-mssql-layer3:latest
 ```
 
 ### 8.3 Chạy bằng docker compose
 Ví dụ `docker-compose.yml`:
 ```yaml
 services:
-  html-query-plan:
-    image: your-registry/html-query-plan:latest
-    container_name: html-query-plan
+  layer3:
+    image: 19longdt/ai-automation-mssql-layer3:latest
+    container_name: layer3-dashboard
     ports:
-      - "8080:80"
+      - "3000:3000"
     restart: unless-stopped
 ```
 
