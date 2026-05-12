@@ -88,6 +88,15 @@ td {
   text-align: left;
 }
 
+.no-cell {
+  width: 44px;
+  min-width: 44px;
+  max-width: 56px;
+  text-align: right;
+  white-space: nowrap;
+  color: #555;
+}
+
 tr.clickable-finding-row {
   cursor: pointer;
 }
@@ -103,6 +112,53 @@ tr.clickable-finding-row .row-action-cell {
 .error {
   color: #8a1f1b;
   margin: 6px 0;
+}
+
+.dashboard-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(1.5px);
+}
+
+.dashboard-loading-box {
+  min-width: 200px;
+  padding: 14px 18px 14px 16px;
+  border: 1px solid #d7deea;
+  background: #fff;
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(2, 8, 20, 0.16);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-loading-box::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #d6e2ff;
+  border-top-color: #2563eb;
+  animation: dashboard-loading-spin 0.7s linear infinite;
+}
+
+.dashboard-loading.hidden {
+  display: none;
+}
+
+@keyframes dashboard-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .pager {

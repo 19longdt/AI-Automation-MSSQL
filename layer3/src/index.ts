@@ -35,6 +35,7 @@ function showPlan(container: Element, planXml: string, options?: Options) {
     adjustStatementLayout(container);
     initQueryTabs(container);
     initQueryCopyButtons(container);
+    autoBeautifyActiveResolvedQueries(container);
     drawLines(container);
     initDiagramInteractions(container, hasRuntimeMetrics(container["xml"]));
 
@@ -179,6 +180,17 @@ function activateQueryTab(block: HTMLElement, tab: HTMLElement) {
     for (let i = 0; i < panes.length; i++) {
         let pane = <HTMLElement>panes[i];
         pane.classList.toggle("active", pane.getAttribute("data-pane") === tabKey);
+    }
+    if (tabKey === "resolved") {
+        let resolvedPane = block.querySelector(".qp-query-pane[data-pane='resolved']") as HTMLElement;
+        if (resolvedPane != null) beautifyQueryPane(resolvedPane);
+    }
+}
+
+function autoBeautifyActiveResolvedQueries(container: Element) {
+    let panes = container.querySelectorAll(".qp-query-pane.active[data-pane='resolved']");
+    for (let i = 0; i < panes.length; i++) {
+        beautifyQueryPane(panes[i] as HTMLElement);
     }
 }
 
@@ -386,11 +398,42 @@ async function applyBeautifyToBlock(block: HTMLElement): Promise<string> {
     let formatted = await formatSqlWithApiFallback(raw);
     if (!formatted) return raw;
 
+    applyFormattedQueryText(el, formatted);
+    el.setAttribute("data-auto-beautified", "1");
+    return formatted;
+}
+
+async function beautifyQueryPane(pane: HTMLElement): Promise<string> {
+    if (pane == null) return "";
+    if (pane.getAttribute("data-auto-beautified") === "1") return getPaneText(pane);
+    if (pane.getAttribute("data-beautifying") === "1") return getPaneText(pane);
+
+    let el = pane.querySelector(".qp-real-query, .qp-resolved-query") as HTMLElement;
+    if (el == null) return "";
+
+    let raw = getQueryElementText(el);
+    if (!raw.trim()) return "";
+
+    pane.setAttribute("data-beautifying", "1");
+    try {
+        let formatted = await formatSqlWithApiFallback(raw);
+        if (!formatted) return raw;
+        applyFormattedQueryText(el, formatted);
+        pane.setAttribute("data-auto-beautified", "1");
+        el.setAttribute("data-auto-beautified", "1");
+        return formatted;
+    } catch (_e) {
+        return raw;
+    } finally {
+        pane.removeAttribute("data-beautifying");
+    }
+}
+
+function applyFormattedQueryText(el: HTMLElement, formatted: string) {
     let actions = el.querySelector(".qp-query-actions");
     if (actions && actions.parentElement === el) el.removeChild(actions);
     el.textContent = formatted;
     if (actions) el.appendChild(actions);
-    return formatted;
 }
 
 function formatSqlWithApiFallback(sqlText: string): Promise<string> {
