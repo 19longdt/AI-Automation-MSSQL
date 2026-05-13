@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Layer3 Dashboard</title>
+  <link rel="stylesheet" href="/apps/web/css/base.css" />
+  <link rel="stylesheet" href="/apps/web/css/stats-cards.css" />
   <link rel="stylesheet" href="/apps/web/css/dashboard.css" />
   <link rel="stylesheet" type="text/css" href="/css/qp.css" />
 </head>
@@ -15,12 +17,6 @@
   </div>
 
   <main class="page">
-    <section class="cards">
-      <div class="card"><div class="label">CRITICAL</div><div id="criticalCount" class="value">-</div></div>
-      <div class="card"><div class="label">WARNING</div><div id="warningCount" class="value">-</div></div>
-      <div class="card"><div class="label">INFO</div><div id="infoCount" class="value">-</div></div>
-    </section>
-
     <section class="panel">
       <div class="panel-head">
         <h2>Findings theo Topic</h2>
@@ -49,7 +45,14 @@
         </div>
       </div>
 
-      <div id="topicTabs" class="topic-tabs"></div>
+      <div class="findings-toolbar">
+        <div id="topicTabs" class="topic-tabs"></div>
+        <section class="stats-cards">
+          <div class="stats-card"><div class="stats-card-label">CRITICAL</div><div id="criticalCount" class="stats-card-value">-</div></div>
+          <div class="stats-card"><div class="stats-card-label">WARNING</div><div id="warningCount" class="stats-card-value">-</div></div>
+          <div class="stats-card"><div class="stats-card-label">INFO</div><div id="infoCount" class="stats-card-value">-</div></div>
+        </section>
+      </div>
       <div id="findingsError" class="error"></div>
 
       <table>
