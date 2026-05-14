@@ -61,15 +61,16 @@ layer2/
 │   ├── plan_xml.yaml          ← plan_regression, plan_instability, non_optimal_index,
 │   │                             partition_elimination_failure
 │   ├── index.yaml             ← missing_index, index_fragmentation
-│   ├── blocking.yaml          ← blocking_chain, deadlock (TODO)
-│   ├── tempdb.yaml            ← tempdb_pressure (TODO)
-│   ├── memory.yaml            ← memory_pressure (TODO)
-│   ├── wait.yaml              ← wait_anomaly (TODO)
-│   ├── ag.yaml                ← ag_lag (TODO)
-│   ├── cdc.yaml               ← cdc_failure (TODO)
-│   ├── resource.yaml          ← resource_pool_spike (TODO)
-│   ├── maintenance.yaml       ← job_failure, backup_gap, dbcc_overdue (TODO)
-│   └── generic.yaml           ← fallback (TODO)
+│   ├── blocking.yaml          ← blocking_chain, blocked_query_snapshot, blocked_query_trend
+│   ├── deadlock.yaml          ← deadlock (file riêng, không gộp vào blocking)
+│   ├── tempdb.yaml            ← tempdb_pressure
+│   ├── memory.yaml            ← memory_pressure
+│   ├── wait.yaml              ← wait_anomaly
+│   ├── ag.yaml                ← ag_lag
+│   ├── cdc.yaml               ← cdc_failure
+│   ├── resource.yaml          ← resource_pool_spike
+│   ├── maintenance.yaml       ← job_failure, backup_gap, dbcc_overdue
+│   └── generic.yaml           ← fallback (catch-all cho issue_type không có skill riêng)
 │
 ├── agent/
 │   ├── skill_loader.py        ← Eager load + validate YAMLs, build issue_type → skill map

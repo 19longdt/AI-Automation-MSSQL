@@ -111,6 +111,11 @@ layer1/
 ├── ai/
 │   └── plan_analyzer.py       ← Build prompt từ AnalysisConfig → gọi Claude API → trả text phân tích
 │
+├── seed/
+│   └── seed_topics.py         ← Seed monitor_topics vào MongoDB (chạy 1 lần khi setup mới)
+│                                 13 topic builders: ag_health, slow_query, blocking, tempdb, ...
+│                                 Entry: python -m layer1.seed.seed_topics
+│
 └── utils/
     └── time_utils.py          ← now_vn() (UTC+7 naive, cho MongoDB), utc_now() (cho APScheduler)
 ```
