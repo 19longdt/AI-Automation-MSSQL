@@ -1,7 +1,12 @@
 services:
-  html-query-plan:
-    image: 19longdt/html-query-plan:latest
-    container_name: html-query-plan
+  layer3:
+    image: 19longdt/ai-automation-mssql-layer3:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: layer3-dashboard
     ports:
-      - "8080:80"
+      - "3000:3000"
+    environment:
+      API_PORT: 3000
     restart: unless-stopped

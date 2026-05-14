@@ -35,12 +35,18 @@ function showPlan(container: Element, planXml: string, options?: Options) {
     adjustStatementLayout(container);
     initQueryTabs(container);
     initQueryCopyButtons(container);
+    autoBeautifyActiveResolvedQueries(container);
     drawLines(container);
-    initDiagramInteractions(container);
+    initDiagramInteractions(container, hasRuntimeMetrics(container["xml"]));
 
     if (options.jsTooltips) {
         initTooltip(container);
     }
+}
+
+function hasRuntimeMetrics(xmlDoc: XMLDocument): boolean {
+    if (xmlDoc == null) return false;
+    return xmlDoc.getElementsByTagName("RunTimeCountersPerThread").length > 0;
 }
 
 function initQueryCopyButtons(container: Element) {
@@ -175,6 +181,17 @@ function activateQueryTab(block: HTMLElement, tab: HTMLElement) {
         let pane = <HTMLElement>panes[i];
         pane.classList.toggle("active", pane.getAttribute("data-pane") === tabKey);
     }
+    if (tabKey === "resolved") {
+        let resolvedPane = block.querySelector(".qp-query-pane[data-pane='resolved']") as HTMLElement;
+        if (resolvedPane != null) beautifyQueryPane(resolvedPane);
+    }
+}
+
+function autoBeautifyActiveResolvedQueries(container: Element) {
+    let panes = container.querySelectorAll(".qp-query-pane.active[data-pane='resolved']");
+    for (let i = 0; i < panes.length; i++) {
+        beautifyQueryPane(panes[i] as HTMLElement);
+    }
 }
 
 function initResolvedQueries(container: Element, xmlDoc: XMLDocument) {
@@ -208,14 +225,14 @@ function getStatementNodes(xmlDoc: XMLDocument): Element[] {
     return result;
 }
 
-function initDiagramInteractions(container: Element) {
+function initDiagramInteractions(container: Element, hasRuntime: boolean) {
     let diagramPanels = container.querySelectorAll(".qp-diagram-panel");
     for (let i = 0; i < diagramPanels.length; i++) {
-        initDiagramPanel(<HTMLElement>diagramPanels[i]);
+        initDiagramPanel(<HTMLElement>diagramPanels[i], hasRuntime);
     }
 }
 
-function initDiagramPanel(panel: HTMLElement) {
+function initDiagramPanel(panel: HTMLElement, hasRuntime: boolean) {
     let canvas = <HTMLElement>panel.querySelector(".qp-diagram-canvas");
     if (canvas == null) return;
 
@@ -226,11 +243,14 @@ function initDiagramPanel(panel: HTMLElement) {
 
     let toolbar = document.createElement("div");
     toolbar.className = "qp-diagram-toolbar";
+    const planModeClass = hasRuntime ? "runtime" : "compile";
+    const planModeText = hasRuntime ? "Runtime" : "Compile-time";
     toolbar.innerHTML = `
         <button type="button" class="qp-zoom-out" title="Zoom out">-</button>
         <button type="button" class="qp-zoom-in" title="Zoom in">+</button>
         <button type="button" class="qp-zoom-reset" title="Reset zoom">100%</button>
         <span class="qp-zoom-level">100%</span>
+        <span class="qp-plan-mode ${planModeClass}" title="Plan mode">${planModeText}</span>
     `;
     panel.insertBefore(toolbar, panel.firstChild);
 
@@ -378,11 +398,42 @@ async function applyBeautifyToBlock(block: HTMLElement): Promise<string> {
     let formatted = await formatSqlWithApiFallback(raw);
     if (!formatted) return raw;
 
+    applyFormattedQueryText(el, formatted);
+    el.setAttribute("data-auto-beautified", "1");
+    return formatted;
+}
+
+async function beautifyQueryPane(pane: HTMLElement): Promise<string> {
+    if (pane == null) return "";
+    if (pane.getAttribute("data-auto-beautified") === "1") return getPaneText(pane);
+    if (pane.getAttribute("data-beautifying") === "1") return getPaneText(pane);
+
+    let el = pane.querySelector(".qp-real-query, .qp-resolved-query") as HTMLElement;
+    if (el == null) return "";
+
+    let raw = getQueryElementText(el);
+    if (!raw.trim()) return "";
+
+    pane.setAttribute("data-beautifying", "1");
+    try {
+        let formatted = await formatSqlWithApiFallback(raw);
+        if (!formatted) return raw;
+        applyFormattedQueryText(el, formatted);
+        pane.setAttribute("data-auto-beautified", "1");
+        el.setAttribute("data-auto-beautified", "1");
+        return formatted;
+    } catch (_e) {
+        return raw;
+    } finally {
+        pane.removeAttribute("data-beautifying");
+    }
+}
+
+function applyFormattedQueryText(el: HTMLElement, formatted: string) {
     let actions = el.querySelector(".qp-query-actions");
     if (actions && actions.parentElement === el) el.removeChild(actions);
     el.textContent = formatted;
     if (actions) el.appendChild(actions);
-    return formatted;
 }
 
 function formatSqlWithApiFallback(sqlText: string): Promise<string> {

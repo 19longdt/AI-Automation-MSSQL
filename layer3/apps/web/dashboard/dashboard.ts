@@ -1,4 +1,5 @@
 import { apiGet } from "./api-client";
+import { withButtonLoading, withGlobalLoading } from "./loading-overlay";
 import { bindModalEvents, openModal } from "./modal";
 declare const QP: any;
 declare const window: any;
@@ -44,6 +45,10 @@ function isSlowSessionTopic(): boolean {
   return id === "slow_sessions";
 }
 
+function isSlowSessionFinding(finding: any): boolean {
+  return String((finding && finding.topic_id) || "").toLowerCase() === "slow_sessions";
+}
+
 function severityBadge(sev: string): string {
   if (sev === "CRITICAL") return '<span class="badge-critical">CRITICAL</span>';
   if (sev === "WARNING") return '<span class="badge-warning">WARNING</span>';
@@ -55,6 +60,16 @@ function alertStatusBadge(v: string): string {
   if (x === "sent") return '<span class="badge-alert-sent">sent</span>';
   if (x === "suppressed") return '<span class="badge-alert-suppressed">suppressed</span>';
   return esc(String(v || ""));
+}
+
+function hasBlockingSession(metrics: any): boolean {
+  var id = Number(metrics && metrics.blocking_session_id);
+  return isFinite(id) && id > 0;
+}
+
+function blockingBadge(metrics: any): string {
+  if (!hasBlockingSession(metrics)) return '<span class="blocking-badge blocking-no">No</span>';
+  return '<span class="blocking-badge blocking-yes" title="blocking_session_id ' + esc(String(metrics.blocking_session_id)) + '">Yes #' + esc(String(metrics.blocking_session_id)) + '</span>';
 }
 
 function formatDetectedAtForUi(v: any): string {
@@ -154,24 +169,25 @@ function renderAiAnalysisTable(ai: any): string {
     top_actions: true
   };
 
-  var rows = Object.keys(clean).map(function (k) {
+  var rows = Object.keys(clean).map(function (k, idx) {
     var v = clean[k];
     var isViewField = !!viewFields[k];
     if (isViewField) {
-      return "<tr><td>" + esc(k) + "</td><td><button type='button' class='btn-inline btn-ai-field' data-field='" + esc(k) + "'>Xem</button></td></tr>";
+      return "<tr><td class='no-cell'>" + String(idx + 1) + "</td><td>" + esc(k) + "</td><td><button type='button' class='btn-inline btn-ai-field' data-field='" + esc(k) + "'>Xem</button></td></tr>";
     }
 
     var display = (typeof v === "object" && v !== null) ? JSON.stringify(v) : String(v);
-    return "<tr><td>" + esc(k) + "</td><td>" + esc(display) + "</td></tr>";
+    return "<tr><td class='no-cell'>" + String(idx + 1) + "</td><td>" + esc(k) + "</td><td>" + esc(display) + "</td></tr>";
   }).join("");
 
   var payload = esc(JSON.stringify(clean));
-  return "<div id='aiAnalysisBox' data-ai='" + payload + "'><table class='kv-table'><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+  return "<div id='aiAnalysisBox' data-ai='" + payload + "'><table class='kv-table'><thead><tr><th class='no-cell'>No</th><th>Field</th><th>Value</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
 }
+
 
 function renderSlowSessionMetricsTable(metrics: any): string {
   var m = metrics || {};
-  var cols = [
+  var sessionCols = [
     "elapsed_seconds",
     "cpu_time_seconds",
     "logical_reads",
@@ -182,6 +198,34 @@ function renderSlowSessionMetricsTable(metrics: any): string {
     "sql_text",
     "query_plan_xml"
   ];
+  var blockingCols = [
+    "blocking_session_id",
+    "wait_type",
+    "wait_seconds",
+    "wait_resource",
+    "blocker_login",
+    "blocker_host",
+    "blocker_status",
+    "blocker_open_txn",
+    "blocker_sql_text",
+    "blocker_plan_xml"
+  ];
+
+  function renderMetricTable(title: string, cols: string[], emptyText?: string): string {
+    if (!cols.length) return "";
+    if (emptyText) {
+      return "<div class='metric-section'>" +
+        "<div class='metric-section-title'>" + esc(title) + "</div>" +
+        "<div class='metric-empty'>" + esc(emptyText) + "</div>" +
+        "</div>";
+    }
+    var row = "<td class='no-cell'>1</td>" + cols.map(function (c) { return cellFor(c); }).join("");
+    var head = cols.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("");
+    return "<div class='metric-section'>" +
+      "<div class='metric-section-title'>" + esc(title) + "</div>" +
+      "<table class='kv-table'><thead><tr><th class='no-cell'>No</th>" + head + "</tr></thead><tbody><tr>" + row + "</tr></tbody></table>" +
+      "</div>";
+  }
 
   function asText(v: any): string {
     if (v === null || v === undefined) return "";
@@ -191,22 +235,28 @@ function renderSlowSessionMetricsTable(metrics: any): string {
 
   function cellFor(field: string): string {
     var val = asText(m[field]);
-    if (field === "sql_text") {
+    if (field === "sql_text" || field === "blocker_sql_text") {
       var isLong = val.length > 180;
       if (!isLong) return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
-      return "<td class='clickable-cell' data-field='sql_text'><div class='cell-preview'>" + esc(val.substring(0, 180)) + "...</div></td>";
+      return "<td class='clickable-cell' data-field='" + esc(field) + "'><div class='cell-preview'>" + esc(val.substring(0, 180)) + "...</div></td>";
     }
-    if (field === "query_plan_xml") {
+    if (field === "query_plan_xml" || field === "blocker_plan_xml") {
       if (!val) return "<td></td>";
-      return "<td class='clickable-cell' data-field='query_plan_xml'>Click to view</td>";
+      return "<td class='clickable-cell' data-field='" + esc(field) + "'>Click to view</td>";
     }
     return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
   }
 
-  var row = cols.map(function (c) { return cellFor(c); }).join("");
-  var head = cols.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("");
+  var blockingTable = "";
+  if (hasBlockingSession(m)) {
+    blockingTable = renderMetricTable("Blocking information", blockingCols);
+  } else {
+    blockingTable = renderMetricTable("Blocking information", [], "Khong co blocking session.");
+  }
+
   return "<div id='slowMetricsBox'>" +
-    "<table class='kv-table'><thead><tr>" + head + "</tr></thead><tbody><tr>" + row + "</tr></tbody></table>" +
+    renderMetricTable("Slow session information", sessionCols) +
+    blockingTable +
     "<div id='slowMetricsDetail' class='metrics-detail'>" +
     "<div class='metrics-detail-head'><div class='metrics-detail-title'>Detail</div><button id='slowMetricsBeautifyBtn' type='button' class='btn-inline'>Beautify</button></div>" +
     "<pre id='slowMetricsDetailContent' class='cell-pre'></pre></div>" +
@@ -218,7 +268,9 @@ function bindSlowSessionMetricActions(metrics: any) {
   if (!box) return;
   var payload = {
     sql_text: metrics && metrics.sql_text !== undefined && metrics.sql_text !== null ? String(metrics.sql_text) : "",
-    query_plan_xml: metrics && metrics.query_plan_xml !== undefined && metrics.query_plan_xml !== null ? String(metrics.query_plan_xml) : ""
+    query_plan_xml: metrics && metrics.query_plan_xml !== undefined && metrics.query_plan_xml !== null ? String(metrics.query_plan_xml) : "",
+    blocker_sql_text: metrics && metrics.blocker_sql_text !== undefined && metrics.blocker_sql_text !== null ? String(metrics.blocker_sql_text) : "",
+    blocker_plan_xml: metrics && metrics.blocker_plan_xml !== undefined && metrics.blocker_plan_xml !== null ? String(metrics.blocker_plan_xml) : ""
   };
   var cells = box.querySelectorAll(".clickable-cell");
   var detail = box.querySelector("#slowMetricsDetail") as HTMLElement | null;
@@ -226,38 +278,60 @@ function bindSlowSessionMetricActions(metrics: any) {
   var beautifyBtn = box.querySelector("#slowMetricsBeautifyBtn") as HTMLButtonElement | null;
   var activeDetailField = "";
 
-  if (beautifyBtn) {
-    beautifyBtn.addEventListener("click", function () {
-      var raw = payload.sql_text || "";
-      if (!raw.trim()) return;
-      activeDetailField = "sql_text";
-      if (detail) detail.classList.add("show");
-      if (detailContent) detailContent.textContent = raw;
-      var oldText = beautifyBtn.textContent;
+  function isSqlField(field: string): boolean {
+    return field === "sql_text" || field === "blocker_sql_text";
+  }
+
+  function setDetailField(field: string, value: string, autoBeautify?: boolean) {
+    if (!detail || !detailContent) return;
+    activeDetailField = field;
+    detail.classList.add("show");
+    detailContent.textContent = String(value || "");
+    if (beautifyBtn) beautifyBtn.style.display = isSqlField(field) ? "inline-block" : "none";
+    if (autoBeautify && isSqlField(field) && String(value || "").trim()) {
+      beautifyActiveSql();
+    }
+  }
+
+  function beautifyActiveSql() {
+    if (!isSqlField(activeDetailField)) activeDetailField = "sql_text";
+    var raw = activeDetailField === "blocker_sql_text" ? payload.blocker_sql_text : payload.sql_text;
+    if (!raw.trim()) return;
+    if (detail) detail.classList.add("show");
+    if (detailContent) detailContent.textContent = raw;
+    var oldText = beautifyBtn ? beautifyBtn.textContent : "Beautify";
+    if (beautifyBtn) {
       beautifyBtn.textContent = "Formatting...";
       beautifyBtn.disabled = true;
-      ensureQpParserLoaded(function (_ok) {
-        var qpObj = getQpGlobal();
-        if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
-          qpObj.beautifySqlWithFallback(String(raw)).then(function (formatted: string) {
-            if (detailContent) detailContent.textContent = formatted;
-            beautifyBtn.disabled = false;
-            beautifyBtn.textContent = oldText || "Beautify";
-          }).catch(function () {
-            if (detailContent) detailContent.textContent = String(raw);
-            beautifyBtn.disabled = false;
-            beautifyBtn.textContent = oldText || "Beautify";
-          });
-          return;
+    }
+    ensureQpParserLoaded(function (_ok) {
+      var qpObj = getQpGlobal();
+      function done(text: string) {
+        if (detailContent) detailContent.textContent = text;
+        if (beautifyBtn) {
+          beautifyBtn.disabled = false;
+          beautifyBtn.textContent = oldText || "Beautify";
         }
-        if (qpObj && typeof qpObj.beautifySql === "function") {
-          if (detailContent) detailContent.textContent = qpObj.beautifySql(String(raw));
-        } else {
-          if (detailContent) detailContent.textContent = String(raw);
-        }
-        beautifyBtn.disabled = false;
-        beautifyBtn.textContent = oldText || "Beautify";
-      });
+      }
+      if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
+        qpObj.beautifySqlWithFallback(String(raw)).then(function (formatted: string) {
+          done(formatted);
+        }).catch(function () {
+          done(String(raw));
+        });
+        return;
+      }
+      if (qpObj && typeof qpObj.beautifySql === "function") {
+        done(qpObj.beautifySql(String(raw)));
+      } else {
+        done(String(raw));
+      }
+    });
+  }
+
+  if (beautifyBtn) {
+    beautifyBtn.addEventListener("click", function () {
+      beautifyActiveSql();
     });
   }
   for (var i = 0; i < cells.length; i++) {
@@ -268,12 +342,12 @@ function bindSlowSessionMetricActions(metrics: any) {
         if (detail && detailContent) {
           detail.classList.add("show");
           activeDetailField = field;
-          if (beautifyBtn) beautifyBtn.style.display = field === "sql_text" ? "inline-block" : "none";
-          if (field === "query_plan_xml") {
+          if (beautifyBtn) beautifyBtn.style.display = (field === "sql_text" || field === "blocker_sql_text") ? "inline-block" : "none";
+          if (field === "query_plan_xml" || field === "blocker_plan_xml") {
             var xmlText = String(value || "");
             if (!xmlText.trim()) {
               detailContent.textContent = "";
-              detailContent.innerHTML = "Khong co query_plan_xml.";
+              detailContent.innerHTML = "Khong co " + esc(field) + ".";
               return;
             }
             openModal(
@@ -309,10 +383,14 @@ function bindSlowSessionMetricActions(metrics: any) {
             });
             return;
           }
-          detailContent.textContent = String(value);
+          setDetailField(field, String(value), isSqlField(field));
         }
       });
     })(cells[i]);
+  }
+
+  if (payload.sql_text.trim()) {
+    setDetailField("sql_text", payload.sql_text, true);
   }
 }
 
@@ -494,41 +572,94 @@ function renderTopicTabs() {
     btn.textContent = t.name ? String(t.name) : id;
     btn.title = id;
     btn.addEventListener("click", function () {
-      activeTopicId = id;
-      page = 0;
-      renderTopicTabs();
-      renderFindingsHeader();
-      loadFindings();
+      withButtonLoading(btn, async function () {
+        activeTopicId = id;
+        page = 0;
+        renderTopicTabs();
+        renderFindingsHeader();
+        await loadFindings();
+      }, "Loading...");
     });
     box.appendChild(btn);
   });
 }
 
-function renderFindingsHeader() {
+function renderFindingsHeader(useSlowSessionLayout?: boolean) {
   var row = document.getElementById("findingsHeadRow");
   if (!row) return;
+  var blockingFilter = document.getElementById("blockingStatusFilter") as HTMLSelectElement | null;
+  var slowLayout = useSlowSessionLayout === undefined ? isSlowSessionTopic() : useSlowSessionLayout;
 
-  if (isSlowSessionTopic()) {
-    row.innerHTML = "<th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>AI Analyses</th><th>Detail</th>";
+  if (slowLayout) {
+    row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
   } else {
-    row.innerHTML = "<th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th><th></th>";
+    row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th>";
   }
+
+  if (blockingFilter) {
+    if (isSlowSessionTopic()) {
+      blockingFilter.classList.remove("hidden");
+      blockingFilter.disabled = false;
+    } else {
+      blockingFilter.classList.add("hidden");
+      blockingFilter.disabled = true;
+    }
+  }
+}
+
+function buildFindingsQueryParams(
+  findingId: string,
+  severity: string,
+  alertStatus: string,
+  blockingStatus: string,
+  detectedFrom: string,
+  detectedTo: string
+): Record<string, string | number | undefined> {
+  if (findingId) {
+    return {
+      finding_id: findingId,
+      limit: limit,
+      page: page
+    };
+  }
+
+  return {
+    topic_id: activeTopicId,
+    limit: limit,
+    page: page,
+    severity: severity,
+    alert_status: alertStatus,
+    blocking_status: blockingStatus,
+    since: detectedFrom,
+    until: detectedTo
+  };
 }
 
 async function loadTopics() {
   var err = document.getElementById("findingsError");
   if (!err) return;
-  try {
-    topics = await apiGet("/api/topics");
-    if (!topics || !topics.length) {
-      err.textContent = "Chua co topic.";
-      return;
+  await withGlobalLoading(async function () {
+    try {
+      topics = await apiGet("/api/topics");
+      if (!topics || !topics.length) {
+        err.textContent = "Chua co topic.";
+        return;
+      }
+      if (!activeTopicId) {
+        var defaultTopic = topics[0];
+        for (var i = 0; i < topics.length; i++) {
+          if (String(topics[i].topic_id || "").toLowerCase() === "slow_sessions") {
+            defaultTopic = topics[i];
+            break;
+          }
+        }
+        activeTopicId = String(defaultTopic.topic_id || "");
+      }
+      renderTopicTabs();
+    } catch (_e) {
+      err.textContent = "Khong tai duoc topics.";
     }
-    if (!activeTopicId) activeTopicId = String(topics[0].topic_id || "");
-    renderTopicTabs();
-  } catch (_e) {
-    err.textContent = "Khong tai duoc topics.";
-  }
+  });
 }
 
 async function loadFindings() {
@@ -537,82 +668,106 @@ async function loadFindings() {
   if (!body || !err) return;
   err.textContent = "";
 
-  try {
-    var findingId = (document.getElementById("findingIdFilter") as HTMLInputElement).value;
+  await withGlobalLoading(async function () {
+    try {
+    var findingId = (document.getElementById("findingIdFilter") as HTMLInputElement).value.trim();
     var severity = (document.getElementById("severityFilter") as HTMLSelectElement).value;
     var alertStatus = (document.getElementById("alertStatusFilter") as HTMLSelectElement).value;
+    var blockingStatus = isSlowSessionTopic() ? (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value : "";
     var detectedFromRaw = (document.getElementById("detectedFromFilter") as HTMLInputElement).value;
     var detectedToRaw = (document.getElementById("detectedToFilter") as HTMLInputElement).value;
     var detectedFrom = toLocalDateTimeFilterValue(detectedFromRaw);
     var detectedTo = toLocalDateTimeFilterValue(detectedToRaw);
 
-    if (detectedFrom && detectedTo && detectedFrom > detectedTo) {
+    if (!findingId && detectedFrom && detectedTo && detectedFrom > detectedTo) {
       err.textContent = "Khoang thoi gian khong hop le: from > to.";
       body.innerHTML = "";
       return;
     }
 
-    var data = await apiGet("/api/findings", {
-      finding_id: findingId,
-      topic_id: activeTopicId,
-      limit: limit,
-      page: page,
-      severity: severity,
-      alert_status: alertStatus,
-      since: detectedFrom,
-      until: detectedTo
-    });
+      var data = await apiGet("/api/findings", buildFindingsQueryParams(
+      findingId,
+      severity,
+      alertStatus,
+      blockingStatus,
+      detectedFrom,
+      detectedTo
+    ));
 
     body.innerHTML = "";
     var c = 0, w = 0, i = 0;
+    var useSlowSessionLayout = isSlowSessionTopic();
+    if (findingId && data.length === 1) useSlowSessionLayout = isSlowSessionFinding(data[0]);
+    renderFindingsHeader(useSlowSessionLayout);
 
-    data.forEach(function (x: any) {
+      data.forEach(function (x: any, idx: number) {
       if (x.severity === "CRITICAL") c++; else if (x.severity === "WARNING") w++; else i++;
       var tr = document.createElement("tr");
-      if (isSlowSessionTopic()) {
+      tr.className = "clickable-finding-row";
+      var noCell = "<td class='no-cell'>" + String(page * limit + idx + 1) + "</td>";
+      if (useSlowSessionLayout) {
+        var metrics = x.metrics || {};
         var aiDone = !!x.ai_analyzed;
         var aiIcon = aiDone
           ? "<span class='ai-badge ai-done' title='Da phan tich'>Done</span>"
           : "<span class='ai-badge ai-pending' title='Chua phan tich'>Pending</span>";
         var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
         tr.innerHTML =
-          "<td>" + (x.finding_id || "") + "</td>" +
-          "<td>" + formatDetectedAtForUi(x.detected_at) + "</td>" +
-          "<td>" + ((x.role || "") + " | " + (x.node || "")) + "</td>" +
+          noCell +
+          "<td>" + esc(x.finding_id || "") + "</td>" +
+          "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
+          "<td>" + esc((x.role || "") + " | " + (x.node || "")) + "</td>" +
           "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
           "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
+          "<td>" + esc(metrics.elapsed_seconds === undefined || metrics.elapsed_seconds === null ? "" : String(metrics.elapsed_seconds)) + "</td>" +
+          "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
+          "<td>" + esc(metrics.login_name || "") + "</td>" +
+          "<td>" + esc(metrics.host_name || "") + "</td>" +
+          "<td>" + blockingBadge(metrics) + "</td>" +
           "<td>" + aiIcon + "</td>" +
-          "<td><button type='button' class='btn-metrics'>View metrics</button> <button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
+          "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
       } else {
-        tr.innerHTML = "<td>" + formatDetectedAtForUi(x.detected_at) + "</td><td>" + (x.issue_type || "") + "</td><td>" + alertStatusBadge(x.alert_status || "") + "</td><td>" + (x.node || "") + "</td><td>" + severityBadge(x.severity || "INFO") + "</td><td><button type='button'>Xem</button></td>";
+        tr.innerHTML = noCell + "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td><td>" + esc(x.issue_type || "") + "</td><td>" + alertStatusBadge(x.alert_status || "") + "</td><td>" + esc(x.node || "") + "</td><td>" + severityBadge(x.severity || "INFO") + "</td>";
       }
-      var btn = tr.querySelector("button") as HTMLButtonElement;
-      if (isSlowSessionTopic()) {
-        var metricsBtn = tr.querySelector(".btn-metrics") as HTMLButtonElement;
+      if (useSlowSessionLayout) {
         var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
+        var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
 
-        metricsBtn.addEventListener("click", async function () {
-          var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-          var metrics = (d && d.metrics) || {};
-          openModal("Finding Metrics", renderSlowSessionMetricsTable(metrics));
-          bindSlowSessionMetricActions(metrics);
+        tr.addEventListener("click", async function () {
+          await withGlobalLoading(async function () {
+            var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+            var metrics = (d && d.metrics) || {};
+            openModal("Finding Metrics", renderSlowSessionMetricsTable(metrics));
+            bindSlowSessionMetricActions(metrics);
+          });
         });
 
+        if (rowActionCell) {
+          rowActionCell.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+          });
+        }
         aiBtn.addEventListener("click", async function () {
           if (aiBtn.disabled) return;
-          var ai = x.ai_analysis;
-          if (!ai) {
-            var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-            ai = d && d.ai_analysis ? d.ai_analysis : null;
-          }
-          openModal("AI Analysis", renderAiAnalysisTable(ai));
-          bindAiAnalysisFieldButtons();
+          await withButtonLoading(aiBtn, async function () {
+            var ai = x.ai_analysis;
+            if (!ai) {
+              await withGlobalLoading(async function () {
+                var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+                ai = d && d.ai_analysis ? d.ai_analysis : null;
+              });
+            }
+            openModal("AI Analysis", renderAiAnalysisTable(ai));
+            bindAiAnalysisFieldButtons();
+          }, "Loading...");
         });
       } else {
-        btn.addEventListener("click", async function () {
-          var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-          openModal("Finding Detail", renderCleanDetail(d));
-          bindJsonTreeToolbar();
+        tr.addEventListener("click", async function () {
+          await withGlobalLoading(async function () {
+            var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+            openModal("Finding Detail", renderCleanDetail(d));
+            bindJsonTreeToolbar();
+          });
         });
       }
       body.appendChild(tr);
@@ -622,9 +777,10 @@ async function loadFindings() {
     (document.getElementById("warningCount") as HTMLElement).textContent = String(w);
     (document.getElementById("infoCount") as HTMLElement).textContent = String(i);
     (document.getElementById("pageInfo") as HTMLElement).textContent = "Page " + String(page + 1);
-  } catch (_e) {
-    err.textContent = "Khong tai duoc findings.";
-  }
+    } catch (_e) {
+      err.textContent = "Khong tai duoc findings.";
+    }
+  });
 }
 
 function toLocalDateTimeFilterValue(v: string): string {
@@ -660,19 +816,42 @@ function fallbackCopyText(text: string) {
 }
 
 function bindEvents() {
-  (document.getElementById("reloadBtn") as HTMLButtonElement).addEventListener("click", function () { page = 0; loadFindings(); });
-  (document.getElementById("clearFiltersBtn") as HTMLButtonElement).addEventListener("click", function () {
-    (document.getElementById("findingIdFilter") as HTMLInputElement).value = "";
-    (document.getElementById("severityFilter") as HTMLSelectElement).value = "";
-    (document.getElementById("alertStatusFilter") as HTMLSelectElement).value = "";
-    (document.getElementById("detectedFromFilter") as HTMLInputElement).value = "";
-    (document.getElementById("detectedToFilter") as HTMLInputElement).value = "";
-    initDefaultDetectedAtRange();
-    page = 0;
-    loadFindings();
+  (document.getElementById("reloadBtn") as HTMLButtonElement).addEventListener("click", function (ev) {
+    var btn = ev.currentTarget as HTMLButtonElement;
+    withButtonLoading(btn, async function () {
+      page = 0;
+      await loadFindings();
+    }, "Searching...");
   });
-  (document.getElementById("prevBtn") as HTMLButtonElement).addEventListener("click", function () { if (page > 0) { page--; loadFindings(); } });
-  (document.getElementById("nextBtn") as HTMLButtonElement).addEventListener("click", function () { page++; loadFindings(); });
+  (document.getElementById("clearFiltersBtn") as HTMLButtonElement).addEventListener("click", function (ev) {
+    var btn = ev.currentTarget as HTMLButtonElement;
+    withButtonLoading(btn, async function () {
+      (document.getElementById("findingIdFilter") as HTMLInputElement).value = "";
+      (document.getElementById("severityFilter") as HTMLSelectElement).value = "";
+      (document.getElementById("alertStatusFilter") as HTMLSelectElement).value = "";
+      (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value = "";
+      (document.getElementById("detectedFromFilter") as HTMLInputElement).value = "";
+      (document.getElementById("detectedToFilter") as HTMLInputElement).value = "";
+      initDefaultDetectedAtRange();
+      page = 0;
+      await loadFindings();
+    }, "Clearing...");
+  });
+  (document.getElementById("prevBtn") as HTMLButtonElement).addEventListener("click", function (ev) {
+    if (page <= 0) return;
+    var btn = ev.currentTarget as HTMLButtonElement;
+    withButtonLoading(btn, async function () {
+      page--;
+      await loadFindings();
+    }, "Loading...");
+  });
+  (document.getElementById("nextBtn") as HTMLButtonElement).addEventListener("click", function (ev) {
+    var btn = ev.currentTarget as HTMLButtonElement;
+    withButtonLoading(btn, async function () {
+      page++;
+      await loadFindings();
+    }, "Loading...");
+  });
 }
 
 bindModalEvents();

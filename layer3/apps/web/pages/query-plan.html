@@ -4,124 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Layer3 Query Plan</title>
-  <link rel="stylesheet" href="/apps/web/css/dashboard.css" />
+  <link rel="stylesheet" href="/apps/web/css/base.css" />
+  <link rel="stylesheet" href="/apps/web/css/query-plan.css" />
   <link rel="stylesheet" type="text/css" href="/css/qp.css" />
   <script src="/dist/qp.js"></script>
-  <style>
-    html, body { height: 100vh; max-width: 100%; overflow: hidden; }
-    body { display: flex; flex-direction: column; min-height: 0; }
-    .qp-page { flex: 1 1 auto; min-height: 0; max-width: 100%; overflow: hidden; }
-    .qp-panel { height: 100%; display: flex; flex-direction: column; min-height: 0; max-width: 100%; overflow: hidden; }
-    .controls { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
-    .muted { color:#666; font-size:12px; }
-    .error-banner {
-      display:none; margin:8px 0; padding:8px 10px;
-      border:1px solid #d9534f; background:#fdecea; color:#8a1f1b;
-      font-family:Consolas, monospace; font-size:12px; white-space:pre-wrap;
-    }
-    .error-banner.show { display:block; }
-    .global-loading-overlay {
-      position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-      background:rgba(0,0,0,0.25); z-index:2000;
-    }
-    .global-loading-overlay.show { display:flex; }
-    .global-loading-box {
-      min-width:280px; padding:12px 16px; border:1px solid #bcbcbc; background:#fff;
-      box-shadow:0 8px 24px rgba(0,0,0,0.2); font-family:Consolas, monospace; font-size:13px;
-      color:#222; text-align:center;
-    }
-    .xml-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none; z-index:3000; }
-    .xml-modal-backdrop.open { display:block; }
-    .xml-modal {
-      position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-      width:min(1200px, 92vw); height:min(82vh, 900px);
-      background:#fff; border:1px solid #bfbfbf; box-shadow:0 10px 28px rgba(0,0,0,0.28);
-      display:flex; flex-direction:column; box-sizing:border-box; z-index:3001; min-height:0; overflow:hidden;
-    }
-    .xml-modal-header {
-      display:flex; justify-content:space-between; align-items:center; gap:8px;
-      padding:10px 12px; border-bottom:1px solid #d6d6d6; background:#f8f8f8;
-    }
-    .xml-modal-body { flex:1 1 auto; min-height:0; overflow:auto; padding:12px; }
-    .xml-modal textarea { width:100%; height:100%; resize:none; font-family:Consolas, monospace; box-sizing:border-box; }
-    .xml-modal-actions { margin-top:8px; display:flex; gap:8px; align-items:center; }
-    .xml-viewer-grid { display:grid; grid-template-rows:100%; gap:8px; min-height:0; flex:1 1 auto; overflow:hidden; }
-    .xml-viewer-section { min-height:0; display:flex; flex-direction:column; gap:4px; overflow:hidden; }
-    .xml-viewer-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
-    .xml-viewer-content {
-      width:100%; flex:1 1 auto; overflow:auto; border:1px solid #d0d0d0; background:#fafafa;
-      box-sizing:border-box; padding:10px; font-family:Consolas, monospace; font-size:12px; min-height:0;
-    }
-    .xml-viewer-content.tree { white-space:normal; }
-    .xml-tree details { margin-left:14px; }
-    .xml-tree summary { cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px; }
-    .xml-tree summary::-webkit-details-marker { display:none; }
-    .xml-tree summary::before { content:'▶'; color:#444; font-size:11px; width:12px; display:inline-block; }
-    .xml-tree details[open] > summary::before { content:'▼'; }
-    .xml-tag { color:#003b8e; }
-    .xml-attr { color:#8a2b06; }
-    .xml-text { color:#1f1f1f; margin-left:18px; white-space:pre-wrap; word-break:break-word; }
-    .controls, .muted, .error-banner, .xml-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-    .qp-diagram-scroll {
-      flex:1 1 auto;
-      min-height:0;
-      max-width: 100%;
-      overflow-x:auto;
-      overflow-y:hidden;
-      border: 1px solid #ccc;
-      background: #fff;
-    }
-    #container {
-      min-height:0;
-      min-width: 100%;
-      width: 100%;
-      max-width: 100%;
-      overflow: hidden;
-    }
-    #container .qp-statement-block {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      box-sizing: border-box !important;
-    }
-    #container .qp-statement-header-panel {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      overflow: auto !important;
-      box-sizing: border-box !important;
-    }
-    #container .qp-statement-header,
-    #container .qp-statement-query-panel,
-    #container .qp-query-pane {
-      min-width: 0 !important;
-    }
-    #container .qp-query-tabs {
-      position: sticky;
-      top: 0;
-      z-index: 3;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-      background: #efefef;
-      padding: 4px;
-      border-bottom: 1px solid #c8c8c8;
-    }
-    #container .qp-query-pane {
-      overflow: auto !important;
-    }
-    #container .qp-real-query,
-    #container .qp-resolved-query,
-    #container .qp-missing-index-panel,
-    #container .qp-statement-header-row > div {
-      white-space: pre-wrap !important;
-      overflow-wrap: anywhere !important;
-      word-break: break-word !important;
-      max-width: 100% !important;
-      box-sizing: border-box !important;
-    }
-  </style>
 </head>
 <body>
   <div class="topbar">
@@ -399,5 +285,3 @@
   </script>
 </body>
 </html>
-
-
