@@ -62,14 +62,27 @@ function alertStatusBadge(v: string): string {
   return esc(String(v || ""));
 }
 
+function roleNodeCell(role: any, node: any): string {
+  var roleText = String(role || "");
+  var roleLower = roleText.toLowerCase();
+  var roleStyle = "";
+  if (roleLower === "primary") roleStyle = "color:#0b3d91;font-weight:700;";
+  else if (roleLower === "secondary") roleStyle = "color:#4f8edc;font-weight:600;";
+
+  var roleHtml = roleStyle
+    ? "<span style='" + roleStyle + "'>" + esc(roleText) + "</span>"
+    : esc(roleText);
+  return roleHtml + " | " + esc(String(node || ""));
+}
+
 function hasBlockingSession(metrics: any): boolean {
   var id = Number(metrics && metrics.blocking_session_id);
   return isFinite(id) && id > 0;
 }
 
 function blockingBadge(metrics: any): string {
-  if (!hasBlockingSession(metrics)) return '<span class="blocking-badge blocking-no">No</span>';
-  return '<span class="blocking-badge blocking-yes" title="blocking_session_id ' + esc(String(metrics.blocking_session_id)) + '">Yes #' + esc(String(metrics.blocking_session_id)) + '</span>';
+  if (!hasBlockingSession(metrics)) return '<span class="blocking-badge blocking-no">None</span>';
+  return '<span class="blocking-badge blocking-yes" title="blocking_session_id ' + esc(String(metrics.blocking_session_id)) + '">#' + esc(String(metrics.blocking_session_id)) + '</span>';
 }
 
 function formatDetectedAtForUi(v: any): string {
@@ -188,6 +201,7 @@ function renderAiAnalysisTable(ai: any): string {
 function renderSlowSessionMetricsTable(metrics: any): string {
   var m = metrics || {};
   var sessionCols = [
+    "session_id",
     "elapsed_seconds",
     "cpu_time_seconds",
     "logical_reads",
@@ -202,13 +216,13 @@ function renderSlowSessionMetricsTable(metrics: any): string {
     "blocking_session_id",
     "wait_type",
     "wait_seconds",
-    "wait_resource",
     "blocker_login",
     "blocker_host",
     "blocker_status",
-    "blocker_open_txn",
     "blocker_sql_text",
-    "blocker_plan_xml"
+    "blocker_plan_xml",
+    "blocker_open_txn",
+    "wait_resource"
   ];
 
   function renderMetricTable(title: string, cols: string[], emptyText?: string): string {
@@ -236,13 +250,13 @@ function renderSlowSessionMetricsTable(metrics: any): string {
   function cellFor(field: string): string {
     var val = asText(m[field]);
     if (field === "sql_text" || field === "blocker_sql_text") {
-      var isLong = val.length > 180;
-      if (!isLong) return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
+      //var isLong = val.length > 180;
+      //if (!isLong) return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
       return "<td class='clickable-cell' data-field='" + esc(field) + "'><div class='cell-preview'>" + esc(val.substring(0, 180)) + "...</div></td>";
     }
     if (field === "query_plan_xml" || field === "blocker_plan_xml") {
       if (!val) return "<td></td>";
-      return "<td class='clickable-cell' data-field='" + esc(field) + "'>Click to view</td>";
+      return "<td class='clickable-cell' data-field='" + esc(field) + "'>View</td>";
     }
     return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
   }
@@ -670,113 +684,113 @@ async function loadFindings() {
 
   await withGlobalLoading(async function () {
     try {
-    var findingId = (document.getElementById("findingIdFilter") as HTMLInputElement).value.trim();
-    var severity = (document.getElementById("severityFilter") as HTMLSelectElement).value;
-    var alertStatus = (document.getElementById("alertStatusFilter") as HTMLSelectElement).value;
-    var blockingStatus = isSlowSessionTopic() ? (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value : "";
-    var detectedFromRaw = (document.getElementById("detectedFromFilter") as HTMLInputElement).value;
-    var detectedToRaw = (document.getElementById("detectedToFilter") as HTMLInputElement).value;
-    var detectedFrom = toLocalDateTimeFilterValue(detectedFromRaw);
-    var detectedTo = toLocalDateTimeFilterValue(detectedToRaw);
+      var findingId = (document.getElementById("findingIdFilter") as HTMLInputElement).value.trim();
+      var severity = (document.getElementById("severityFilter") as HTMLSelectElement).value;
+      var alertStatus = (document.getElementById("alertStatusFilter") as HTMLSelectElement).value;
+      var blockingStatus = isSlowSessionTopic() ? (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value : "";
+      var detectedFromRaw = (document.getElementById("detectedFromFilter") as HTMLInputElement).value;
+      var detectedToRaw = (document.getElementById("detectedToFilter") as HTMLInputElement).value;
+      var detectedFrom = toLocalDateTimeFilterValue(detectedFromRaw);
+      var detectedTo = toLocalDateTimeFilterValue(detectedToRaw);
 
-    if (!findingId && detectedFrom && detectedTo && detectedFrom > detectedTo) {
-      err.textContent = "Khoang thoi gian khong hop le: from > to.";
-      body.innerHTML = "";
-      return;
-    }
+      if (!findingId && detectedFrom && detectedTo && detectedFrom > detectedTo) {
+        err.textContent = "Khoang thoi gian khong hop le: from > to.";
+        body.innerHTML = "";
+        return;
+      }
 
       var data = await apiGet("/api/findings", buildFindingsQueryParams(
-      findingId,
-      severity,
-      alertStatus,
-      blockingStatus,
-      detectedFrom,
-      detectedTo
-    ));
+        findingId,
+        severity,
+        alertStatus,
+        blockingStatus,
+        detectedFrom,
+        detectedTo
+      ));
 
-    body.innerHTML = "";
-    var c = 0, w = 0, i = 0;
-    var useSlowSessionLayout = isSlowSessionTopic();
-    if (findingId && data.length === 1) useSlowSessionLayout = isSlowSessionFinding(data[0]);
-    renderFindingsHeader(useSlowSessionLayout);
+      body.innerHTML = "";
+      var c = 0, w = 0, i = 0;
+      var useSlowSessionLayout = isSlowSessionTopic();
+      if (findingId && data.length === 1) useSlowSessionLayout = isSlowSessionFinding(data[0]);
+      renderFindingsHeader(useSlowSessionLayout);
 
       data.forEach(function (x: any, idx: number) {
-      if (x.severity === "CRITICAL") c++; else if (x.severity === "WARNING") w++; else i++;
-      var tr = document.createElement("tr");
-      tr.className = "clickable-finding-row";
-      var noCell = "<td class='no-cell'>" + String(page * limit + idx + 1) + "</td>";
-      if (useSlowSessionLayout) {
-        var metrics = x.metrics || {};
-        var aiDone = !!x.ai_analyzed;
-        var aiIcon = aiDone
-          ? "<span class='ai-badge ai-done' title='Da phan tich'>Done</span>"
-          : "<span class='ai-badge ai-pending' title='Chua phan tich'>Pending</span>";
-        var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
-        tr.innerHTML =
-          noCell +
-          "<td>" + esc(x.finding_id || "") + "</td>" +
-          "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-          "<td>" + esc((x.role || "") + " | " + (x.node || "")) + "</td>" +
-          "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-          "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-          "<td>" + esc(metrics.elapsed_seconds === undefined || metrics.elapsed_seconds === null ? "" : String(metrics.elapsed_seconds)) + "</td>" +
-          "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
-          "<td>" + esc(metrics.login_name || "") + "</td>" +
-          "<td>" + esc(metrics.host_name || "") + "</td>" +
-          "<td>" + blockingBadge(metrics) + "</td>" +
-          "<td>" + aiIcon + "</td>" +
-          "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
-      } else {
-        tr.innerHTML = noCell + "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td><td>" + esc(x.issue_type || "") + "</td><td>" + alertStatusBadge(x.alert_status || "") + "</td><td>" + esc(x.node || "") + "</td><td>" + severityBadge(x.severity || "INFO") + "</td>";
-      }
-      if (useSlowSessionLayout) {
-        var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
-        var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
+        if (x.severity === "CRITICAL") c++; else if (x.severity === "WARNING") w++; else i++;
+        var tr = document.createElement("tr");
+        tr.className = "clickable-finding-row";
+        var noCell = "<td class='no-cell'>" + String(page * limit + idx + 1) + "</td>";
+        if (useSlowSessionLayout) {
+          var metrics = x.metrics || {};
+          var aiDone = !!x.ai_analyzed;
+          var aiIcon = aiDone
+            ? "<span class='ai-badge ai-done' title='Da phan tich'>Done</span>"
+            : "<span class='ai-badge ai-pending' title='Chua phan tich'>Pending</span>";
+          var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
+          tr.innerHTML =
+            noCell +
+            "<td>" + esc(x.finding_id || "") + "</td>" +
+            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
+            "<td>" + roleNodeCell(x.role, x.node) + "</td>" +
+            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
+            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
+            "<td>" + esc(metrics.elapsed_seconds === undefined || metrics.elapsed_seconds === null ? "" : String(metrics.elapsed_seconds)) + "</td>" +
+            "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
+            "<td>" + esc(metrics.login_name || "") + "</td>" +
+            "<td>" + esc(metrics.host_name || "") + "</td>" +
+            "<td>" + blockingBadge(metrics) + "</td>" +
+            "<td>" + aiIcon + "</td>" +
+            "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
+        } else {
+          tr.innerHTML = noCell + "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td><td>" + esc(x.issue_type || "") + "</td><td>" + alertStatusBadge(x.alert_status || "") + "</td><td>" + esc(x.node || "") + "</td><td>" + severityBadge(x.severity || "INFO") + "</td>";
+        }
+        if (useSlowSessionLayout) {
+          var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
+          var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
 
-        tr.addEventListener("click", async function () {
-          await withGlobalLoading(async function () {
-            var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-            var metrics = (d && d.metrics) || {};
-            openModal("Finding Metrics", renderSlowSessionMetricsTable(metrics));
-            bindSlowSessionMetricActions(metrics);
+          tr.addEventListener("click", async function () {
+            await withGlobalLoading(async function () {
+              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+              var metrics = (d && d.metrics) || {};
+              openModal("Finding Metrics", renderSlowSessionMetricsTable(metrics));
+              bindSlowSessionMetricActions(metrics);
+            });
           });
-        });
 
-        if (rowActionCell) {
-          rowActionCell.addEventListener("click", function (ev) {
-            ev.stopPropagation();
+          if (rowActionCell) {
+            rowActionCell.addEventListener("click", function (ev) {
+              ev.stopPropagation();
+            });
+          }
+          aiBtn.addEventListener("click", async function () {
+            if (aiBtn.disabled) return;
+            await withButtonLoading(aiBtn, async function () {
+              var ai = x.ai_analysis;
+              if (!ai) {
+                await withGlobalLoading(async function () {
+                  var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+                  ai = d && d.ai_analysis ? d.ai_analysis : null;
+                });
+              }
+              openModal("AI Analysis", renderAiAnalysisTable(ai));
+              bindAiAnalysisFieldButtons();
+            }, "Loading...");
+          });
+        } else {
+          tr.addEventListener("click", async function () {
+            await withGlobalLoading(async function () {
+              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+              openModal("Finding Detail", renderCleanDetail(d));
+              bindJsonTreeToolbar();
+            });
           });
         }
-        aiBtn.addEventListener("click", async function () {
-          if (aiBtn.disabled) return;
-          await withButtonLoading(aiBtn, async function () {
-            var ai = x.ai_analysis;
-            if (!ai) {
-              await withGlobalLoading(async function () {
-                var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-                ai = d && d.ai_analysis ? d.ai_analysis : null;
-              });
-            }
-            openModal("AI Analysis", renderAiAnalysisTable(ai));
-            bindAiAnalysisFieldButtons();
-          }, "Loading...");
-        });
-      } else {
-        tr.addEventListener("click", async function () {
-          await withGlobalLoading(async function () {
-            var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-            openModal("Finding Detail", renderCleanDetail(d));
-            bindJsonTreeToolbar();
-          });
-        });
-      }
-      body.appendChild(tr);
-    });
+        body.appendChild(tr);
+      });
 
-    (document.getElementById("criticalCount") as HTMLElement).textContent = String(c);
-    (document.getElementById("warningCount") as HTMLElement).textContent = String(w);
-    (document.getElementById("infoCount") as HTMLElement).textContent = String(i);
-    (document.getElementById("pageInfo") as HTMLElement).textContent = "Page " + String(page + 1);
+      (document.getElementById("criticalCount") as HTMLElement).textContent = String(c);
+      (document.getElementById("warningCount") as HTMLElement).textContent = String(w);
+      (document.getElementById("infoCount") as HTMLElement).textContent = String(i);
+      (document.getElementById("pageInfo") as HTMLElement).textContent = "Page " + String(page + 1);
     } catch (_e) {
       err.textContent = "Khong tai duoc findings.";
     }
