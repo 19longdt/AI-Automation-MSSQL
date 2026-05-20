@@ -8,7 +8,16 @@
       "Bash(grep -v \"^$\")",
       "Bash(python -c ' *)",
       "Bash(ls -la /d/GIT/AI-Automation-MSSQL/layer2/*.py)",
-      "Bash(ls -la /d/GIT/AI-Automation-MSSQL/*.txt)"
+      "Bash(ls -la /d/GIT/AI-Automation-MSSQL/*.txt)",
+      "Bash(npx puppeteer *)",
+      "Bash(pip show *)",
+      "Bash(npm list *)",
+      "Bash(where chrome *)",
+      "Bash(where \"chrome.exe\")",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Bash(where wkhtmltopdf *)",
+      "Bash(pip install *)",
+      "Bash(python generate_pdf.py)"
     ]
   }
 }
