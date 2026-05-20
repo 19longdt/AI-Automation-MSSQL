@@ -36,6 +36,50 @@ export function openModal(title: string, contentHtml: string) {
   modalStack.push(modal);
 }
 
+export function openActionConfirmModal(
+  title: string,
+  messageHtml: string,
+  confirmText?: string,
+  cancelText?: string
+): Promise<boolean> {
+  var okText = confirmText || "Confirm";
+  var noText = cancelText || "Cancel";
+  var content =
+    "<div class='action-confirm'>" +
+      "<div class='action-confirm-message'>" + messageHtml + "</div>" +
+      "<div class='action-confirm-actions'>" +
+        "<button type='button' class='btn-cancel' data-action-confirm='cancel'>" + noText + "</button>" +
+        "<button type='button' class='btn-danger' data-action-confirm='ok'>" + okText + "</button>" +
+      "</div>" +
+    "</div>";
+  var modal = createModalElement(title, content);
+  document.body.appendChild(modal);
+  modalStack.push(modal);
+
+  return new Promise(function (resolve) {
+    function done(result: boolean) {
+      if (modal.parentElement) modal.parentElement.removeChild(modal);
+      for (var i = modalStack.length - 1; i >= 0; i--) {
+        if (modalStack[i] === modal) {
+          modalStack.splice(i, 1);
+          break;
+        }
+      }
+      resolve(result);
+    }
+
+    var okBtn = modal.querySelector("[data-action-confirm='ok']") as HTMLButtonElement | null;
+    var cancelBtn = modal.querySelector("[data-action-confirm='cancel']") as HTMLButtonElement | null;
+    var backdrop = modal.querySelector("[data-close='1']") as HTMLElement | null;
+    var closeBtn = modal.querySelector("[data-close-modal='1']") as HTMLElement | null;
+
+    if (okBtn) okBtn.addEventListener("click", function () { done(true); });
+    if (cancelBtn) cancelBtn.addEventListener("click", function () { done(false); });
+    if (backdrop) backdrop.addEventListener("click", function () { done(false); });
+    if (closeBtn) closeBtn.addEventListener("click", function () { done(false); });
+  });
+}
+
 export function closeModal() {
   var top = modalStack.pop();
   if (!top) return;
