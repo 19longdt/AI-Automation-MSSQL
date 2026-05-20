@@ -50,15 +50,15 @@ function isSlowSessionFinding(finding: any): boolean {
 }
 
 function severityBadge(sev: string): string {
-  if (sev === "CRITICAL") return '<span class="badge-critical">CRITICAL</span>';
-  if (sev === "WARNING") return '<span class="badge-warning">WARNING</span>';
-  return '<span class="badge-info">INFO</span>';
+  if (sev === "CRITICAL") return '<span class="badge badge-critical">CRITICAL</span>';
+  if (sev === "WARNING") return '<span class="badge badge-warning">WARNING</span>';
+  return '<span class="badge badge-info">INFO</span>';
 }
 
 function alertStatusBadge(v: string): string {
   var x = String(v || "").toLowerCase();
-  if (x === "sent") return '<span class="badge-alert-sent">sent</span>';
-  if (x === "suppressed") return '<span class="badge-alert-suppressed">suppressed</span>';
+  if (x === "sent") return '<span class="badge badge-success">sent</span>';
+  if (x === "suppressed") return '<span class="badge badge-warning">suppressed</span>';
   return esc(String(v || ""));
 }
 
@@ -108,7 +108,7 @@ function renderSqlPreviewBlock(title: string, value: any): string {
     "</div>";
 }
 
-async function requestKillSession(sessionId: number, sourceLabel: string, metrics: any) {
+async function requestKillSession(sessionId: number, sourceLabel: string, metrics: any, node: string) {
   var m = metrics || {};
   var killButtonLabel = sourceLabel === "blocking_session_id" ? "KILL Blocking" : "KILL Session";
   var confirmed = await openActionConfirmModal(
@@ -128,9 +128,24 @@ async function requestKillSession(sessionId: number, sourceLabel: string, metric
     "Cancel"
   );
   if (!confirmed) return;
-  await withGlobalLoading(async function () {
-    await apiPost("/api/actions/kill-session", { session_id: sessionId });
-  });
+  try {
+    var resp: any = null;
+    await withGlobalLoading(async function () {
+      resp = await apiPost("/api/actions/kill-session", { session_id: sessionId, node: node || "" });
+    });
+    var okMsg = (resp && resp.result && resp.result.message) || (resp && resp.message) || ("KILL session #" + String(sessionId) + " success.");
+    openModal("KILL Result", "<div class='kill-result ok'>" + esc(String(okMsg)) + "</div>");
+  } catch (e) {
+    var status = e && e.status ? String(e.status) : "unknown";
+    var payload = e && e.payload ? e.payload : null;
+    var msg = (payload && (payload.message || payload.error)) || "Call API failed";
+    var detail = payload ? JSON.stringify(payload, null, 2) : "";
+    openModal(
+      "KILL Failed",
+      "<div class='kill-result fail'><strong>Error (" + esc(status) + "):</strong> " + esc(String(msg)) + "</div>" +
+      (detail ? "<pre class='kill-result-detail'>" + esc(detail) + "</pre>" : "")
+    );
+  }
 }
 
 function formatDetectedAtForUi(v: any): string {
@@ -771,8 +786,8 @@ async function loadFindings() {
           var metrics = x.metrics || {};
           var aiDone = !!x.ai_analyzed;
           var aiIcon = aiDone
-            ? "<span class='ai-badge ai-done' title='Da phan tich'>Done</span>"
-            : "<span class='ai-badge ai-pending' title='Chua phan tich'>Pending</span>";
+            ? "<span class='badge badge-success' title='Da phan tich'>Done</span>"
+            : "<span class='badge badge-warning' title='Chua phan tich'>Pending</span>";
           var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
           tr.innerHTML =
             noCell +
@@ -811,7 +826,7 @@ async function loadFindings() {
               ev.stopPropagation();
               var sessionId = Number(metrics && metrics.blocking_session_id);
               if (!isFinite(sessionId) || sessionId <= 0) return;
-              await requestKillSession(sessionId, "blocking_session_id", metrics);
+            await requestKillSession(sessionId, "blocking_session_id", metrics, String(x.node || ""));
             });
           }
 
@@ -820,7 +835,7 @@ async function loadFindings() {
               ev.stopPropagation();
               var sessionId = Number(metrics && metrics.session_id);
               if (!isFinite(sessionId) || sessionId <= 0) return;
-              await requestKillSession(sessionId, "session_id", metrics);
+            await requestKillSession(sessionId, "session_id", metrics, String(x.node || ""));
             });
           }
 
@@ -952,3 +967,4 @@ loadTopics().then(function () {
   renderFindingsHeader();
   return loadFindings();
 });
+

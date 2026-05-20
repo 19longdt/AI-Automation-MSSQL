@@ -3,8 +3,9 @@ import { postJsonWithTimeout } from "../proxy/l2-proxy";
 
 export async function registerActionRoutes(app: FastifyInstance) {
   app.post("/api/actions/kill-session", async (req, reply) => {
-    const body = (req.body || {}) as { session_id?: number | string };
+    const body = (req.body || {}) as { session_id?: number | string; node?: string };
     const rawSessionId = body.session_id;
+    const node = typeof body.node === "string" ? body.node.trim() : "";
     const sessionId = Number(rawSessionId);
     if (!Number.isFinite(sessionId) || sessionId <= 0) {
       return reply.code(400).send({ message: "Invalid session_id" });
@@ -17,12 +18,13 @@ export async function registerActionRoutes(app: FastifyInstance) {
     try {
       const result = await postJsonWithTimeout(
         `${app.config.l1ApiUrl}/kill-session`,
-        { session_id: sessionId },
+        { session_id: sessionId, node },
         8000
       );
       return reply.send({
         ok: true,
         session_id: sessionId,
+        node,
         target: app.config.l1ApiUrl,
         result
       });
@@ -31,7 +33,10 @@ export async function registerActionRoutes(app: FastifyInstance) {
       return reply.code(502).send({
         ok: false,
         message: "Failed to call Layer1 kill-session API",
-        session_id: sessionId
+        session_id: sessionId,
+        target: app.config.l1ApiUrl,
+        upstream_status: e && e.status ? e.status : null,
+        upstream_error: e && e.payload ? e.payload : { message: e && e.message ? e.message : "Unknown error" }
       });
     }
   });

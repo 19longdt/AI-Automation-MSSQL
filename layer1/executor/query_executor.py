@@ -95,6 +95,8 @@ class QueryExecutor:
                 for query in queries:
                     start = time.monotonic()
                     try:
+                        # Enforce timeout per query trong batch mode để tránh treo job vô hạn.
+                        conn.timeout = query.timeout_sec
                         cursor = conn.execute(query.sql)
                         columns = (
                             [col[0] for col in cursor.description]

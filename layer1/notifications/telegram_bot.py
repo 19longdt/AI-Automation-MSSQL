@@ -27,6 +27,7 @@ import urllib.request
 from typing import TYPE_CHECKING
 
 from ..models.findings import Finding
+from ..services.topic_action_service import topic_action_registry
 
 if TYPE_CHECKING:
     from ..ai.plan_analyzer import PlanAnalyzer
@@ -120,10 +121,76 @@ class TelegramBot:
         if not finding_id:
             return  # Reply vào message không phải Layer 1 alert
 
-        if text.strip().startswith("/quick"):
+        cmd = text.strip().split(maxsplit=1)[0].lower()
+        if cmd.startswith("/quick"):
             self._handle_quick(chat_id, f"/quick {finding_id}", message, sender)
+        elif cmd.startswith("/") and cmd not in {"/analyze"}:
+            self._handle_topic_action(chat_id, cmd, finding_id, sender)
         else:
             self._forward_to_layer2(finding_id, chat_id, sender)
+
+    def _handle_topic_action(self, chat_id: int | str, command: str, finding_id: str, sender: str) -> None:
+        """Chạy command theo topic handler (Template Method)."""
+        finding = self._findings_repo.find_by_id(finding_id) \
+            or self._findings_repo.find_by_id_prefix(finding_id)
+        if not finding:
+            self._send(chat_id, f"❌ Không tìm thấy finding: <code>{html.escape(finding_id)}</code>")
+            return
+
+        logger.warning(
+            "TelegramBot: %s requested_by=%s finding=%s",
+            command, sender, finding.finding_id[:8],
+        )
+        self._send(chat_id, f"🛠 Đang xử lý <code>{html.escape(command)}</code>...")
+        result = topic_action_registry.execute(finding, command)
+
+        if result.get("code") == "topic_not_allowed":
+            self._send(
+                chat_id,
+                f"⚠️ Lệnh <code>{html.escape(command)}</code> không áp dụng cho topic <code>{html.escape(finding.topic_id)}</code>.",
+            )
+            return
+        if result.get("code") == "invalid_metric":
+            metric_key = str(result.get("metric_key") or "session_id")
+            self._send(
+                chat_id,
+                f"❌ Finding <code>{finding.finding_id[:8]}</code> không có <code>metrics.{html.escape(metric_key)}</code> hợp lệ.",
+            )
+            return
+        if result.get("code") == "unsupported_command":
+            self._send(chat_id, f"⚠️ Lệnh <code>{html.escape(command)}</code> chưa được hỗ trợ cho topic này.")
+            return
+
+        if result.get("ok"):
+            session_id = str(result.get("session_id") or "")
+            host = str(result.get("host") or "unknown")
+            target_node = str(result.get("target_node") or host)
+            self._send(
+                chat_id,
+                f"✅ Thực thi <code>{html.escape(command)}</code> thành công:\n"
+                f"• target_session: <code>{html.escape(session_id)}</code>\n"
+                f"• target_node: <code>{html.escape(target_node)}</code>\n"
+                f"• executed_host: <code>{html.escape(host)}</code>",
+            )
+            return
+
+        message = html.escape(str(result.get("message") or "Unknown error"))
+        errors = result.get("errors") or []
+        target_node = str(result.get("target_node") or "")
+        detail = ""
+        if isinstance(errors, list) and errors:
+            first = errors[0]
+            if isinstance(first, dict):
+                detail = html.escape(str(first.get("error") or ""))[:200]
+        if detail:
+            node_line = f"\n• target_node: <code>{html.escape(target_node)}</code>" if target_node else ""
+            self._send(
+                chat_id,
+                f"❌ Thực thi <code>{html.escape(command)}</code> thất bại:{node_line}\n{message}\n<code>{detail}</code>",
+            )
+        else:
+            node_line = f"\n• target_node: <code>{html.escape(target_node)}</code>" if target_node else ""
+            self._send(chat_id, f"❌ Thực thi <code>{html.escape(command)}</code> thất bại:{node_line}\n{message}")
 
     def _forward_to_layer2(self, finding_id: str, chat_id: int | str, sender: str) -> None:
         """Forward finding analysis request tới Layer 2 agent qua HTTP."""

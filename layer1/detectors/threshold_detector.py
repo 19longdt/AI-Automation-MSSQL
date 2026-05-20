@@ -121,7 +121,7 @@ class ThresholdDetector:
             if k != field and isinstance(v, (int, float, str, bool, type(None))):
                 metrics[k] = v
 
-        logger.info(
+        logger.debug(
             "threshold_detector: FINDING topic=%s field=%s value=%s severity=%s node=%s",
             topic.topic_id, field, value, severity.value, node,
         )

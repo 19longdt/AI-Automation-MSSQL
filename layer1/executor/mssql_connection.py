@@ -36,6 +36,9 @@ def mssql_connection(host: str, timeout_sec: int | None = None) -> Generator[pyo
     timeout = timeout_sec if timeout_sec is not None else settings.mssql_query_timeout_sec
     conn_str = settings.get_connection_string(host)
     conn = pyodbc.connect(conn_str, timeout=timeout, autocommit=True)
+    # pyodbc connect(timeout=...) chỉ là login/connect timeout.
+    # Cần set conn.timeout để giới hạn thời gian thực thi statement.
+    conn.timeout = timeout
     try:
         yield conn
     finally:

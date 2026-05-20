@@ -42,4 +42,4 @@ RUN useradd -m -u 1000 monitor \
     && chown -R monitor:monitor /app /var/lib/layer1
 USER monitor
 
-CMD ["python", "-m", "layer1.scheduler"]
+CMD ["python", "-m", "layer1.main"]

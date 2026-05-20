@@ -1,4 +1,7 @@
-interface ApiError extends Error { status?: number }
+interface ApiError extends Error {
+  status?: number
+  payload?: any
+}
 
 function toQuery(params: Record<string, string | number | undefined>): string {
   const q: string[] = [];
@@ -14,6 +17,22 @@ export async function apiGet(path: string, params?: Record<string, string | numb
   if (!res.ok) {
     const err: ApiError = new Error("API error");
     err.status = res.status;
+    try { err.payload = await res.json(); } catch (_e) { }
+    throw err;
+  }
+  return res.json();
+}
+
+export async function apiPost(path: string, payload: unknown): Promise<any> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {})
+  });
+  if (!res.ok) {
+    const err: ApiError = new Error("API error");
+    err.status = res.status;
+    try { err.payload = await res.json(); } catch (_e) { }
     throw err;
   }
   return res.json();

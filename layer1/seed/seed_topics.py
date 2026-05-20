@@ -29,6 +29,22 @@ import logging
 import sys
 
 from ..config import settings
+from ..models.topic_constants import (
+    TOPIC_AG_HEALTH,
+    TOPIC_AGENT_MAINTENANCE,
+    TOPIC_BLOCKED_QUERY,
+    TOPIC_BLOCKING,
+    TOPIC_HIGH_VARIATION,
+    TOPIC_INDEX_FRAGMENTATION,
+    TOPIC_INDEX_USAGE,
+    TOPIC_MISSING_INDEX,
+    TOPIC_PLAN_INSTABILITY,
+    TOPIC_PLAN_REGRESSION,
+    TOPIC_RESOURCE_GOVERNOR,
+    TOPIC_SLOW_QUERY,
+    TOPIC_TEMPDB_MEMORY,
+    TOPIC_WAIT_STATS,
+)
 from ..storage.mongo_client import MongoConnection
 from ..storage.repositories.topic_repo import TopicRepo
 from ..models.topic import MonitorTopic, QueryConfig, ThresholdConfig, BaselineConfig
@@ -68,7 +84,7 @@ def _all_topics() -> list[MonitorTopic]:
 
 def _ag_health() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="ag_health",
+        topic_id=TOPIC_AG_HEALTH,
         display_name="AG Health & CDC Monitor",
         enabled=True,
         schedule_sec=120,
@@ -131,7 +147,7 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
 
 def _blocking() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="blocking",
+        topic_id=TOPIC_BLOCKING,
         display_name="Blocking Chain & Deadlock Monitor",
         enabled=True,
         schedule_sec=60,
@@ -199,7 +215,7 @@ ORDER BY deadlock_time DESC
 
 def _blocked_query() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="blocked_query",
+        topic_id=TOPIC_BLOCKED_QUERY,
         display_name="Blocked Query Snapshot & Trend",
         enabled=True,
         schedule_sec=60,
@@ -252,7 +268,7 @@ ORDER BY r.wait_time DESC
 
 def _slow_query() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="slow_query",
+        topic_id=TOPIC_SLOW_QUERY,
         display_name="Slow Query / Active Sessions with Blocking",
         enabled=True,
         schedule_sec=300,
@@ -335,7 +351,7 @@ ORDER BY elapsed_seconds DESC
 
 def _plan_regression() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="plan_regression",
+        topic_id=TOPIC_PLAN_REGRESSION,
         display_name="Execution Plan Regression Detector",
         enabled=True,
         schedule_sec=300,
@@ -385,7 +401,7 @@ ORDER BY pct_worse DESC
 
 def _plan_instability() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="plan_instability",
+        topic_id=TOPIC_PLAN_INSTABILITY,
         display_name="Plan Instability Detector (Parameter Sniffing)",
         enabled=True,
         schedule_sec=300,
@@ -430,7 +446,7 @@ ORDER BY worst_best_ratio DESC
 
 def _index_usage() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="index_usage",
+        topic_id=TOPIC_INDEX_USAGE,
         display_name="Non-Optimal Index Usage (Plan XML Analysis)",
         enabled=True,
         schedule_sec=300,
@@ -469,7 +485,7 @@ ORDER BY qsp.avg_logical_io_reads DESC
 
 def _high_variation() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="high_variation",
+        topic_id=TOPIC_HIGH_VARIATION,
         display_name="High Variation Query Detector",
         enabled=True,
         schedule_sec=300,
@@ -513,7 +529,7 @@ ORDER BY cv_ratio DESC
 
 def _tempdb_memory() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="tempdb_memory",
+        topic_id=TOPIC_TEMPDB_MEMORY,
         display_name="TempDB & Memory Pressure Monitor",
         enabled=True,
         schedule_sec=300,
@@ -583,7 +599,7 @@ FROM sys.dm_db_file_space_usage
 
 def _wait_stats() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="wait_stats",
+        topic_id=TOPIC_WAIT_STATS,
         display_name="Wait Statistics Anomaly Monitor (Baseline)",
         enabled=True,
         schedule_sec=300,
@@ -633,7 +649,7 @@ ORDER BY wait_time_ms DESC
 
 def _agent_maintenance() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="agent_maintenance",
+        topic_id=TOPIC_AGENT_MAINTENANCE,
         display_name="SQL Agent Jobs, Backup & DBCC Monitor",
         enabled=True,
         schedule_sec=600,
@@ -734,7 +750,7 @@ ORDER BY days_since_checkdb DESC
 
 def _missing_index() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="missing_index",
+        topic_id=TOPIC_MISSING_INDEX,
         display_name="Missing Index Detector",
         enabled=True,
         schedule_sec=3600,
@@ -781,7 +797,7 @@ ORDER BY improvement_measure DESC
 
 def _resource_governor() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="resource_governor",
+        topic_id=TOPIC_RESOURCE_GOVERNOR,
         display_name="Resource Governor Pool Monitor",
         enabled=True,
         schedule_sec=300,
@@ -852,7 +868,7 @@ ORDER BY r.cpu_time DESC
 
 def _index_fragmentation() -> MonitorTopic:
     return MonitorTopic(
-        topic_id="index_fragmentation",
+        topic_id=TOPIC_INDEX_FRAGMENTATION,
         display_name="Index Fragmentation Monitor (Daily)",
         enabled=True,
         # 24 giờ — scheduler dùng cron job riêng để chạy lúc 3AM

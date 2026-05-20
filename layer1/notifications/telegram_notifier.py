@@ -15,6 +15,7 @@ import urllib.request
 
 from .base_notifier import BaseNotifier
 from ..models.findings import Finding
+from ..services.topic_action_service import topic_action_registry
 from ..utils.time_utils import now_vn
 
 logger = logging.getLogger(__name__)
@@ -140,9 +141,22 @@ class TelegramNotifier(BaseNotifier):
 
         lines.append("")
         lines.append(f"🔗 ID: <code>{finding.finding_id}</code>")
-        lines.append("<b>Phân tích:</b> ⚡<code>/quick</code> | 🤖<code>/analyze</code>")
+        lines.append(self._build_actions_line(finding))
 
         return "\n".join(lines), attachments
+
+    @staticmethod
+    def _build_actions_line(finding: Finding) -> str:
+        """Build command options: mặc định Phân tích, Action là optional theo topic."""
+        analysis_cmds = ["⚡<code>/quick</code>", "🤖<code>/analyze</code>"]
+        lines = [f"<b>Phân tích:</b> {' | '.join(analysis_cmds)}"]
+
+        topic_actions = topic_action_registry.commands_for_topic(finding.topic_id)
+        if topic_actions:
+            action_cmds = [f"<code>{html.escape(cmd)}</code>" for cmd in topic_actions]
+            lines.append(f"<b>Action:</b> {' | '.join(action_cmds)}")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _safe_filename(finding_id: str, field_key: str) -> str:
