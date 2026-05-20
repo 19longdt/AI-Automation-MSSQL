@@ -1,6 +1,6 @@
-import { apiGet } from "./api-client";
+import { apiGet, apiPost } from "./api-client";
 import { withButtonLoading, withGlobalLoading } from "./loading-overlay";
-import { bindModalEvents, openModal } from "./modal";
+import { bindModalEvents, openActionConfirmModal, openModal } from "./modal";
 declare const QP: any;
 declare const window: any;
 
@@ -82,7 +82,55 @@ function hasBlockingSession(metrics: any): boolean {
 
 function blockingBadge(metrics: any): string {
   if (!hasBlockingSession(metrics)) return '<span class="blocking-badge blocking-no">None</span>';
-  return '<span class="blocking-badge blocking-yes" title="blocking_session_id ' + esc(String(metrics.blocking_session_id)) + '">#' + esc(String(metrics.blocking_session_id)) + '</span>';
+  return '<span class="blocking-badge blocking-yes blocking-kill-btn" title="blocking_session_id ' + esc(String(metrics.blocking_session_id)) + ' (click for KILL option)">#' + esc(String(metrics.blocking_session_id)) + '</span>';
+}
+
+function sessionIdBadge(metrics: any): string {
+  var sessionId = metrics && metrics.session_id;
+  if (sessionId === undefined || sessionId === null || sessionId === "") {
+    return '<span class="blocking-badge session-id-none">None</span>';
+  }
+  return '<span class="blocking-badge session-id-badge session-kill-btn" title="session_id ' + esc(String(sessionId)) + ' (click for KILL option)">#' + esc(String(sessionId)) + '</span>';
+}
+
+function truncateForPreview(text: string, maxLen: number): string {
+  if (!text) return "";
+  if (text.length <= maxLen) return text;
+  return text.substring(0, maxLen) + "...";
+}
+
+function renderSqlPreviewBlock(title: string, value: any): string {
+  var raw = value === undefined || value === null ? "" : String(value);
+  if (!raw.trim()) return "";
+  return "<div class='kill-confirm-sql-block'>" +
+    "<div class='kill-confirm-sql-title'>" + esc(title) + "</div>" +
+    "<pre class='kill-confirm-sql-pre'>" + esc(truncateForPreview(raw, 600)) + "</pre>" +
+    "</div>";
+}
+
+async function requestKillSession(sessionId: number, sourceLabel: string, metrics: any) {
+  var m = metrics || {};
+  var killButtonLabel = sourceLabel === "blocking_session_id" ? "KILL Blocking" : "KILL Session";
+  var confirmed = await openActionConfirmModal(
+    "Confirm KILL Session",
+    "<div class='kill-confirm'>" +
+      "<div class='d-flex align-items-baseline justify-content-between flex-wrap gap-2 mb-2'>" +
+        "<div class='kill-confirm-session'>Session <strong>#" + esc(String(sessionId)) + "</strong></div>" +
+        "<div class='kill-confirm-target'>Source: " + esc(sourceLabel) + "</div>" +
+      "</div>" +
+      "<div class='kill-confirm-note'>This action will execute <code>KILL " + esc(String(sessionId)) + "</code>.</div>" +
+      "<div class='kill-confirm-sql-grid d-flex flex-column gap-2'>" +
+        renderSqlPreviewBlock("sql_text", m.sql_text) +
+        renderSqlPreviewBlock("blocker_sql_text", m.blocker_sql_text) +
+      "</div>" +
+    "</div>",
+    killButtonLabel,
+    "Cancel"
+  );
+  if (!confirmed) return;
+  await withGlobalLoading(async function () {
+    await apiPost("/api/actions/kill-session", { session_id: sessionId });
+  });
 }
 
 function formatDetectedAtForUi(v: any): string {
@@ -605,7 +653,7 @@ function renderFindingsHeader(useSlowSessionLayout?: boolean) {
   var slowLayout = useSlowSessionLayout === undefined ? isSlowSessionTopic() : useSlowSessionLayout;
 
   if (slowLayout) {
-    row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
+    row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Session Id</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
   } else {
     row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th>";
   }
@@ -728,7 +776,7 @@ async function loadFindings() {
           var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
           tr.innerHTML =
             noCell +
-            "<td>" + esc(x.finding_id || "") + "</td>" +
+            "<td><span class='finding-id-copy' title='Click to copy ID'>" + esc(x.finding_id || "") + "</span></td>" +
             "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
             "<td>" + roleNodeCell(x.role, x.node) + "</td>" +
             "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
@@ -737,6 +785,7 @@ async function loadFindings() {
             "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
             "<td>" + esc(metrics.login_name || "") + "</td>" +
             "<td>" + esc(metrics.host_name || "") + "</td>" +
+            "<td>" + sessionIdBadge(metrics) + "</td>" +
             "<td>" + blockingBadge(metrics) + "</td>" +
             "<td>" + aiIcon + "</td>" +
             "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
@@ -746,6 +795,34 @@ async function loadFindings() {
         if (useSlowSessionLayout) {
           var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
           var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
+          var idCopyEl = tr.querySelector(".finding-id-copy") as HTMLElement | null;
+          var blockingKillEl = tr.querySelector(".blocking-kill-btn") as HTMLElement | null;
+          var sessionKillEl = tr.querySelector(".session-kill-btn") as HTMLElement | null;
+
+          if (idCopyEl) {
+            idCopyEl.addEventListener("click", function (ev) {
+              ev.stopPropagation();
+              copyTextToClipboardWithFallback(String(x.finding_id || ""));
+            });
+          }
+
+          if (blockingKillEl) {
+            blockingKillEl.addEventListener("click", async function (ev) {
+              ev.stopPropagation();
+              var sessionId = Number(metrics && metrics.blocking_session_id);
+              if (!isFinite(sessionId) || sessionId <= 0) return;
+              await requestKillSession(sessionId, "blocking_session_id", metrics);
+            });
+          }
+
+          if (sessionKillEl) {
+            sessionKillEl.addEventListener("click", async function (ev) {
+              ev.stopPropagation();
+              var sessionId = Number(metrics && metrics.session_id);
+              if (!isFinite(sessionId) || sessionId <= 0) return;
+              await requestKillSession(sessionId, "session_id", metrics);
+            });
+          }
 
           tr.addEventListener("click", async function () {
             await withGlobalLoading(async function () {
