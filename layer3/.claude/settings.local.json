@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer3\" -Recurse -Include \"*.ts\",\"*.js\",\"*.xslt\",\"*.css\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Get-ChildItem -Path \"C:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer3\" -Recurse -File -Include \"*.xslt\", \"*.ts\", \"*.tsx\", \"*.js\")",
+      "Bash(Select-Object FullName)",
+      "Bash(xargs ls -la)",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "Bash(npm run *)"
+    ]
+  }
+}

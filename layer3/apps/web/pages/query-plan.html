@@ -106,6 +106,23 @@
     var isRendering = false;
     var actionLoadingCount = 0;
 
+    function applyHeatColoring(container) {
+      var nodes = container.querySelectorAll('.qp-node[data-elapsed-ms]');
+      if (!nodes.length) return;
+      var maxMs = 0;
+      nodes.forEach(function (n) {
+        var ms = parseInt(n.getAttribute('data-elapsed-ms'), 10) || 0;
+        if (ms > maxMs) maxMs = ms;
+      });
+      if (!maxMs) return;
+      nodes.forEach(function (n) {
+        var ms = parseInt(n.getAttribute('data-elapsed-ms'), 10) || 0;
+        var pct = ms / maxMs;
+        var heat = pct >= 0.75 ? 'critical' : pct >= 0.4 ? 'high' : pct >= 0.15 ? 'medium' : 'low';
+        n.setAttribute('data-heat', heat);
+      });
+    }
+
     function beginActionLoading(message) {
       actionLoadingCount += 1;
       globalLoadingText.textContent = message || 'Äang xá»­ lÃ½...';
@@ -142,6 +159,7 @@
         try {
           parseXmlOrThrow(xmlText);
           QP.showPlan(document.getElementById('container'), xmlText);
+          applyHeatColoring(document.getElementById('container'));
         } catch (err) {
           showError('KhÃ´ng thá»ƒ render plan. Vui lÃ²ng kiá»ƒm tra XML.\n' + (err && err.message ? err.message : 'Unknown error'));
         } finally {

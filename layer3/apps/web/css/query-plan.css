@@ -181,3 +181,9 @@ body { display: flex; flex-direction: column; min-height: 0; }
   max-width: 100% !important;
   box-sizing: border-box !important;
 }
+
+/* Heat coloring: elapsed time relative to slowest operator in plan */
+.qp-node[data-heat="low"]      { border-top: 3px solid #27ae60; }
+.qp-node[data-heat="medium"]   { border-top: 3px solid #f39c12; }
+.qp-node[data-heat="high"]     { border-top: 3px solid #e67e22; }
+.qp-node[data-heat="critical"] { border-top: 3px solid #c0392b; }

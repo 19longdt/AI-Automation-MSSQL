@@ -86,6 +86,9 @@
             <xsl:if test="@NodeId">
               <xsl:attribute name="data-node-id"><xsl:value-of select="@NodeId" /></xsl:attribute>
             </xsl:if>
+            <xsl:if test="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms">
+              <xsl:attribute name="data-elapsed-ms"><xsl:value-of select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms)" /></xsl:attribute>
+            </xsl:if>
             <xsl:call-template name="NodeIcon" />
             <div><xsl:apply-templates select="." mode="NodeLabel" /></div>
             <xsl:apply-templates select="." mode="NodeLabel2" />
@@ -217,6 +220,42 @@
         <xsl:with-param name="Condition" select="s:RunTimeInformation" />
         <xsl:with-param name="Label">Actual Number of Batches</xsl:with-param>
         <xsl:with-param name="Value" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@Batches)" />
+      </xsl:call-template>
+
+      <xsl:call-template name="ToolTipRow">
+        <xsl:with-param name="Condition" select="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualCPUms" />
+        <xsl:with-param name="Label">Actual CPU Time (ms)</xsl:with-param>
+        <xsl:with-param name="Value" select="concat(sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualCPUms), ' ms')" />
+      </xsl:call-template>
+
+      <xsl:call-template name="ToolTipRow">
+        <xsl:with-param name="Condition" select="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms" />
+        <xsl:with-param name="Label">Actual Elapsed Time (ms)</xsl:with-param>
+        <xsl:with-param name="Value" select="concat(sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms), ' ms')" />
+      </xsl:call-template>
+
+      <xsl:call-template name="ToolTipRow">
+        <xsl:with-param name="Condition" select="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualLogicalReads" />
+        <xsl:with-param name="Label">Actual Logical Reads</xsl:with-param>
+        <xsl:with-param name="Value" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualLogicalReads)" />
+      </xsl:call-template>
+
+      <xsl:call-template name="ToolTipRow">
+        <xsl:with-param name="Condition" select="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualPhysicalReads" />
+        <xsl:with-param name="Label">Actual Physical Reads</xsl:with-param>
+        <xsl:with-param name="Value" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualPhysicalReads)" />
+      </xsl:call-template>
+
+      <xsl:call-template name="ToolTipRow">
+        <xsl:with-param name="Condition" select="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualReadAheads" />
+        <xsl:with-param name="Label">Actual Read-Aheads</xsl:with-param>
+        <xsl:with-param name="Value" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualReadAheads)" />
+      </xsl:call-template>
+
+      <xsl:call-template name="ToolTipRow">
+        <xsl:with-param name="Condition" select="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualLobLogicalReads" />
+        <xsl:with-param name="Label">Actual LOB Logical Reads</xsl:with-param>
+        <xsl:with-param name="Value" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualLobLogicalReads)" />
       </xsl:call-template>
 
       <xsl:call-template name="ToolTipRow">
@@ -451,6 +490,8 @@
     <xsl:variable name="ActualRows" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualRows)" />
     <xsl:variable name="EstimatedRows" select="number(@EstimateRows)" />
     <xsl:variable name="ElapsedMs" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualElapsedms)" />
+    <xsl:variable name="CpuMs" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualCPUms)" />
+    <xsl:variable name="LogicalReads" select="sum(s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualLogicalReads)" />
     <xsl:variable name="PartitionCount" select="s:RunTimePartitionSummary/s:PartitionsAccessed/@PartitionCount" />
     <xsl:variable name="PtnStartRaw" select="s:*/s:SeekPredicates/s:SeekPredicateNew/s:SeekKeys/s:StartRange[s:RangeColumns/s:ColumnReference[contains(@Column,'PtnId')]]/s:RangeExpressions/s:ScalarOperator[1]/@ScalarString" />
     <xsl:variable name="PtnEndRaw" select="s:*/s:SeekPredicates/s:SeekPredicateNew/s:SeekKeys/s:EndRange[s:RangeColumns/s:ColumnReference[contains(@Column,'PtnId')]]/s:RangeExpressions/s:ScalarOperator[1]/@ScalarString" />
@@ -472,6 +513,15 @@
         Elapsed:
         <xsl:call-template name="round">
           <xsl:with-param name="value" select="$ElapsedMs" />
+        </xsl:call-template>
+        ms
+      </div>
+    </xsl:if>
+    <xsl:if test="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualCPUms">
+      <div>
+        CPU:
+        <xsl:call-template name="round">
+          <xsl:with-param name="value" select="$CpuMs" />
         </xsl:call-template>
         ms
       </div>
@@ -501,6 +551,14 @@
         Rows est:
         <xsl:call-template name="round">
           <xsl:with-param name="value" select="$EstimatedRows" />
+        </xsl:call-template>
+      </div>
+    </xsl:if>
+    <xsl:if test="s:RunTimeInformation/s:RunTimeCountersPerThread/@ActualLogicalReads and $LogicalReads &gt; 0">
+      <div>
+        Reads:
+        <xsl:call-template name="round">
+          <xsl:with-param name="value" select="$LogicalReads" />
         </xsl:call-template>
       </div>
     </xsl:if>
