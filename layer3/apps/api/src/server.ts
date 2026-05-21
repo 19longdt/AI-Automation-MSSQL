@@ -65,6 +65,11 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
     decorateReply: false
   });
   await app.register(fastifyStatic, {
+    root: path.join(repoRoot, "apps/web/pages"),
+    prefix: "/apps/web/pages/",
+    decorateReply: false
+  });
+  await app.register(fastifyStatic, {
     root: path.join(repoRoot, "assets"),
     prefix: "/assets/",
     decorateReply: false

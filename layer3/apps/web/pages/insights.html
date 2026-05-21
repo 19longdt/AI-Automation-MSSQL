@@ -1,19 +1,24 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Layer3 Insights</title>
+  <script>
+    (function () {
+      var key = "layer3-theme";
+      var saved = localStorage.getItem(key);
+      var isDark = saved ? saved === "dark" : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+      document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+    })();
+  </script>
   <link rel="stylesheet" href="/apps/web/css/vendor/bootstrap-reboot.min.css" />
-  <link rel="stylesheet" href="/apps/web/css/vendor/bootstrap-utilities.min.css" />
+  <link rel="stylesheet" href="/apps/web/css/vendor/bootstrap-utilities.min.css" />  
   <link rel="stylesheet" href="/apps/web/css/base.css" />
 </head>
-<body>
-  <div class="topbar">
-    <a href="/dashboard" class="tab">Dashboard</a>
-    <a href="/insights" class="tab active">Insights</a>
-    <a href="/query-plan" class="tab">Query Plan</a>
-  </div>
+<body data-active-tab="insights">
+  <div id="topbarMount"></div>
 
   <main class="page">
     <section class="panel">
@@ -38,5 +43,21 @@
   </div>
 
   <script src="/dist/insights.js"></script>
+  <script src="/apps/web/pages/topbar.js"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

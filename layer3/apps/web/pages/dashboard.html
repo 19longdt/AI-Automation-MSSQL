@@ -1,22 +1,27 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Layer3 Dashboard</title>
+  <script>
+    (function () {
+      var key = "layer3-theme";
+      var saved = localStorage.getItem(key);
+      var isDark = saved ? saved === "dark" : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+      document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+    })();
+  </script>
   <link rel="stylesheet" href="/apps/web/css/vendor/bootstrap-reboot.min.css" />
-  <link rel="stylesheet" href="/apps/web/css/vendor/bootstrap-utilities.min.css" />
+  <link rel="stylesheet" href="/apps/web/css/vendor/bootstrap-utilities.min.css" />  
   <link rel="stylesheet" href="/apps/web/css/base.css" />
   <link rel="stylesheet" href="/apps/web/css/stats-cards.css" />
   <link rel="stylesheet" href="/apps/web/css/dashboard.css" />
   <link rel="stylesheet" type="text/css" href="/css/qp.css" />
 </head>
-<body>
-  <div class="topbar">
-    <a href="/dashboard" class="tab active">Dashboard</a>
-    <a href="/insights" class="tab">Insights</a>
-    <a href="/query-plan" class="tab">Query Plan</a>
-  </div>
+<body data-active-tab="dashboard">
+  <div id="topbarMount"></div>
 
   <main class="page">
     <section class="panel">
@@ -79,5 +84,21 @@
 
   <script src="/dist/qp.js"></script>
   <script src="/dist/dashboard.js"></script>
+  <script src="/apps/web/pages/topbar.js"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

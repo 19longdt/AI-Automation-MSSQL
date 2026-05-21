@@ -3,7 +3,7 @@ tr.clickable-finding-row {
 }
 
 tr.clickable-finding-row:hover {
-  background: #f1f5f9;
+  background: var(--color-row-hover);
 }
 
 tr.clickable-finding-row .row-action-cell {
@@ -26,49 +26,49 @@ tr.clickable-finding-row .row-action-cell {
 }
 
 .badge-critical {
-  color: #8a1f1b;
-  background: #fdecea;
-  border-color: #efc0bb;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-border-strong);
 }
 
 .badge-warning {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: #fcd34d;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border-color: var(--color-border-strong);
 }
 
 .badge-info {
-  color: #004085;
-  background: #e8f1ff;
-  border-color: #b8d2fb;
+  color: var(--color-info);
+  background: var(--color-info-soft);
+  border-color: var(--color-border-strong);
 }
 
 .badge-success,
 .badge-alert-sent {
-  color: #166534;
-  background: #dcfce7;
-  border-color: #86efac;
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: var(--color-border-strong);
 }
 
 .badge-alert-suppressed {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: #fcd34d;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border-color: var(--color-border-strong);
 }
 
 .blocking-badge {
   display: inline-block;
   padding: 2px 6px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--color-border-strong);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .blocking-yes {
-  color: #8a1f1b;
-  background: #fdecea;
-  border-color: #efc0bb;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-border-strong);
 }
 
 .blocking-kill-btn,
@@ -99,12 +99,12 @@ tr.clickable-finding-row .row-action-cell {
 
 .kill-confirm-session {
   font-size: 15px;
-  color: #1a2b49;
+  color: var(--color-text);
 }
 
 .kill-confirm-target {
   font-size: 15px;
-  color: #1a2b49;
+  color: var(--color-text);
 }
 
 .action-confirm-actions .btn-danger {
@@ -121,9 +121,9 @@ tr.clickable-finding-row .row-action-cell {
 
 .kill-confirm-note {
   margin: 0 0 10px;
-  color: #6d4c00;
-  background: #fff8dc;
-  border: 1px solid #f0d78a;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-border-strong);
   padding: 7px 9px;
   border-radius: 8px;
 }
@@ -133,9 +133,9 @@ tr.clickable-finding-row .row-action-cell {
 }
 
 .kill-confirm-sql-block {
-  border: 1px solid #d9e1ec;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #fbfcff;
+  background: var(--color-surface-soft);
   overflow: hidden;
 }
 
@@ -143,9 +143,9 @@ tr.clickable-finding-row .row-action-cell {
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 700;
-  color: #2b3f66;
-  background: #eef3fb;
-  border-bottom: 1px solid #d9e1ec;
+  color: var(--color-accent-strong);
+  background: var(--color-primary-soft);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .kill-confirm-sql-pre {
@@ -158,31 +158,31 @@ tr.clickable-finding-row .row-action-cell {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--font-code);
-  color: #1f2937;
+  color: var(--color-text);
 }
 
 .kill-confirm-empty {
   padding: 12px 10px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--color-muted);
 }
 
 .blocking-no {
-  color: #555;
-  background: #f5f5f5;
-  border-color: #ddd;
+  color: var(--color-tag-neutral-text);
+  background: var(--color-tag-neutral-bg);
+  border-color: var(--color-border);
 }
 
 .session-id-badge {
-  color: #0b3d91;
-  background: #e8f1ff;
-  border-color: #b8d2fb;
+  color: var(--color-info);
+  background: var(--color-info-soft);
+  border-color: var(--color-border-strong);
 }
 
 .session-id-none {
-  color: #555;
-  background: #f5f5f5;
-  border-color: #ddd;
+  color: var(--color-tag-neutral-text);
+  background: var(--color-tag-neutral-bg);
+  border-color: var(--color-border);
 }
 
 .finding-id-copy {
@@ -194,8 +194,8 @@ tr.clickable-finding-row .row-action-cell {
 }
 
 .finding-id-copy:hover {
-  color: #0b3d91;
-  text-decoration-color: #0b3d91;
+  color: var(--color-accent-strong);
+  text-decoration-color: var(--color-accent-strong);
 }
 
 .topic-tabs {
@@ -235,8 +235,8 @@ tr.clickable-finding-row .row-action-cell {
 
 .topic-tab.active {
   background: var(--color-primary-soft);
-  border-color: #b9cdfa;
-  color: #123a94;
+  border-color: var(--color-accent-border);
+  color: var(--color-accent-strong);
 }
 
 `n.kv-table {
@@ -272,8 +272,8 @@ tr.clickable-finding-row .row-action-cell {
 
 .metric-empty {
   border: 1px solid var(--color-border);
-  background: #fafafa;
-  color: #555;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
   padding: 8px;
   font-size: 12px;
 }
@@ -287,7 +287,7 @@ tr.clickable-finding-row .row-action-cell {
 
 .cell-preview {
   margin-top: 4px;
-  color: #555;
+  color: var(--color-muted);
   max-width: 260px;
   white-space: nowrap;
   overflow: hidden;
@@ -296,7 +296,7 @@ tr.clickable-finding-row .row-action-cell {
 
 .clickable-cell {
   cursor: pointer;
-  color: #004085;
+  color: var(--color-info);
   text-decoration: underline;
 }
 
@@ -305,7 +305,7 @@ tr.clickable-finding-row .row-action-cell {
   margin-top: 10px;
   border: 1px solid var(--color-border);
   padding: 8px;
-  background: #fafafa;
+  background: var(--color-surface-soft);
 }
 
 .metrics-detail.show {
@@ -352,7 +352,7 @@ tr.clickable-finding-row .row-action-cell {
 .plan-modal-box {
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-surface);
   height: calc(94vh - 130px);
   overflow: hidden;
   padding: 0;
@@ -389,15 +389,15 @@ tr.clickable-finding-row .row-action-cell {
 }
 
 .kill-result.ok {
-  color: #1f7a1f;
-  background: #e9f7ec;
-  border-color: #b7dfbf;
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: var(--color-border-strong);
 }
 
 .kill-result.fail {
-  color: #8a1f1b;
-  background: #fdecea;
-  border-color: #efc0bb;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-border-strong);
 }
 
 .kill-result-detail {
@@ -407,7 +407,7 @@ tr.clickable-finding-row .row-action-cell {
   overflow: auto;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-surface);
   font-size: 12px;
 }
 
