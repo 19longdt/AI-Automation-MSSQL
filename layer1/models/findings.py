@@ -59,6 +59,7 @@ class Finding(BaseModel):
         default=None,
         description="Error message khi alert_status=failed; partial errors khi 'sent'",
     )
+    has_diagnostics: bool = False
     finding_hash: str = Field(
         default="",
         description="Dedup hash key (topic_id + issue_type + node + query_hash).",
