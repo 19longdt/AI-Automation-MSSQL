@@ -30,7 +30,7 @@ Mỗi issue_type thuộc 1 trong **4 category** — mỗi category có pattern p
 | **Budget** | $0.10-0.20 |
 
 **Issue types trong category**:
-- `slow_query`, `high_variation_query`
+- `slow_sessions`, `high_variation_query`
 - `plan_regression`, `plan_instability`
 - `non_optimal_index`, `partition_elimination_failure`
 
@@ -162,8 +162,8 @@ Mỗi issue_type thuộc 1 trong **4 category** — mỗi category có pattern p
 
 | Issue Type | Category | Skill YAML | Status |
 |------------|----------|------------|--------|
-| slow_query | A: Query | slow_query.yaml | ✅ Implemented |
-| high_variation_query | A: Query | slow_query.yaml | ✅ Implemented |
+| slow_sessions | A: Query | slow_sessions.yaml | ✅ Implemented |
+| high_variation_query | A: Query | slow_sessions.yaml | ✅ Implemented |
 | plan_regression | A: Query | plan_xml.yaml | ✅ Implemented |
 | plan_instability | A: Query | plan_xml.yaml | ✅ Implemented |
 | non_optimal_index | A: Query | plan_xml.yaml | ✅ Implemented |

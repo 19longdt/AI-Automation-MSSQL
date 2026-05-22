@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s \"C:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer3\")",
+      "Bash(findstr \"\\\\.html$\")",
+      "Bash(xargs grep \"^export\\\\|app.get\\\\|app.post\")"
+    ]
+  }
+}

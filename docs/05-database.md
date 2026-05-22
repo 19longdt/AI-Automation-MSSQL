@@ -70,7 +70,7 @@ db_monitor (database)
 ### Ví dụ topic dùng baseline detector
 ```json
 {
-  "topic_id": "slow_query",
+  "topic_id": "slow_sessions",
   "schedule_sec": 300,
   "nodes": ["all"],
   "queries": [{ "query_id": "query_stats", "sql": "SELECT ..." }],
@@ -190,7 +190,7 @@ db_monitor (database)
 ### Các giá trị `issue_type`
 | Value | Ý nghĩa |
 |-------|---------|
-| `slow_query` | Query chậm hơn baseline |
+| `slow_sessions` | Query chậm hơn baseline |
 | `plan_regression` | Execution plan thay đổi xấu |
 | `plan_instability` | Query có nhiều plan khác nhau |
 | `non_optimal_index` | Dùng Index Scan thay vì Seek |
@@ -224,7 +224,7 @@ db_monitor (database)
 ### Schema
 ```json
 {
-  "metric_type": "slow_query",
+  "metric_type": "slow_sessions",
   "day_of_week": 2,           // 0=Thứ Hai, 1=Thứ Ba, ..., 6=Chủ Nhật
   "hour": 10,                 // 0-23
   "node": "SQL-NODE-01",
@@ -297,7 +297,7 @@ Finding hash "abc123" xuất hiện lần 3 (sau 35 phút tổng):
 ### Schema
 ```json
 {
-  "job_name": "slow_query_check",
+  "job_name": "slow_sessions_check",
   "instance_id": "monitoring-server-01:12345",  // hostname:pid
   "started_at": "2026-04-19T10:05:00Z",
   "finished_at": "2026-04-19T10:05:01.24Z",
@@ -315,7 +315,7 @@ Finding hash "abc123" xuất hiện lần 3 (sau 35 phút tổng):
 ```
 Job Name               | Last Run         | Duration | Status  | Health
 -----------------------|------------------|----------|---------|--------
-slow_query_check       | 10:05:00         | 1.2s     | success | OK
+slow_sessions_check       | 10:05:00         | 1.2s     | success | OK
 ag_health_check        | 10:04:00         | 0.3s     | success | OK
 blocking_monitor       | 10:04:30         | 0.5s     | success | OK
 wait_stats_check       | 09:55:00         | 2.1s     | success | MISSED ⚠️

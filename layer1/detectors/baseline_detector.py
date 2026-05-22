@@ -138,7 +138,7 @@ class BaselineDetector:
 
         return Finding(
             topic_id=topic.topic_id,
-            issue_type=IssueType.SLOW_QUERY,
+            issue_type=IssueType.slow_sessions,
             severity=Severity.WARNING,
             node=node,
             role=role,

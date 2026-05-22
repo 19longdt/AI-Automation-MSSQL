@@ -37,17 +37,3 @@ export async function apiPost(path: string, payload: unknown): Promise<any> {
   }
   return res.json();
 }
-
-export async function apiPost(path: string, payload: unknown): Promise<any> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload || {})
-  });
-  if (!res.ok) {
-    const err: ApiError = new Error("API error");
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
-}

@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 
+from ..models.common import AlertStatus
 from ..models.findings import Finding
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class NotificationDispatcher:
         self._notifiers = notifiers
         self._min_severity = min_severity
 
-    def dispatch(self, finding: Finding) -> tuple[str, str | None]:
+    def dispatch(self, finding: Finding) -> tuple[AlertStatus, str | None]:
         """Gửi tới tất cả channels nếu severity >= min_severity.
 
         Returns (status, error_msg) cho topic_runner ghi vào finding.alert_*:
@@ -57,10 +58,10 @@ class NotificationDispatcher:
                 finding.severity.value, self._min_severity,
                 finding.issue_type.value, finding.node,
             )
-            return ("skipped_severity", f"severity {finding.severity.value} < min {self._min_severity}")
+            return (AlertStatus.SKIPPED_SEVERITY, f"severity {finding.severity.value} < min {self._min_severity}")
 
         if not self._notifiers:
-            return ("failed", "no notifiers configured")
+            return (AlertStatus.FAILED, "no notifiers configured")
 
         any_success = False
         errors: list[str] = []
@@ -85,8 +86,8 @@ class NotificationDispatcher:
                 logger.error("Notifier %s failed: %s", name, exc)
 
         if any_success:
-            return ("sent", "; ".join(errors) if errors else None)
-        return ("failed", "; ".join(errors))
+            return (AlertStatus.SENT, "; ".join(errors) if errors else None)
+        return (AlertStatus.FAILED, "; ".join(errors))
 
     def dispatch_health(self, message: str) -> None:
         """Gửi health alert tới tất cả channels (không filter severity)."""

@@ -182,14 +182,14 @@ day_of_week = 2  # Wednesday
 hour = 10
 
 # Lấy baseline từ MongoDB
-baseline = baseline_repo.get_baseline("slow_query", "SQL-NODE-01", day_of_week=2, hour=10)
+baseline = baseline_repo.get_baseline("slow_sessions", "SQL-NODE-01", day_of_week=2, hour=10)
 # → {"baseline_avg": 120.0, "baseline_stddev": 8.5}
 
 current_value = 450  # avg_duration_ms hiện tại
 
 # 450 > 120 * 1.5 (= 180) → True → Anomaly!
-if baseline_repo.is_anomaly("slow_query", "SQL-NODE-01", 450, day_of_week=2, hour=10, threshold_pct=50):
-    # Tạo Finding(issue_type=SLOW_QUERY, severity=WARNING, ...)
+if baseline_repo.is_anomaly("slow_sessions", "SQL-NODE-01", 450, day_of_week=2, hour=10, threshold_pct=50):
+    # Tạo Finding(issue_type=slow_sessions, severity=WARNING, ...)
 ```
 
 ---
@@ -289,13 +289,13 @@ Finding severity = INFO
 Baseline không phải là hằng số — nó được cập nhật mỗi lần job chạy thành công:
 
 ```
-Thứ Tư 10:05 chạy slow_query check
+Thứ Tư 10:05 chạy slow_sessions check
   → avg_duration = 125ms (bình thường)
   → Không phải anomaly
 
 Sau khi detect xong:
   → baseline_repo.upsert_baseline(
-        metric_type="slow_query",
+        metric_type="slow_sessions",
         node="SQL-NODE-01",
         day_of_week=2, hour=10,
         new_sample={"date": "2026-04-17", "avg_ms": 125}
@@ -303,7 +303,7 @@ Sau khi detect xong:
 
 MongoDB baseline document:
   {
-    "metric_type": "slow_query", "day_of_week": 2, "hour": 10,
+    "metric_type": "slow_sessions", "day_of_week": 2, "hour": 10,
     "node": "SQL-NODE-01",
     "samples": [
       {"date": "2026-03-26", "avg_ms": 118},
@@ -352,7 +352,7 @@ Chạy mỗi 2 phút, kiểm tra `job_executions` collection:
 ```
 Stuck job detection:
   → Tìm documents có {status: "running", started_at < 5 phút trước}
-  → Nếu có → log WARNING "STUCK job 'slow_query_check' running since ..."
+  → Nếu có → log WARNING "STUCK job 'slow_sessions_check' running since ..."
 
 Missed job detection:
   → Với mỗi job trong intervals dict:
@@ -360,7 +360,7 @@ Missed job detection:
     Interval: 5 phút → expected next run: 10:05:00
     Threshold: 1.5× → expected by: 10:07:30
     Hiện tại: 10:09:00 → 10:09 > 10:07:30 → MISSED
-  → log WARNING "MISSED schedule: 'slow_query_check'"
+  → log WARNING "MISSED schedule: 'slow_sessions_check'"
 ```
 
 ---

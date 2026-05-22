@@ -14,8 +14,8 @@ Sau khi detect finding, Layer 1 chạy **tất cả** diagnostic tools cần thi
 topic_runner.run(topic_id)
     └─ _process_findings(findings, topic)
            │
-           ├─ finding.alert_status != "suppressed"  AND
-           │  topic.capture_tools không rỗng         AND
+           ├─ finding.severity == CRITICAL          AND
+           │  topic.capture_tools không rỗng        AND
            │  self._diagnostic_capture is not None
            │         ↓
            │  DiagnosticCapture.capture(finding, topic)
@@ -38,7 +38,7 @@ topic_runner.run(topic_id)
 ```json
 {
   "finding_id":           "uuid",
-  "topic_id":             "slow_query",
+  "topic_id":             "slow_sessions",
   "node":                 "SQL-NODE-01",
   "captured_at":          ISODate,
   "capture_duration_ms":  4800,
@@ -182,7 +182,7 @@ Không query MSSQL, đọc từ MongoDB cùng instance.
 | topic_id | capture_tools |
 |---|---|
 | `blocking` | `["get_blocking_chain", "get_wait_stats", "get_recent_findings"]` |
-| `slow_query` | `["get_query_stats", "get_wait_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_statistics_info", "get_table_context", "get_analysis_history"]` |
+| `slow_sessions` | `["get_query_stats", "get_wait_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_statistics_info", "get_table_context", "get_analysis_history"]` |
 | `plan_regression` / `plan_instability` | `["get_query_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_table_context", "get_analysis_history"]` |
 | `non_optimal_index` | `["get_plan_analysis", "get_query_structure", "get_index_usage", "get_missing_indexes", "get_statistics_info", "get_table_context"]` |
 | `high_variation_query` | `["get_query_stats", "get_wait_stats", "get_plan_analysis", "get_query_structure"]` |
@@ -211,6 +211,15 @@ Không query MSSQL, đọc từ MongoDB cùng instance.
 7.  layer1/capture/query_analyzer.py        CREATE — copy từ layer2/executor/query_analyzer.py
 8.  layer1/capture/capture_tool_loader.py   CREATE — load & cache từ MongoDB
 9.  layer1/capture/diagnostic_capture.py    CREATE — class chính, 4-phase capture
+    layer1/capture/handlers/               CREATE — handler registry (tách khỏi diagnostic_capture.py)
+        types.py                           —   StaticToolResult, StaticToolHandler, MongoToolHandler
+        static_registry.py                 —   Registry cho static tools (phase 2)
+        mongo_registry.py                  —   Registry cho mongo tools (phase 4)
+        static_get_plan_analysis.py        —   Handler: parse XML plan
+        static_get_query_structure.py      —   Handler: parse query text
+        mongo_get_table_context.py         —   Handler: lookup db_context
+        mongo_get_recent_findings.py       —   Handler: query findings 24h
+        mongo_get_analysis_history.py      —   Handler: query issue_insights
 10. layer1/executor/topic_runner.py         MODIFY — inject capture vào _process_findings()
 11. layer1/scheduler.py                     MODIFY — CaptureToolLoader.load_all() + wire DiagnosticCapture
 12. layer1/seed/seed_capture_tools.py       CREATE — seed 18 tool defs vào MongoDB
@@ -688,7 +697,7 @@ def _process_findings(self, findings: list[Finding], topic: MonitorTopic | None 
         if alert_status == "sent":
             finding.alert_sent_at = now_vn()
 
-        if (alert_status != "suppressed"
+        if (finding.severity == Severity.CRITICAL
                 and self._diagnostic_capture is not None
                 and topic is not None
                 and topic.capture_tools):
@@ -702,6 +711,8 @@ def _process_findings(self, findings: list[Finding], topic: MonitorTopic | None 
         count += 1
     return count
 ```
+
+> **Note:** Capture chỉ trigger khi `severity == CRITICAL` — không phụ thuộc `alert_status`. Lý do: severity là property của finding (compute trước), `alert_status` phụ thuộc dedup state. CRITICAL findings luôn đáng capture dù có bị suppressed hay không.
 
 ---
 
@@ -806,7 +817,7 @@ db.monitor_topics.updateOne(
 ```
 Monitor 24h: check job duration, check `finding_diagnostics` grows.
 
-**Phase 3 — Enable `slow_query`** (test Phase 2+3+4 đầy đủ)
+**Phase 3 — Enable `slow_sessions`** (test Phase 2+3+4 đầy đủ)
 
 **Phase 4 — All remaining volatile topics**
 

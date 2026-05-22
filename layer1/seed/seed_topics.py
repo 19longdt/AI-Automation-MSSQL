@@ -11,7 +11,7 @@ Topics được seed:
     1.  ag_health          — AG Health & CDC (2 phút)
     2.  blocking           — Blocking & Deadlock (1 phút)
     3.  blocked_query      — Blocked Query Snapshot (1 phút)
-    4.  slow_query         — Slow Query / Baseline (5 phút)
+    4.  slow_sessions         — Slow Query / Baseline (5 phút)
     5.  plan_regression    — Plan Regression (5 phút)
     6.  plan_instability   — Plan Instability (5 phút)
     7.  index_usage        — Non-Optimal Index Usage (5 phút)
@@ -41,7 +41,7 @@ from ..models.topic_constants import (
     TOPIC_PLAN_INSTABILITY,
     TOPIC_PLAN_REGRESSION,
     TOPIC_RESOURCE_GOVERNOR,
-    TOPIC_SLOW_QUERY,
+    TOPIC_slow_sessions,
     TOPIC_TEMPDB_MEMORY,
     TOPIC_WAIT_STATS,
 )
@@ -66,7 +66,7 @@ def _all_topics() -> list[MonitorTopic]:
         _ag_health(),
         _blocking(),
         _blocked_query(),
-        _slow_query(),
+        _slow_sessions(),
         _plan_regression(),
         _plan_instability(),
         _index_usage(),
@@ -266,9 +266,9 @@ ORDER BY r.wait_time DESC
 
 # ── 4. Slow Query / Performance Regression ───────────────────────────────────
 
-def _slow_query() -> MonitorTopic:
+def _slow_sessions() -> MonitorTopic:
     return MonitorTopic(
-        topic_id=TOPIC_SLOW_QUERY,
+        topic_id=TOPIC_slow_sessions,
         display_name="Slow Query / Active Sessions with Blocking",
         enabled=True,
         schedule_sec=300,
@@ -342,7 +342,7 @@ ORDER BY elapsed_seconds DESC
             "elapsed_seconds": ThresholdConfig(warning=30.0, critical=300.0),
         },
         extra={
-            "issue_type": "slow_query",
+            "issue_type": "slow_sessions",
         },
     )
 

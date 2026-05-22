@@ -75,7 +75,7 @@ Layer 2 — AgentOrchestrator.run():
 ```json
 {
   "finding_id":           "uuid",
-  "topic_id":             "slow_query",
+  "topic_id":             "slow_sessions",
   "node":                 "SQL-NODE-01",
   "captured_at":          ISODate,
   "capture_duration_ms":  4800,
@@ -175,7 +175,7 @@ Không query MSSQL, đọc từ MongoDB (same instance).
 | topic_id | capture_tools |
 |---|---|
 | `blocking` | `["get_blocking_chain", "get_wait_stats", "get_recent_findings"]` |
-| `slow_query` | `["get_query_stats", "get_wait_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_statistics_info", "get_table_context", "get_analysis_history"]` |
+| `slow_sessions` | `["get_query_stats", "get_wait_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_statistics_info", "get_table_context", "get_analysis_history"]` |
 | `plan_regression` / `plan_instability` | `["get_query_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_table_context", "get_analysis_history"]` |
 | `non_optimal_index` | `["get_plan_analysis", "get_query_structure", "get_index_usage", "get_missing_indexes", "get_statistics_info", "get_table_context"]` |
 | `high_variation_query` | `["get_query_stats", "get_wait_stats", "get_plan_analysis", "get_query_structure"]` |
@@ -458,7 +458,7 @@ def _apply_row_limit(rows: list[dict], tool_name: str) -> list[dict]:
 | `get_missing_indexes` | 5 | 5 | ~400 |
 | `get_query_store_history` | 6 | 5 | ~350 |
 | MongoDB tools (context, history) | compact | — | ~500 |
-| **Total (slow_query rich case)** | | | **~3550 chars ≈ 900 tokens** |
+| **Total (slow_sessions rich case)** | | | **~3550 chars ≈ 900 tokens** |
 
 **Prompt cache benefit:** `_base.yaml` (Block 1) vẫn được cache → cache hit từ lần call thứ 2. Snapshot nằm trong user message (không cached) nhưng chỉ ~900 tokens — **thấp hơn nhiều so với agentic loop** (mỗi tool round adds tokens cộng dồn).
 
@@ -480,7 +480,7 @@ db.monitor_topics.updateOne(
 ```
 - Monitor 24h: check job duration, check `finding_diagnostics` grows
 
-**Phase 3 — Enable `slow_query` (most complex, test Phase 2+3+4)**
+**Phase 3 — Enable `slow_sessions` (most complex, test Phase 2+3+4)**
 - Enable → verify plan analysis runs, table extraction works
 
 **Phase 4 — All remaining volatile topics**
@@ -520,7 +520,7 @@ db.findings.findOne({"has_diagnostics": true}, {"finding_id":1, "topic_id":1, "d
 
 // Check specific snapshot
 db.finding_diagnostics.findOne(
-  {"topic_id": "slow_query"},
+  {"topic_id": "slow_sessions"},
   {"tools_captured":1, "tools_failed":1, "capture_duration_ms":1}
 )
 

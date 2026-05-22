@@ -87,7 +87,7 @@ Vận hành cụm MSSQL Server 2019 Enterprise AG (1 Primary + 2 Secondary) vớ
 
 #### 1.1.1 Slow Query / Performance Regression
 - **Tiêu chí:** avg_duration tăng đột biến so với baseline **cùng ngày trong tuần + cùng giờ** (day-of-week aware, 4 tuần gần nhất)
-- **Ngưỡng:** tăng > `SLOW_QUERY_THRESHOLD_PCT` (default 50%), chỉ xét queries có last_execution_time trong 30 phút gần nhất và count_executions ≥ `SLOW_QUERY_MIN_EXECUTIONS`
+- **Ngưỡng:** tăng > `slow_sessions_THRESHOLD_PCT` (default 50%), chỉ xét queries có last_execution_time trong 30 phút gần nhất và count_executions ≥ `slow_sessions_MIN_EXECUTIONS`
 - **Hướng xử lý:** AI phân tích plan XML, so sánh với baseline plan, đề xuất index / rewrite / update statistics
 
 ---
@@ -301,7 +301,7 @@ Vận hành cụm MSSQL Server 2019 Enterprise AG (1 Primary + 2 Secondary) vớ
 **Schema của `baselines` collection (day-of-week aware):**
 ```json
 {
-  "metric_type": "slow_query",
+  "metric_type": "slow_sessions",
   "day_of_week": 2,
   "hour": 10,
   "query_hash": "0x...",
@@ -392,7 +392,7 @@ Mỗi lần Leader chạy 1 job, ghi execution record vào MongoDB để:
 **Collection `job_executions`** (TTL: 30 ngày):
 ```json
 {
-  "job_name": "slow_query_check",
+  "job_name": "slow_sessions_check",
   "instance_id": "host-A:pid-1234",
   "started_at": "ISODate",
   "finished_at": "ISODate",
@@ -427,7 +427,7 @@ Query MongoDB để biết trạng thái toàn bộ scheduler tại bất kỳ t
 ```
 Job Name               | Last Run         | Duration | Status  | Next Expected    | Health
 -----------------------|------------------|----------|---------|------------------|--------
-slow_query_check       | 14/04 10:05:00   | 1.2s     | success | 14/04 10:10:00   | OK
+slow_sessions_check       | 14/04 10:05:00   | 1.2s     | success | 14/04 10:10:00   | OK
 ag_health_check        | 14/04 10:04:00   | 0.3s     | success | 14/04 10:06:00   | OK
 blocking_monitor       | 14/04 10:04:30   | 0.5s     | success | 14/04 10:05:30   | OK
 wait_stats_check       | 14/04 09:55:00   | 2.1s     | success | 14/04 10:00:00   | MISSED ⚠️
@@ -560,7 +560,7 @@ System prompt (được cache — tiết kiệm token):
 
 User message (mỗi lần gọi):
   - issue_type: [plan_regression | plan_instability | index_misuse |
-                 partition_failure | slow_query | high_variation |
+                 partition_failure | slow_sessions | high_variation |
                  blocking | deadlock | tempdb_pressure | memory_pressure |
                  wait_anomaly | job_failure | backup_gap]
   - query_text, plan_patterns, detected_patterns từ XML parser (nếu có)

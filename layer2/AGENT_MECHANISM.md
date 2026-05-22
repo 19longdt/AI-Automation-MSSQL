@@ -20,7 +20,7 @@ AgentOrchestrator.run()
   │       { issue_type, node, query_hash, metrics, ... }
   │
   ├─ 2. SkillLoader.get_skill(issue_type)
-  │       → AnalysisSkill { slow_query_v1, max_tool_rounds=6, ... }
+  │       → AnalysisSkill { slow_sessions_v1, max_tool_rounds=6, ... }
   │
   ├─ 3. ContextBuilder.build_system_prompt(skill)
   │       → [Block1(cached), Block2(specialization + db_context)]
@@ -95,7 +95,7 @@ cho **mọi skill** từ lần gọi thứ 2 trở đi.
 Claude không trả lời 1 lần — nó là **agent tự chủ** trong vòng lặp:
 
 ```
-messages = [{"role": "user", "content": "Phân tích: slow_query node=SQL-01..."}]
+messages = [{"role": "user", "content": "Phân tích: slow_sessions node=SQL-01..."}]
 
 ══════════════════════════════════════════════════════════════════
 
