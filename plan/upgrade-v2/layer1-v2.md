@@ -14,8 +14,8 @@ Sau khi detect finding, Layer 1 chạy **tất cả** diagnostic tools cần thi
 topic_runner.run(topic_id)
     └─ _process_findings(findings, topic)
            │
-           ├─ finding.alert_status != "suppressed"  AND
-           │  topic.capture_tools không rỗng         AND
+           ├─ finding.severity == CRITICAL          AND
+           │  topic.capture_tools không rỗng        AND
            │  self._diagnostic_capture is not None
            │         ↓
            │  DiagnosticCapture.capture(finding, topic)
@@ -38,7 +38,7 @@ topic_runner.run(topic_id)
 ```json
 {
   "finding_id":           "uuid",
-  "topic_id":             "slow_query",
+  "topic_id":             "slow_sessions",
   "node":                 "SQL-NODE-01",
   "captured_at":          ISODate,
   "capture_duration_ms":  4800,
@@ -80,11 +80,12 @@ Collection mới lưu SQL templates + AI hints. Layer 1 đọc `sql`/`params` đ
 
 ```json
 {
-  "tool_id":       "get_wait_stats",
-  "display_name":  "Wait Statistics",
-  "description":   "Top wait types từ sys.dm_os_wait_stats",
-  "sql":           "SELECT TOP 20 ...",
-  "sql_parts":     null,
+  "tool_id":        "get_wait_stats",
+  "display_name":   "Wait Statistics",
+  "description":    "Top wait types từ sys.dm_os_wait_stats",
+  "execution_type": "sql",
+  "sql":            "SELECT TOP 20 ...",
+  "sql_parts":      null,
   "params": {
     "needs_query_hash": false,
     "needs_table_name": false,
@@ -108,7 +109,13 @@ Collection mới lưu SQL templates + AI hints. Layer 1 đọc `sql`/`params` đ
 
 ## Capture Phases Chi Tiết
 
+> **Tổng quan:** 4 phase chạy tuần tự, mỗi phase có mục đích riêng. Phase chỉ ảnh hưởng thứ tự thực thi — kết quả tất cả phase đều ghi vào 1 document duy nhất trong `finding_diagnostics.results` (flat dict keyed by `tool_id`).
+
 ### Phase 1: Parallel DMV Queries
+
+**Mục đích:** Chụp snapshot trạng thái server tại T+0 — ngay sau khi finding được detect. Trả lời câu hỏi: *"Server đang ở trạng thái gì lúc này?"*
+
+Dữ liệu DMV thay đổi từng giây nên phải capture ngay, chạy song song để tối thiểu hoá thời gian chờ.
 
 `ThreadPoolExecutor`, mỗi tool timeout 10s, tổng budget 15s.
 
@@ -128,6 +135,10 @@ Collection mới lưu SQL templates + AI hints. Layer 1 đọc `sql`/`params` đ
 
 ### Phase 2: Static Analysis (No MSSQL)
 
+**Mục đích:** Phân tích cấu trúc query từ dữ liệu đã có sẵn trong finding — không cần kết nối MSSQL, không có timeout. Trả lời câu hỏi: *"Query này có vấn đề gì về cấu trúc?"*
+
+Output quan trọng của phase này: danh sách `affected_tables` — input bắt buộc cho Phase 3.
+
 Chạy từ dữ liệu trong finding — không query MSSQL.
 
 | Tool | Input | Output |
@@ -139,6 +150,10 @@ Sau Phase 2: extract `affected_tables` (unique, max 5 tables) từ cả 2 kết 
 
 ### Phase 3: Table-Specific DMV Queries
 
+**Mục đích:** Query DMV theo từng table cụ thể được extract từ Phase 2. Trả lời câu hỏi: *"Các table bị ảnh hưởng có index/statistics tốt không?"*
+
+Không thể chạy trước Phase 2 vì chưa biết table nào liên quan. Max 3 tables để giới hạn số lượng queries.
+
 Chỉ chạy nếu Phase 2 extract được tables VÀ tool trong `capture_tools`.
 
 | Tool | Params | Notes |
@@ -147,6 +162,10 @@ Chỉ chạy nếu Phase 2 extract được tables VÀ tool trong `capture_tools
 | `get_statistics_info` | node, table_name | mỗi table, max 3 tables |
 
 ### Phase 4: MongoDB Reads
+
+**Mục đích:** Đính kèm context lịch sử và business knowledge vào snapshot — không query MSSQL. Trả lời câu hỏi: *"Vấn đề này có bối cảnh gì? Đã từng xảy ra chưa?"*
+
+Giúp snapshot `finding_diagnostics` self-contained: Layer 2 nhận được đầy đủ context mà không cần query thêm MongoDB trong lúc phân tích.
 
 Không query MSSQL, đọc từ MongoDB cùng instance.
 
@@ -163,7 +182,7 @@ Không query MSSQL, đọc từ MongoDB cùng instance.
 | topic_id | capture_tools |
 |---|---|
 | `blocking` | `["get_blocking_chain", "get_wait_stats", "get_recent_findings"]` |
-| `slow_query` | `["get_query_stats", "get_wait_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_statistics_info", "get_table_context", "get_analysis_history"]` |
+| `slow_sessions` | `["get_query_stats", "get_wait_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_statistics_info", "get_table_context", "get_analysis_history"]` |
 | `plan_regression` / `plan_instability` | `["get_query_stats", "get_query_store_history", "get_plan_analysis", "get_query_structure", "get_index_usage", "get_table_context", "get_analysis_history"]` |
 | `non_optimal_index` | `["get_plan_analysis", "get_query_structure", "get_index_usage", "get_missing_indexes", "get_statistics_info", "get_table_context"]` |
 | `high_variation_query` | `["get_query_stats", "get_wait_stats", "get_plan_analysis", "get_query_structure"]` |
@@ -192,6 +211,15 @@ Không query MSSQL, đọc từ MongoDB cùng instance.
 7.  layer1/capture/query_analyzer.py        CREATE — copy từ layer2/executor/query_analyzer.py
 8.  layer1/capture/capture_tool_loader.py   CREATE — load & cache từ MongoDB
 9.  layer1/capture/diagnostic_capture.py    CREATE — class chính, 4-phase capture
+    layer1/capture/handlers/               CREATE — handler registry (tách khỏi diagnostic_capture.py)
+        types.py                           —   StaticToolResult, StaticToolHandler, MongoToolHandler
+        static_registry.py                 —   Registry cho static tools (phase 2)
+        mongo_registry.py                  —   Registry cho mongo tools (phase 4)
+        static_get_plan_analysis.py        —   Handler: parse XML plan
+        static_get_query_structure.py      —   Handler: parse query text
+        mongo_get_table_context.py         —   Handler: lookup db_context
+        mongo_get_recent_findings.py       —   Handler: query findings 24h
+        mongo_get_analysis_history.py      —   Handler: query issue_insights
 10. layer1/executor/topic_runner.py         MODIFY — inject capture vào _process_findings()
 11. layer1/scheduler.py                     MODIFY — CaptureToolLoader.load_all() + wire DiagnosticCapture
 12. layer1/seed/seed_capture_tools.py       CREATE — seed 18 tool defs vào MongoDB
@@ -227,8 +255,15 @@ has_diagnostics: bool = False
 ```python
 """capture_tool.py — Pydantic model cho capture_tool_defs collection."""
 from __future__ import annotations
+from enum import Enum
 from typing import Any
 from pydantic import BaseModel, Field
+
+
+class ExecutionType(str, Enum):
+    SQL    = "sql"     # phase 1 + 3: pyodbc → MSSQL DMV queries
+    STATIC = "static"  # phase 2: parse XML/text trong process, không cần MSSQL
+    MONGO  = "mongo"   # phase 4: đọc MongoDB, không cần MSSQL
 
 
 class CaptureToolParams(BaseModel):
@@ -248,6 +283,7 @@ class CaptureToolDef(BaseModel):
     tool_id: str
     display_name: str = ""
     description: str = ""
+    execution_type: ExecutionType = ExecutionType.SQL
     sql: str | None = None
     sql_parts: dict[str, str] | None = None   # cho is_multi_query (get_memory_pressure)
     params: CaptureToolParams = Field(default_factory=CaptureToolParams)
@@ -354,7 +390,7 @@ from typing import Any
 import pyodbc
 
 from ..executor.mssql_connection import mssql_connection
-from ..models.capture_tool import CaptureToolDef
+from ..models.capture_tool import CaptureToolDef, ExecutionType
 from ..models.findings import Finding
 from ..models.topic import MonitorTopic
 from ..storage.mongo_client import MongoConnection
@@ -367,9 +403,6 @@ logger = logging.getLogger(__name__)
 
 PHASE1_BUDGET_SEC = 15
 MAX_TABLE_TOOLS = 3
-
-MONGO_TOOL_IDS = {"get_table_context", "get_recent_findings", "get_analysis_history"}
-STATIC_TOOL_IDS = {"get_plan_analysis", "get_query_structure"}
 
 
 def _sanitize(v: object) -> object:
@@ -424,10 +457,8 @@ class DiagnosticCapture:
         tasks: dict[str, CaptureToolDef] = {}
 
         for tid in tool_ids:
-            if tid in MONGO_TOOL_IDS or tid in STATIC_TOOL_IDS:
-                continue
             defn = CaptureToolLoader.get(tid)
-            if defn is None or defn.phase != 1 or defn.params.needs_table_name:
+            if defn is None or defn.execution_type != ExecutionType.SQL or defn.phase != 1 or defn.params.needs_table_name:
                 continue
             if defn.params.needs_query_hash and not finding.query_hash:
                 results[tid] = {"status": "skipped", "rows": [], "row_count": 0, "reason": "query_hash is None"}
@@ -463,7 +494,10 @@ class DiagnosticCapture:
         results: dict[str, dict[str, Any]] = {}
         tables_plan, tables_query = [], []
 
-        if "get_plan_analysis" in tool_ids:
+        static_ids = {tid for tid in tool_ids
+                      if (d := CaptureToolLoader.get(tid)) and d.execution_type == ExecutionType.STATIC}
+
+        if "get_plan_analysis" in static_ids:
             plan_xml = (finding.metrics or {}).get("query_plan_xml") or ""
             if plan_xml:
                 t = time.monotonic()
@@ -477,7 +511,7 @@ class DiagnosticCapture:
             else:
                 results["get_plan_analysis"] = {"status": "skipped", "rows": [], "row_count": 0, "reason": "no query_plan_xml"}
 
-        if "get_query_structure" in tool_ids:
+        if "get_query_structure" in static_ids:
             query_text = finding.query_text or ""
             if query_text:
                 t = time.monotonic()
@@ -533,7 +567,10 @@ class DiagnosticCapture:
         results: dict[str, dict[str, Any]] = {}
         db = MongoConnection.get_db()
 
-        if "get_table_context" in tool_ids:
+        mongo_ids = {tid for tid in tool_ids
+                     if (d := CaptureToolLoader.get(tid)) and d.execution_type == ExecutionType.MONGO}
+
+        if "get_table_context" in mongo_ids:
             try:
                 db_ctx = db["db_context"].find_one({"context_id": "main"}, {"business_context": 1, "_id": 0})
                 if db_ctx and affected_tables:
@@ -545,7 +582,7 @@ class DiagnosticCapture:
             except Exception as exc:
                 results["get_table_context"] = {"status": "error", "rows": [], "row_count": 0, "error": str(exc)}
 
-        if "get_recent_findings" in tool_ids:
+        if "get_recent_findings" in mongo_ids:
             try:
                 since = now_vn() - timedelta(hours=24)
                 docs = list(db["findings"].find(
@@ -558,7 +595,7 @@ class DiagnosticCapture:
             except Exception as exc:
                 results["get_recent_findings"] = {"status": "error", "rows": [], "row_count": 0, "error": str(exc)}
 
-        if "get_analysis_history" in tool_ids:
+        if "get_analysis_history" in mongo_ids:
             try:
                 insights = list(db["issue_insights"].find(
                     {"issue_type": str(finding.issue_type), "node": finding.node},
@@ -660,7 +697,7 @@ def _process_findings(self, findings: list[Finding], topic: MonitorTopic | None 
         if alert_status == "sent":
             finding.alert_sent_at = now_vn()
 
-        if (alert_status != "suppressed"
+        if (finding.severity == Severity.CRITICAL
                 and self._diagnostic_capture is not None
                 and topic is not None
                 and topic.capture_tools):
@@ -674,6 +711,8 @@ def _process_findings(self, findings: list[Finding], topic: MonitorTopic | None 
         count += 1
     return count
 ```
+
+> **Note:** Capture chỉ trigger khi `severity == CRITICAL` — không phụ thuộc `alert_status`. Lý do: severity là property của finding (compute trước), `alert_status` phụ thuộc dedup state. CRITICAL findings luôn đáng capture dù có bị suppressed hay không.
 
 ---
 
@@ -705,26 +744,26 @@ Seed 18 tool definitions. Entry point: `python -m layer1.seed.seed_capture_tools
 
 **Danh sách tools cần seed:**
 
-| tool_id | phase | needs_query_hash | needs_table_name | is_multi_query |
-|---|---|---|---|---|
-| `get_blocking_chain` | 1 | No | No | No |
-| `get_wait_stats` | 1 | No | No | No |
-| `get_memory_grant` | 1 | No | No | No |
-| `get_tempdb_usage` | 1 | No | No | No |
-| `get_ag_status` | 1 | No | No | No |
-| `get_memory_pressure` | 1 | No | No | **Yes** |
-| `get_resource_governor_stats` | 1 | No | No | No |
-| `get_cdc_status` | 1 | No | No | No |
-| `get_missing_indexes` | 1 | No | No | No |
-| `get_query_stats` | 1 | **Yes** | No | No |
-| `get_query_store_history` | 1 | **Yes** | No | No |
-| `get_index_usage` | 3 | No | **Yes** | No |
-| `get_statistics_info` | 3 | No | **Yes** | No |
-| `get_table_context` | 4 | No | No | No (MongoDB) |
-| `get_recent_findings` | 4 | No | No | No (MongoDB) |
-| `get_analysis_history` | 4 | No | No | No (MongoDB) |
-| `get_plan_analysis` | 2 | No | No | No (static) |
-| `get_query_structure` | 2 | No | No | No (static) |
+| tool_id | execution_type | phase | needs_query_hash | needs_table_name | is_multi_query |
+|---|---|---|---|---|---|
+| `get_blocking_chain` | `sql` | 1 | No | No | No |
+| `get_wait_stats` | `sql` | 1 | No | No | No |
+| `get_memory_grant` | `sql` | 1 | No | No | No |
+| `get_tempdb_usage` | `sql` | 1 | No | No | No |
+| `get_ag_status` | `sql` | 1 | No | No | No |
+| `get_memory_pressure` | `sql` | 1 | No | No | **Yes** |
+| `get_resource_governor_stats` | `sql` | 1 | No | No | No |
+| `get_cdc_status` | `sql` | 1 | No | No | No |
+| `get_missing_indexes` | `sql` | 1 | No | No | No |
+| `get_query_stats` | `sql` | 1 | **Yes** | No | No |
+| `get_query_store_history` | `sql` | 1 | **Yes** | No | No |
+| `get_index_usage` | `sql` | 3 | No | **Yes** | No |
+| `get_statistics_info` | `sql` | 3 | No | **Yes** | No |
+| `get_plan_analysis` | `static` | 2 | No | No | No |
+| `get_query_structure` | `static` | 2 | No | No | No |
+| `get_table_context` | `mongo` | 4 | No | No | No |
+| `get_recent_findings` | `mongo` | 4 | No | No | No |
+| `get_analysis_history` | `mongo` | 4 | No | No | No |
 
 **Upsert pattern:**
 ```python
@@ -778,7 +817,7 @@ db.monitor_topics.updateOne(
 ```
 Monitor 24h: check job duration, check `finding_diagnostics` grows.
 
-**Phase 3 — Enable `slow_query`** (test Phase 2+3+4 đầy đủ)
+**Phase 3 — Enable `slow_sessions`** (test Phase 2+3+4 đầy đủ)
 
 **Phase 4 — All remaining volatile topics**
 

@@ -8,7 +8,10 @@
       "Bash(xargs ls -la)",
       "mcp__serena__get_symbols_overview",
       "mcp__serena__find_symbol",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(dir /s \"C:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer3\")",
+      "Bash(findstr \"\\\\.html$\")",
+      "Bash(xargs grep \"^export\\\\|app.get\\\\|app.post\")"
     ]
   }
 }

@@ -124,7 +124,7 @@ packages/core/src/
 
 ```typescript
 // finding.ts
-type IssueType = "slow_query" | "plan_regression" | "blocking_chain" | "deadlock"
+type IssueType = "slow_sessions" | "plan_regression" | "blocking_chain" | "deadlock"
   | "non_optimal_index" | "missing_index" | "tempdb_pressure" | "memory_pressure"
   | "wait_anomaly" | "ag_lag" | "cdc_failure" | "index_fragmentation"
   | "resource_pool_spike" | "job_failure" | "backup_gap" | "dbcc_overdue"

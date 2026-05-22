@@ -1,7 +1,7 @@
 export type Severity = "INFO" | "WARNING" | "CRITICAL";
 
 export type IssueType =
-  | "slow_query"
+  | "slow_sessions"
   | "plan_regression"
   | "blocking_chain"
   | "deadlock"

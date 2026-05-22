@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from ..capture.diagnostic_capture import DiagnosticCapture
+from ..models.common import AlertStatus, Severity
 from ..models.topic import MonitorTopic
 from ..models.metrics import QueryResult, RawMetric
 from ..models.findings import Finding
@@ -42,6 +44,7 @@ class TopicRunner:
         node_role_cache: NodeRoleCache,
         detector_registry: DetectorRegistry,
         dispatcher: NotificationDispatcher | None,
+        diagnostic_capture: DiagnosticCapture | None = None,
         dedup_suppress_minutes: int = 30,
     ) -> None:
         self._topic_repo = topic_repo
@@ -52,6 +55,7 @@ class TopicRunner:
         self._role_cache = node_role_cache
         self._detectors = detector_registry
         self._dispatcher = dispatcher
+        self._diagnostic_capture = diagnostic_capture
         self._dedup_suppress_min = dedup_suppress_minutes
 
     def run(self, topic_id: str) -> int:
@@ -89,7 +93,7 @@ class TopicRunner:
             self._save_raw_metrics(results)
 
             findings = self._run_detector(topic, results)
-            return self._process_findings(findings)
+            return self._process_findings(findings, topic)
 
         except Exception as exc:
             logger.error(
@@ -164,8 +168,8 @@ class TopicRunner:
             )
             return []
 
-    def _process_findings(self, findings: list[Finding]) -> int:
-        """Compute alert state → set finding fields → single insert. Return count."""
+    def _process_findings(self, findings: list[Finding], topic: MonitorTopic | None = None) -> int:
+        """Compute alert state, optionally capture diagnostics, then persist findings."""
         count = 0
         for finding in findings:
             try:
@@ -173,9 +177,26 @@ class TopicRunner:
                 status, error = self._compute_alert_state(finding)
                 finding.alert_status = status
                 finding.alert_error = error
-                if status == "sent":
+                if status == AlertStatus.SENT:
                     finding.alert_sent_at = now_vn()
                     self._dedup_repo.mark_alerted(finding.finding_hash)
+
+                # Capture diagnostics only for CRITICAL findings with capture tools enabled.
+                if (
+                    finding.severity == Severity.CRITICAL
+                    and self._diagnostic_capture is not None
+                    and topic is not None
+                    and topic.capture_tools
+                ):
+                    try:
+                        finding.has_diagnostics = self._diagnostic_capture.capture(finding, topic)
+                    except Exception:
+                        logger.error(
+                            "DiagnosticCapture failed: finding=%s topic=%s",
+                            finding.finding_id,
+                            getattr(topic, "topic_id", "?"),
+                            exc_info=True,
+                        )
 
                 self._findings_repo.insert(finding)
                 count += 1
@@ -186,11 +207,11 @@ class TopicRunner:
                 )
         return count
 
-    def _compute_alert_state(self, finding: Finding) -> tuple[str, str | None]:
+    def _compute_alert_state(self, finding: Finding) -> tuple[AlertStatus, str | None]:
         """Quyết định alert state cho finding.
 
-        Returns (alert_status, alert_error). status ∈
-          skipped_no_dispatcher | suppressed | sent | failed | skipped_severity.
+        Returns (alert_status, alert_error). alert_status ∈ AlertStatus:
+          SKIPPED_NO_DISPATCHER | SUPPRESSED | SENT | FAILED | SKIPPED_SEVERITY.
 
         Thứ tự: no_dispatcher → dedup check → dispatch.
         Chỉ mark dedup sau khi dispatch thành công (status=sent), để đảm bảo
@@ -201,7 +222,7 @@ class TopicRunner:
                 "No dispatcher configured — notification skipped: topic=%s issue_type=%s node=%s",
                 finding.topic_id, finding.issue_type.value, finding.node,
             )
-            return ("skipped_no_dispatcher", "no dispatcher configured")
+            return (AlertStatus.SKIPPED_NO_DISPATCHER, "no dispatcher configured")
 
         if self._dedup_repo.was_alerted_recently(
             finding.finding_hash, self._dedup_suppress_min
@@ -210,10 +231,15 @@ class TopicRunner:
                 "Dedup suppressed: topic=%s issue_type=%s node=%s suppress_min=%d",
                 finding.topic_id, finding.issue_type.value, finding.node, self._dedup_suppress_min,
             )
-            return ("suppressed", f"within suppress window {self._dedup_suppress_min}min")
+            return (AlertStatus.SUPPRESSED, f"within suppress window {self._dedup_suppress_min}min")
 
         logger.info(
             "Dispatching notification: issue_type=%s severity=%s node=%s",
             finding.issue_type.value, finding.severity.value, finding.node,
         )
-        return self._dispatcher.dispatch(finding)
+        dispatch_status, dispatch_error = self._dispatcher.dispatch(finding)
+        try:
+            return (AlertStatus(dispatch_status), dispatch_error)
+        except ValueError:
+            logger.error("Unknown alert status from dispatcher: %s", dispatch_status)
+            return (AlertStatus.FAILED, f"unknown dispatcher status: {dispatch_status}")

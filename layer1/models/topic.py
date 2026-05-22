@@ -85,3 +85,6 @@ class MonitorTopic(BaseModel):
 
     # AI analysis config (optional) — dùng khi user gọi /analyze trên Telegram
     analysis_config: AnalysisConfig | None = None
+
+    # Layer 1 diagnostic capture tools (empty = no-op, backward-compatible)
+    capture_tools: list[str] = Field(default_factory=list)

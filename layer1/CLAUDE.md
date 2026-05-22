@@ -57,7 +57,10 @@ python -m layer1.main
    → PlanAnalyzer (Haiku, nếu có CLAUDE_API_KEY) + TelegramBot.start() (daemon thread)
    → /quick enabled nếu CLAUDE_API_KEY set; /analyze enabled nếu LAYER2_URL set
 
-8. scheduler.start() trong daemon thread → main thread khởi HTTP API server (L1_API_HOST:L1_API_PORT)
+8. CaptureToolLoader.load_all() → load capture tool defs từ MongoDB vào memory
+   → Fail fast nếu collection `capture_tool_defs` rỗng (chưa seed)
+
+9. scheduler.start() trong daemon thread → main thread khởi HTTP API server (L1_API_HOST:L1_API_PORT)
    → SIGTERM/SIGINT → graceful shutdown
 ```
 
@@ -87,9 +90,27 @@ layer1/
 ├── models/
 │   ├── common.py              ← Severity, NodeRole, IssueType enums
 │   ├── topic.py               ← MonitorTopic, QueryConfig, ThresholdConfig, BaselineConfig, AnalysisConfig
+│   │                             [capture_tools: list[str] = [] — tools chạy sau khi detect CRITICAL finding]
 │   ├── metrics.py             ← RawMetric, QueryResult
 │   ├── findings.py            ← Finding (output → MongoDB → Telegram bot → Claude)
+│   │                             [has_diagnostics: bool — True nếu DiagnosticCapture đã chạy thành công]
+│   ├── capture_tool.py        ← ExecutionType enum (sql/static/mongo) + CaptureToolDef + AiHints
 │   └── job.py                 ← JobExecution, JobStatus
+│
+├── capture/
+│   ├── capture_tool_loader.py ← Eager load + cache CaptureToolDef từ MongoDB tại startup (fail fast nếu rỗng)
+│   ├── diagnostic_capture.py  ← 4-phase snapshot: parallel DMV → static analysis → table DMV → MongoDB reads
+│   ├── plan_analyzer.py       ← Parse XML execution plan (copy từ layer2, stdlib only)
+│   ├── query_analyzer.py      ← Parse query text structure (copy từ layer2, stdlib only)
+│   └── handlers/
+│       ├── types.py                       ← StaticToolHandler, MongoToolHandler ABCs
+│       ├── static_registry.py             ← Registry: tool_id → StaticToolHandler
+│       ├── mongo_registry.py              ← Registry: tool_id → MongoToolHandler
+│       ├── static_get_plan_analysis.py    ← Handler: parse query_plan_xml
+│       ├── static_get_query_structure.py  ← Handler: parse query_text
+│       ├── mongo_get_table_context.py     ← Handler: lookup db_context
+│       ├── mongo_get_recent_findings.py   ← Handler: findings 24h gần nhất
+│       └── mongo_get_analysis_history.py  ← Handler: issue_insights + ai_analyses
 │
 ├── executor/
 │   ├── mssql_connection.py    ← pyodbc context manager (tạo mới per-call, KHÔNG cache)
@@ -130,9 +151,11 @@ layer1/
 │   └── plan_analyzer.py       ← Build prompt từ AnalysisConfig → gọi Claude API → trả text phân tích
 │
 ├── seed/
-│   └── seed_topics.py         ← Seed monitor_topics vào MongoDB (chạy 1 lần khi setup mới)
-│                                 13 topic builders: ag_health, slow_query, blocking, tempdb, ...
-│                                 Entry: python -m layer1.seed.seed_topics
+│   ├── seed_topics.py         ← Seed monitor_topics vào MongoDB (chạy 1 lần khi setup mới)
+│   │                             13 topic builders: ag_health, slow_sessions, blocking, tempdb, ...
+│   │                             Entry: python -m layer1.seed.seed_topics
+│   └── seed_capture_tools.py  ← Seed 18 capture tool defs vào capture_tool_defs (chạy trước khi start)
+│                                 Entry: python -m layer1.seed.seed_capture_tools
 │
 └── utils/
     └── time_utils.py          ← now_vn() (UTC+7 naive, cho MongoDB), utc_now() (cho APScheduler)
@@ -285,9 +308,18 @@ APScheduler trigger → topic_runner.run("ag_health")
     ├── 5. detector = registry.get("threshold")
     │       findings = detector.detect(results, topic)
     │
-    ├── 6. findings_repo.insert(finding)
+    ├── 6. Nếu finding.severity == CRITICAL và topic.capture_tools không rỗng:
+    │       DiagnosticCapture.capture(finding, topic)
+    │           → Phase 1: Parallel DMV queries   (ThreadPoolExecutor, 15s budget)
+    │           → Phase 2: Static analysis         (parse plan XML / query text, extract affected_tables)
+    │           → Phase 3: Table-specific DMV      (index_usage, statistics_info per affected_table)
+    │           → Phase 4: MongoDB reads           (table_context, recent_findings, analysis_history)
+    │           → insert finding_diagnostics
+    │       finding.has_diagnostics = True
     │
-    └── 7. dedup check → notify nếu chưa alert gần đây
+    ├── 7. findings_repo.insert(finding)
+    │
+    └── 8. dedup check → notify nếu chưa alert gần đây
 ```
 
 ---
@@ -318,7 +350,7 @@ Check chạy lúc Thứ Tư 10:05
 MongoDB `baselines` document:
 ```json
 {
-  "metric_type": "slow_query",
+  "metric_type": "slow_sessions",
   "day_of_week": 2,
   "hour": 10,
   "node": "SQL-NODE-01",
@@ -344,6 +376,8 @@ MongoDB `baselines` document:
 | `baselines` | — | `update_one` upsert | `(metric_type, day_of_week, hour, node)` |
 | `dedup_cache` | 7d | `findOne` + `updateOne(upsert)` | unique `(finding_hash)` |
 | `job_executions` | 30d | `insert_one` + `update_one` | `(job_name, started_at)` |
+| `finding_diagnostics` | 90d | `insert_one` per CRITICAL finding | unique `(finding_id)`, `(topic_id, captured_at DESC)` |
+| `capture_tool_defs` | — | seed only (upsert) | unique `(tool_id)`, `(enabled)`, `(phase)` |
 | `ai_analysis` | 90d | (Layer 2) | — |
 | `approval_queue` | — | (Layer 2) | — |
 | `audit_log` | — | (Layer 2) | — |
@@ -366,7 +400,15 @@ Daemon thread — APScheduler
             │       Thread 2: query_executor.execute(queries, "SQL-NODE-02") — pyodbc conn mới
             │       Thread 3: query_executor.execute(queries, "SQL-NODE-03") — pyodbc conn mới
             │
-            └─► detect + save + notify
+            ├─► detect + compute alert state
+            │
+            ├─► DiagnosticCapture.capture() — nếu CRITICAL + capture_tools không rỗng
+            │       Phase 1: parallel DMV (ThreadPoolExecutor, 15s budget)
+            │       Phase 2: static analysis (in-process, no MSSQL)
+            │       Phase 3: table-specific DMV (sequential, max 3 tables)
+            │       Phase 4: MongoDB reads (no MSSQL)
+            │
+            └─► findings_repo.insert() + dedup + notify
 
 Daemon thread — TelegramBot._poll_loop()
     → getUpdates (long-poll timeout=25s)
@@ -502,6 +544,9 @@ stdlib → third-party → internal (relative imports).
 | **KHÔNG** tự động phân tích finding với Claude | On-demand only — DBA chủ động gõ `/quick` hoặc `/analyze` |
 | **/quick (Layer 1) vs /analyze (Layer 2)** | Phân tách: quick=Haiku (5s, giá rẻ), analyze=Sonnet agent (30–90s, full tools) |
 | **KHÔNG** bỏ `topic_id` khỏi `finding_hash()` | Dẫn đến dedup collision giữa các topic khác nhau |
+| **KHÔNG** capture finding khi severity < CRITICAL | WARNING findings không cần full snapshot — tốn compute không có giá trị |
+| **KHÔNG** hardcode SQL trong `diagnostic_capture.py` | SQL templates nằm trong `capture_tool_defs` MongoDB — config-driven |
+| **KHÔNG** start service khi `capture_tool_defs` rỗng | Fail fast tại startup thay vì silent failure lúc runtime |
 
 ---
 
@@ -516,6 +561,10 @@ stdlib → third-party → internal (relative imports).
 | **Detector registry pattern** | Thêm detector type = 1 class + register, không sửa logic cũ |
 | **Day-of-week baseline** | Pattern workload khác nhau theo ngày |
 | **Parallel per node** (ThreadPoolExecutor) | 3 nodes × sequential = triple latency |
+| **DiagnosticCapture chỉ trigger khi CRITICAL** | Tiết kiệm compute — chỉ snapshot những gì thực sự quan trọng |
+| **Capture tool defs trong MongoDB** (`capture_tool_defs`) | SQL templates + AI hints config-driven, không hardcode trong Python |
+| **`finding_diagnostics` self-contained** | Layer 2 nhận snapshot đầy đủ, không cần query thêm MongoDB lúc phân tích |
+| **Handler registry** cho static/mongo tools | Thêm tool mới = 1 handler class + register, không sửa `diagnostic_capture.py` |
 
 ---
 

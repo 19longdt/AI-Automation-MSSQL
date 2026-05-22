@@ -146,7 +146,7 @@ def _get_ai_hints(self, tool_id: str, db) -> dict:
 - Max per-tool: 2000 chars (truncate với `...[N more rows omitted]`)
 - Max total snapshot block: 8000 chars (thêm hard cap nếu cần)
 
-#### Estimated context size (slow_query rich case)
+#### Estimated context size (slow_sessions rich case)
 
 | Tool | Cols | Rows | Est. chars |
 |---|---|---|---|

@@ -28,6 +28,17 @@ class Severity(str, Enum):
         return {"INFO": 0, "WARNING": 1, "CRITICAL": 2}[self.value]
 
 
+class AlertStatus(str, Enum):
+    """Delivery status stored on findings for alert/audit visibility."""
+
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+    SUPPRESSED = "suppressed"
+    SKIPPED_SEVERITY = "skipped_severity"
+    SKIPPED_NO_DISPATCHER = "skipped_no_dispatcher"
+
+
 class NodeRole(str, Enum):
     """Role của 1 MSSQL node trong AG cluster."""
 
@@ -41,7 +52,7 @@ class IssueType(str, Enum):
     Dùng làm key để lookup prompt template cho Layer 2 AI agent.
     """
 
-    SLOW_QUERY = "slow_query"
+    slow_sessions = "slow_sessions"
     PLAN_REGRESSION = "plan_regression"
     PLAN_INSTABILITY = "plan_instability"
     NON_OPTIMAL_INDEX = "non_optimal_index"

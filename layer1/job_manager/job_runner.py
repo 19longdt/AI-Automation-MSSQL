@@ -8,8 +8,8 @@ Mọi APScheduler job function phải được wrap qua JobRunner để:
   - Tính duration_ms tự động
 
 Sử dụng dạng decorator:
-    @job_runner.wrap("slow_query_check")
-    def run_slow_query_check() -> int:
+    @job_runner.wrap("slow_sessions_check")
+    def run_slow_sessions_check() -> int:
         ...  # return số findings_created
 """
 from __future__ import annotations

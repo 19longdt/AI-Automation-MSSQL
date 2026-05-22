@@ -57,7 +57,7 @@ layer2/
 ├── skills/                    ← YAML files — version-controlled, KHÔNG dùng MongoDB
 │   ├── _base.yaml             ← Base system prompt DÙNG CHUNG — phải là phần đầu tiên
 │   │                             của system prompt để enable prompt cache hit
-│   ├── slow_query.yaml        ← slow_query, high_variation_query
+│   ├── slow_sessions.yaml        ← slow_sessions, high_variation_query
 │   ├── plan_xml.yaml          ← plan_regression, plan_instability, non_optimal_index,
 │   │                             partition_elimination_failure
 │   ├── index.yaml             ← missing_index, index_fragmentation

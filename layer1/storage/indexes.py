@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # TTL values (giây)
 TTL_RAW_METRICS_SEC = 30 * 24 * 3600
 TTL_FINDINGS_SEC = 90 * 24 * 3600
+TTL_FINDING_DIAGNOSTICS_SEC = 90 * 24 * 3600
 TTL_AI_ANALYSIS_SEC = 90 * 24 * 3600
 TTL_DEDUP_CACHE_SEC = 7 * 24 * 3600
 TTL_JOB_EXECUTIONS_SEC = 30 * 24 * 3600
@@ -51,6 +52,8 @@ def create_all_indexes(db: Database) -> None:
     _create_job_executions_indexes(db)
     _create_monitor_topics_indexes(db)
     _create_node_roles_indexes(db)
+    _create_finding_diagnostics_indexes(db)
+    _create_capture_tool_defs_indexes(db)
     logger.info("MongoDB indexes created/verified for all collections.")
 
 
@@ -193,5 +196,52 @@ def _create_node_roles_indexes(db: Database) -> None:
             [("host", ASCENDING)],
             unique=True,
             name="unique_host",
+        ),
+    ])
+
+
+def _create_finding_diagnostics_indexes(db: Database) -> None:
+    """unique (finding_id), (topic_id, captured_at DESC), TTL on captured_at."""
+    col = db["finding_diagnostics"]
+    col.create_indexes([
+        # 1 finding chi co 1 snapshot diagnostic duy nhat.
+        IndexModel(
+            [("finding_id", ASCENDING)],
+            unique=True,
+            name="unique_finding_id",
+        ),
+        # Truy van lich su snapshot theo topic va thoi gian moi nhat.
+        IndexModel(
+            [("topic_id", ASCENDING), ("captured_at", DESCENDING)],
+            name="topic_captured_time",
+        ),
+        # Tu dong xoa snapshot qua han de giam dung luong.
+        IndexModel(
+            [("captured_at", ASCENDING)],
+            expireAfterSeconds=TTL_FINDING_DIAGNOSTICS_SEC,
+            name="ttl_captured_at",
+        ),
+    ])
+
+
+def _create_capture_tool_defs_indexes(db: Database) -> None:
+    """unique (tool_id), (enabled), (phase)."""
+    col = db["capture_tool_defs"]
+    col.create_indexes([
+        # Dinh danh duy nhat cho moi tool definition.
+        IndexModel(
+            [("tool_id", ASCENDING)],
+            unique=True,
+            name="unique_tool_id",
+        ),
+        # Ho tro load nhanh danh sach tool dang bat.
+        IndexModel(
+            [("enabled", ASCENDING)],
+            name="enabled",
+        ),
+        # Ho tro filter/sort theo phase khi debug/quan sat.
+        IndexModel(
+            [("phase", ASCENDING)],
+            name="phase",
         ),
     ])

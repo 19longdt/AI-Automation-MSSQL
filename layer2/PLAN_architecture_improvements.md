@@ -204,7 +204,7 @@ from .tool_registry import build_tools_for_skill
 skill_tools = build_tools_for_skill(skill)
 ```
 
-**Impact**: Giảm ~1500 tokens/call. slow_query: 8 tools thay vì 15. blocking: 5 tools.
+**Impact**: Giảm ~1500 tokens/call. slow_sessions: 8 tools thay vì 15. blocking: 5 tools.
 
 ---
 
@@ -267,7 +267,7 @@ if current_cost > skill.max_cost_usd:
 
 **Cập nhật skill YAMLs**:
 ```yaml
-# slow_query.yaml
+# slow_sessions.yaml
 max_cost_usd: 0.15
 
 # index.yaml (dùng Haiku)
@@ -560,7 +560,7 @@ def _extract_total_cost(root: ET.Element) -> float | None:
         "Phân tích execution plan XML của finding. Trả về structured summary: "
         "top operators (Scan/Seek/Lookup/Sort), warnings, partition elimination status, "
         "implicit conversions, missing index hints, parallelism, spill warnings. "
-        "LUÔN gọi tool này TRƯỚC khi phân tích slow_query hoặc plan issues — "
+        "LUÔN gọi tool này TRƯỚC khi phân tích slow_sessions hoặc plan issues — "
         "KHÔNG đọc raw XML, dùng summary từ tool này."
     ),
     input_schema=_schema(
@@ -1015,12 +1015,12 @@ def _extract_substitutions(skill: AnalysisSkill, finding: dict[str, Any]) -> dic
 
 ### 2.6 Cập nhật Skill YAMLs
 
-**slow_query.yaml** (sau Phase 2):
+**slow_sessions.yaml** (sau Phase 2):
 ```yaml
-skill_id: slow_query_v2
+skill_id: slow_sessions_v2
 
 issue_types:
-  - slow_query
+  - slow_sessions
   - high_variation_query
 
 specialization: |
@@ -1172,7 +1172,7 @@ def _adaptive_truncate(metrics: dict, budget_chars: int) -> str:
 - [ ] 2.5 Sửa context_builder: bỏ db_context, bỏ raw XML/text từ user message
 - [ ] 2.6 Cập nhật tất cả skill YAMLs cho Phase 2
 - [ ] 2.6 Cập nhật _base.yaml instruction về new tools
-- [ ] Test end-to-end: /analyze với slow_query finding
+- [ ] Test end-to-end: /analyze với slow_sessions finding
 
 ### Phase 3 (ước tính: 2-3 giờ)
 - [ ] 3.1 Tiered skill config model + orchestrator selection
@@ -1199,7 +1199,7 @@ def _adaptive_truncate(metrics: dict, budget_chars: int) -> str:
 | `agent/context_builder.py` | 2 | Bỏ db_context injection, bỏ raw XML/text |
 | `executor/diagnostic_executor.py` | 2 | 4 methods mới cho pre-processing tools |
 | `skills/_base.yaml` | 1+2 | Output format template (1.0) + instruction new tools (2.x) |
-| `skills/slow_query.yaml` | 1+2 | max_cost_usd, max_tokens giảm, updated tools/template |
+| `skills/slow_sessions.yaml` | 1+2 | max_cost_usd, max_tokens giảm, updated tools/template |
 | `skills/blocking.yaml` | 1 | max_cost_usd, max_tokens giảm |
 | `skills/index.yaml` | 1 | max_cost_usd, max_tokens giảm |
 | `skills/plan_xml.yaml` | 1+2 | max_cost_usd, max_tokens giảm, updated tools/template |

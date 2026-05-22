@@ -218,7 +218,7 @@ GRANT SELECT ON dbo.backupset TO sa_monitor;
 
 ```json
 {
-  "topic_id": "slow_query",
+  "topic_id": "slow_sessions",
   "display_name": "Slow Query / Performance Regression",
   "enabled": true,
   "schedule_sec": 300,

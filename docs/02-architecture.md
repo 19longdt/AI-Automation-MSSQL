@@ -30,7 +30,7 @@
 │  │  APScheduler — quản lý tất cả jobs                           │   │
 │  │                                                              │   │
 │  │  Job: ag_health (2 phút)    Job: blocking (1 phút)           │   │
-│  │  Job: slow_query (5 phút)   Job: tempdb (5 phút)             │   │
+│  │  Job: slow_sessions (5 phút)   Job: tempdb (5 phút)             │   │
 │  │  Job: wait_stats (5 phút)   Job: index_frag (hàng ngày)      │   │
 │  │  ... (15+ topics)                                            │   │
 │  └──────────────────────────────────────────────────────────────┘   │
@@ -86,7 +86,7 @@ Hầu hết các hệ thống monitoring viết query và threshold trực tiế
 if ple_value < 300:
     alert("PLE thấp!")
 
-slow_query_sql = "SELECT TOP 100 query_hash, avg_duration FROM sys.query_store..."
+slow_sessions_sql = "SELECT TOP 100 query_hash, avg_duration FROM sys.query_store..."
 ```
 
 Vấn đề: Mỗi lần muốn thay đổi phải **sửa code → commit → deploy → restart**.

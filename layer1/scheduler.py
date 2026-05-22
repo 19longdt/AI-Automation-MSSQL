@@ -22,9 +22,12 @@ from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from .config import settings
+from .capture.capture_tool_loader import CaptureToolLoader
+from .capture.diagnostic_capture import DiagnosticCapture
 from .executor.node_role_cache import NodeRoleCache
 from .executor.query_executor import QueryExecutor
 from .executor.topic_runner import TopicRunner
+from .models.common import Severity
 from .detectors.registry import DetectorRegistry
 from .job_manager.job_runner import JobRunner
 from .job_manager.health_checker import HealthChecker
@@ -92,6 +95,8 @@ class Layer1Service:
         logger.info("Connecting to MongoDB: %s", settings.mongodb_uri)
         MongoConnection.initialize(settings)
         create_all_indexes(MongoConnection.get_db())
+        # Load capture tool definitions early and fail fast if seed data is missing.
+        CaptureToolLoader.load_all()
 
         # 2. Node role cache
         logger.info("Detecting AG node roles from: %s", settings.mssql_nodes)
@@ -108,6 +113,7 @@ class Layer1Service:
         # 4. Executor + detector registry
         query_executor = QueryExecutor()
         detector_registry = DetectorRegistry.build_default()
+        diagnostic_capture = DiagnosticCapture()
 
         # 5. Notifications — chỉ kích hoạt kênh nào có config
         notifiers = []
@@ -118,7 +124,7 @@ class Layer1Service:
             notifiers.append(TelegramNotifier(settings.telegram_bot_token, settings.telegram_chat_id))
             logger.info("Telegram notification enabled.")
         self._dispatcher = (
-            NotificationDispatcher(notifiers, min_severity="WARNING")
+            NotificationDispatcher(notifiers, min_severity=Severity.WARNING.value)
             if notifiers
             else None
         )
@@ -151,6 +157,7 @@ class Layer1Service:
             node_role_cache=self._role_cache,
             detector_registry=detector_registry,
             dispatcher=dispatcher,
+            diagnostic_capture=diagnostic_capture,
             dedup_suppress_minutes=settings.dedup_suppress_minutes,
         )
 

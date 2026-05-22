@@ -13,7 +13,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from ..utils.time_utils import now_vn
-from .common import IssueType, Severity
+from .common import AlertStatus, IssueType, Severity
 
 
 class Finding(BaseModel):
@@ -50,8 +50,8 @@ class Finding(BaseModel):
 
     # Alert delivery tracking — DBA query collection để biết finding nào miss alert.
     # KHÔNG ràng buộc retry; chỉ track outcome một lần.
-    alert_status: str = Field(
-        default="pending",
+    alert_status: AlertStatus = Field(
+        default=AlertStatus.PENDING,
         description="pending | sent | failed | suppressed | skipped_severity | skipped_no_dispatcher",
     )
     alert_sent_at: datetime | None = None
@@ -59,6 +59,7 @@ class Finding(BaseModel):
         default=None,
         description="Error message khi alert_status=failed; partial errors khi 'sent'",
     )
+    has_diagnostics: bool = False
     finding_hash: str = Field(
         default="",
         description="Dedup hash key (topic_id + issue_type + node + query_hash).",

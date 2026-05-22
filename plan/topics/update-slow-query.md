@@ -1,21 +1,21 @@
-# Plan: Cập nhật slow_query topic — Active Sessions + Blocking Info
+# Plan: Cập nhật slow_sessions topic — Active Sessions + Blocking Info
 
 ## Context
 
-Topic `slow_query` hiện dùng Query Store (`sys.query_store_query`) để phát hiện slow query theo baseline lịch sử. User muốn chuyển sang query real-time từ `sys.dm_exec_requests`, bổ sung thông tin blocking (blocker login, host, sql_text, plan). Khi có session bị block (`blocking_session_id > 0`), Layer 1 alert cần hiển thị `blocker_sql_text`, và Layer 2 cần phân tích thêm blocking chain.
+Topic `slow_sessions` hiện dùng Query Store (`sys.query_store_query`) để phát hiện slow query theo baseline lịch sử. User muốn chuyển sang query real-time từ `sys.dm_exec_requests`, bổ sung thông tin blocking (blocker login, host, sql_text, plan). Khi có session bị block (`blocking_session_id > 0`), Layer 1 alert cần hiển thị `blocker_sql_text`, và Layer 2 cần phân tích thêm blocking chain.
 
 ## Files cần thay đổi
 
 | File | Loại thay đổi |
 |---|---|
-| `layer1/seed/seed_topics.py` | Replace `_slow_query()` — query mới, detector threshold |
-| `layer2/skills/slow_query.yaml` | Thêm blocking tools + tăng budget |
+| `layer1/seed/seed_topics.py` | Replace `_slow_sessions()` — query mới, detector threshold |
+| `layer2/skills/slow_sessions.yaml` | Thêm blocking tools + tăng budget |
 
 **Không cần thay đổi:** `telegram_notifier.py` (đã xử lý `_text` suffix), `threshold_detector.py` (đã copy all row fields vào metrics), `findings.py`.
 
 ---
 
-## 1. `layer1/seed/seed_topics.py` — Hàm `_slow_query()`
+## 1. `layer1/seed/seed_topics.py` — Hàm `_slow_sessions()`
 
 ### 1a. SQL mới (thay toàn bộ nội dung sql=)
 
@@ -104,7 +104,7 @@ thresholds={
     "elapsed_seconds": ThresholdConfig(warning=30.0, critical=300.0),
 },
 extra={
-    "issue_type": "slow_query",  # → maps sang slow_query.yaml skill ở Layer 2
+    "issue_type": "slow_sessions",  # → maps sang slow_sessions.yaml skill ở Layer 2
 },
 ```
 
@@ -120,15 +120,15 @@ display_name="Slow Query / Active Sessions with Blocking",
 - `query_plan_xml`, `blocker_plan_xml` → suffix `_xml` → **tự động bị skip** khỏi Telegram alert. Chỉ lưu MongoDB.
 - Khi `blocking_session_id = 0` (không có blocker): `blocker_*` fields sẽ là `NULL` → stored as `None` trong metrics → notifier bỏ qua field None. Alert chỉ hiện blocking fields khi có giá trị.
 - **Dedup (sau code change mới nhất):** threshold_detector vừa được thêm `query_hash=result.query_id` (trước đó query_hash=None → tất cả topics trên cùng node dùng 1 hash). Giờ:
-  `finding_hash = MD5("slow_query:slow_query:<node>:active_slow_sessions")`
+  `finding_hash = MD5("slow_sessions:slow_sessions:<node>:active_slow_sessions")`
   → 1 alert / node / 30 phút, scoped theo query_id này.
   Row đầu tiên vượt threshold (elapsed_seconds cao nhất, ORDER BY DESC) tạo alert; các row sau bị suppress đúng cách.
 
 ---
 
-## 2. `layer2/skills/slow_query.yaml`
+## 2. `layer2/skills/slow_sessions.yaml`
 
-### 2a. KHÔNG thêm `get_blocking_chain` vào slow_query skill
+### 2a. KHÔNG thêm `get_blocking_chain` vào slow_sessions skill
 
 **Lý do:** `get_blocking_chain` query live `sys.dm_exec_requests` tại thời điểm Layer 2 phân tích — blocking có thể đã resolved → kết quả sai. Hơn nữa, **finding.metrics đã có snapshot đầy đủ** tại thời điểm detect:
 - `blocking_session_id`, `wait_type`, `wait_seconds`, `wait_resource`

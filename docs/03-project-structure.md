@@ -110,7 +110,7 @@ Tất cả dữ liệu truyền giữa các modules **phải** là Pydantic mode
 **`common.py`** — 3 enum dùng khắp nơi:
 - `Severity`: INFO < WARNING < CRITICAL
 - `NodeRole`: primary / secondary
-- `IssueType`: 20 loại vấn đề (slow_query, blocking, ag_lag, ...)
+- `IssueType`: 20 loại vấn đề (slow_sessions, blocking, ag_lag, ...)
 
 **`topic.py`** — Cấu trúc config đọc từ MongoDB:
 ```
@@ -126,7 +126,7 @@ MonitorTopic
 **`findings.py`** — Kết quả khi detector phát hiện vấn đề:
 ```
 Finding
-  ├── issue_type: IssueType.SLOW_QUERY
+  ├── issue_type: IssueType.slow_sessions
   ├── severity: Severity.WARNING
   ├── node: "SQL-NODE-01"
   ├── query_hash: "0xABCD1234"
@@ -199,9 +199,9 @@ Mỗi detector nhận `results: list[QueryResult]` và `topic: MonitorTopic`, tr
 
 ```python
 # Cách dùng trong scheduler
-@job_runner.wrap("slow_query_check")
-def run_slow_query():
-    return topic_runner.run("slow_query")
+@job_runner.wrap("slow_sessions_check")
+def run_slow_sessions():
+    return topic_runner.run("slow_sessions")
 # Tự động ghi: started_at, finished_at, duration_ms, status, findings_created
 ```
 

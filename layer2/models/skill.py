@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class AnalysisSkill(BaseModel):
     """Runtime representation of one analysis skill."""
 
-    skill_id: str = Field(description="Unique skill id, e.g. 'slow_query_v1'")
+    skill_id: str = Field(description="Unique skill id, e.g. 'slow_sessions_v1'")
     issue_types: list[str] = Field(description="Issue types handled by this skill")
 
     specialization: str = Field(
