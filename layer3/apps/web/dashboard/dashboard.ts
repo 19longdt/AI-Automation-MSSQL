@@ -162,6 +162,175 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// --- Diagnostics ---
+var DIAG_PHASE_GROUPS: Array<{ label: string; tools: string[] }> = [
+  {
+    label: "Phase 1 - DMV Snapshot",
+    tools: ["get_blocking_chain", "get_wait_stats", "get_memory_grant", "get_tempdb_usage",
+      "get_ag_status", "get_memory_pressure", "get_resource_governor_stats",
+      "get_cdc_status", "get_missing_indexes", "get_query_stats", "get_query_store_history"]
+  },
+  { label: "Phase 2 - Static Analysis", tools: ["get_plan_analysis", "get_query_structure"] },
+  { label: "Phase 3 - Table Details", tools: ["get_index_usage", "get_statistics_info"] },
+  { label: "Phase 4 - Historical Context", tools: ["get_table_context", "get_recent_findings", "get_analysis_history"] }
+];
+
+function diagStatusClass(status: string): string {
+  if (status === "ok") return "diag-status-ok";
+  if (status === "empty") return "diag-status-empty";
+  if (status === "skipped") return "diag-status-skipped";
+  if (status === "timeout") return "diag-status-timeout";
+  return "diag-status-error";
+}
+
+function renderDiagnosticsPanel(diag: any): string {
+  if (!diag) return "<div class='diag-empty-msg'>No diagnostics data.</div>";
+  var results: Record<string, any> = diag.results || {};
+  var requested: string[] = diag.tools_requested || [];
+  var captured: string[] = diag.tools_captured || [];
+  var failed: string[] = diag.tools_failed || [];
+  var durSec = diag.capture_duration_ms ? (diag.capture_duration_ms / 1000).toFixed(1) : "?";
+  var summary = "<div class='diag-summary'>" +
+    "Captured in <strong>" + esc(durSec) + "s</strong>" +
+    " &nbsp;&middot;&nbsp; <span class='diag-ok-count'>" + esc(String(captured.length)) + " ok</span>" +
+    (failed.length ? " &nbsp;&middot;&nbsp; <span class='diag-fail-count'>" + esc(String(failed.length)) + " failed</span>" : "") +
+    (diag.captured_at ? " &nbsp;&middot;&nbsp; " + esc(String(diag.captured_at)) : "") +
+    "</div>";
+
+  var phases = DIAG_PHASE_GROUPS.map(function (g) {
+    var inPhase = requested.filter(function (tid) { return g.tools.indexOf(tid) >= 0; });
+    if (!inPhase.length) return "";
+    var badges = inPhase.map(function (tid) {
+      var r = results[tid]; if (!r) return "";
+      var cls = diagStatusClass(r.status || "error");
+      var label = tid.replace(/^get_/, "").replace(/_/g, " ");
+      var cnt = (r.status === "ok" && r.row_count > 0) ? " <span class='diag-rowcount'>" + esc(String(r.row_count)) + "</span>" : "";
+      var dur = (r.duration_ms != null) ? " <span class='diag-duration'>" + esc(String(r.duration_ms)) + "ms</span>" : "";
+      return "<button type='button' class='diag-tool-badge " + cls + "' data-tool='" + esc(tid) + "'>" + esc(label) + cnt + dur + "</button>";
+    }).join("");
+    return "<div class='diag-phase-section'>" +
+      "<div class='diag-phase-title'>" + esc(g.label) + "</div>" +
+      "<div class='diag-phase-badges'>" + badges + "</div>" +
+      "</div>";
+  }).join("");
+
+  return "<div class='diag-panel'>" + summary + phases + "<div id='diagDetailBox' class='diag-detail-box hidden'></div></div>";
+}
+
+function renderDiagToolRows(result: any): string {
+  if (!result) return "<div class='diag-detail-msg'>No data.</div>";
+  var status = String(result.status || "unknown");
+  if (status !== "ok") return "<div class='diag-detail-msg " + diagStatusClass(status) + "'>" + esc(String(result.reason || result.error || status)) + "</div>";
+  var rows: any[] = result.rows || [];
+  if (!rows.length) return "<div class='diag-detail-msg diag-status-empty'>No rows returned.</div>";
+  if (rows.length === 1 && typeof rows[0] === "object" && !Array.isArray(rows[0])) {
+    var isNested = Object.keys(rows[0]).some(function (k) { return typeof rows[0][k] === "object" && rows[0][k] !== null; });
+    if (isNested) return "<div style='font-family:var(--font-code);font-size:12px;line-height:1.5;padding:8px'>" + renderJsonTree(rows[0]) + "</div>";
+  }
+  if (typeof rows[0] === "object" && !Array.isArray(rows[0])) {
+    var cols = Object.keys(rows[0]);
+    if (cols.length) {
+      var thead = cols.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("");
+      var tbody = rows.map(function (row: any, ri: number) {
+        var cells = cols.map(function (c) {
+          var v = row[c]; var s = (v == null) ? "" : String(v);
+          if (s.length > 300) s = s.substring(0, 300) + "...";
+          return "<td><pre class='cell-pre'>" + esc(s) + "</pre></td>";
+        }).join("");
+        return "<tr><td class='no-cell'>" + String(ri + 1) + "</td>" + cells + "</tr>";
+      }).join("");
+      return "<div class='diag-rows-scroll'><table class='kv-table'><thead><tr><th class='no-cell'>No</th>" + thead + "</tr></thead><tbody>" + tbody + "</tbody></table></div>";
+    }
+  }
+  return "<div style='font-family:var(--font-code);font-size:12px;line-height:1.5;padding:8px'>" + renderJsonTree(rows) + "</div>";
+}
+
+function bindDiagnosticsPanel(diag: any): void {
+  var panel = document.querySelector(".diag-panel") as HTMLElement | null;
+  if (!panel) return;
+  var detailBox = document.getElementById("diagDetailBox");
+  if (!detailBox) return;
+  var results: Record<string, any> = (diag && diag.results) || {};
+  var badges = panel.querySelectorAll(".diag-tool-badge");
+  var active = "";
+  for (var i = 0; i < badges.length; i++) {
+    (function (b: Element) {
+      b.addEventListener("click", function () {
+        var tid = (b as HTMLElement).getAttribute("data-tool") || "";
+        if (active === tid) {
+          detailBox.classList.add("hidden");
+          detailBox.innerHTML = "";
+          active = "";
+          b.classList.remove("diag-active");
+          return;
+        }
+        for (var j = 0; j < badges.length; j++) badges[j].classList.remove("diag-active");
+        b.classList.add("diag-active");
+        active = tid;
+        detailBox.innerHTML = "<div class='diag-detail-title'>" + esc(tid) + "</div>" + renderDiagToolRows(results[tid]);
+        detailBox.classList.remove("hidden");
+      });
+    })(badges[i]);
+  }
+}
+
+function renderTabbedFindingModal(finding: any): string {
+  if (!finding || !finding.has_diagnostics) return renderCleanDetail(finding);
+  return "<div class='finding-modal-tabs'>" +
+    "<div class='finding-tab-bar'>" +
+    "<button type='button' class='finding-tab-btn active' data-tab='detail'>Detail</button>" +
+    "<button type='button' class='finding-tab-btn' data-tab='diag'>Diagnostics</button>" +
+    "</div>" +
+    "<div class='finding-tab-pane' id='ftab-detail'>" + renderCleanDetail(finding) + "</div>" +
+    "<div class='finding-tab-pane hidden' id='ftab-diag'><div class='diag-loading'>Loading...</div></div>" +
+    "</div>";
+}
+
+function renderTabbedMetricsModal(metrics: any, hasDiag: boolean): string {
+  var metricsHtml = renderSlowSessionMetricsTable(metrics);
+  if (!hasDiag) return metricsHtml;
+  return "<div class='finding-modal-tabs'>" +
+    "<div class='finding-tab-bar'>" +
+    "<button type='button' class='finding-tab-btn active' data-tab='detail'>Metrics</button>" +
+    "<button type='button' class='finding-tab-btn' data-tab='diag'>Diagnostics</button>" +
+    "</div>" +
+    "<div class='finding-tab-pane' id='ftab-detail'>" + metricsHtml + "</div>" +
+    "<div class='finding-tab-pane hidden' id='ftab-diag'><div class='diag-loading'>Loading...</div></div>" +
+    "</div>";
+}
+
+function bindFindingModalTabs(findingId: string): void {
+  var tabBar = document.querySelector(".finding-tab-bar") as HTMLElement | null;
+  if (!tabBar) return;
+  var loaded = false;
+  var btns = tabBar.querySelectorAll(".finding-tab-btn");
+  for (var i = 0; i < btns.length; i++) {
+    (function (btn: Element) {
+      btn.addEventListener("click", async function () {
+        var tab = (btn as HTMLElement).getAttribute("data-tab") || "";
+        for (var j = 0; j < btns.length; j++) btns[j].classList.remove("active");
+        btn.classList.add("active");
+        var dp = document.getElementById("ftab-detail");
+        var pp = document.getElementById("ftab-diag");
+        if (dp) dp.classList.toggle("hidden", tab !== "detail");
+        if (pp) pp.classList.toggle("hidden", tab !== "diag");
+        if (tab === "diag" && !loaded) {
+          loaded = true;
+          try {
+            var diag = await apiGet("/api/findings/" + encodeURIComponent(findingId) + "/diagnostics");
+            if (pp) {
+              pp.innerHTML = renderDiagnosticsPanel(diag);
+              bindDiagnosticsPanel(diag);
+            }
+          } catch (_e) {
+            if (pp) pp.innerHTML = "<div class='diag-empty-msg'>Failed to load diagnostics.</div>";
+          }
+        }
+      });
+    })(btns[i]);
+  }
+}
+
 function removePlanXmlFields(obj: any): any {
   if (obj === null || obj === undefined) return obj;
   if (Array.isArray(obj)) return obj.map(removePlanXmlFields);
@@ -204,12 +373,12 @@ function buildCleanDetailPayload(d: any): any {
 }
 
 function renderJsonTree(value: any, key?: string): string {
-  var keyHtml = key ? "<span style='color:#003b8e'>\"" + esc(key) + "\"</span>: " : "";
-  if (value === null) return "<div>" + keyHtml + "<span style='color:#666'>null</span></div>";
+  var keyHtml = key ? "<span style='color:var(--color-accent-strong)'>\"" + esc(key) + "\"</span>: " : "";
+  if (value === null) return "<div>" + keyHtml + "<span style='color:var(--color-muted)'>null</span></div>";
 
   var t = typeof value;
-  if (t === "string") return "<div>" + keyHtml + "<span style='color:#8a2b06'>\"" + esc(value) + "\"</span></div>";
-  if (t === "number" || t === "boolean") return "<div>" + keyHtml + "<span style='color:#1f1f1f'>" + esc(String(value)) + "</span></div>";
+  if (t === "string") return "<div>" + keyHtml + "<span style='color:var(--color-warning)'>\"" + esc(value) + "\"</span></div>";
+  if (t === "number" || t === "boolean") return "<div>" + keyHtml + "<span style='color:var(--color-text)'>" + esc(String(value)) + "</span></div>";
 
   if (Array.isArray(value)) {
     if (!value.length) return "<div>" + keyHtml + "[]</div>";
@@ -670,7 +839,7 @@ function renderFindingsHeader(useSlowSessionLayout?: boolean) {
   if (slowLayout) {
     row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Session Id</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
   } else {
-    row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th>";
+    row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th><th></th>";
   }
 
   if (blockingFilter) {
@@ -805,7 +974,13 @@ async function loadFindings() {
             "<td>" + aiIcon + "</td>" +
             "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
         } else {
-          tr.innerHTML = noCell + "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td><td>" + esc(x.issue_type || "") + "</td><td>" + alertStatusBadge(x.alert_status || "") + "</td><td>" + esc(x.node || "") + "</td><td>" + severityBadge(x.severity || "INFO") + "</td>";
+          tr.innerHTML = noCell +
+            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
+            "<td>" + esc(x.issue_type || "") + "</td>" +
+            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
+            "<td>" + esc(x.node || "") + "</td>" +
+            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
+            "<td>" + (x.has_diagnostics ? "<span class='diag-badge-indicator' title='Diagnostics captured'>D</span>" : "") + "</td>";
         }
         if (useSlowSessionLayout) {
           var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
@@ -843,8 +1018,10 @@ async function loadFindings() {
             await withGlobalLoading(async function () {
               var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
               var metrics = (d && d.metrics) || {};
-              openModal("Finding Metrics", renderSlowSessionMetricsTable(metrics));
+              var hasDiag = !!(d && d.has_diagnostics);
+              openModal("Finding Metrics", renderTabbedMetricsModal(metrics, hasDiag));
               bindSlowSessionMetricActions(metrics);
+              if (hasDiag) bindFindingModalTabs(x.finding_id);
             });
           });
 
@@ -871,8 +1048,9 @@ async function loadFindings() {
           tr.addEventListener("click", async function () {
             await withGlobalLoading(async function () {
               var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              openModal("Finding Detail", renderCleanDetail(d));
+              openModal("Finding Detail", renderTabbedFindingModal(d));
               bindJsonTreeToolbar();
+              if (d && d.has_diagnostics) bindFindingModalTabs(x.finding_id);
             });
           });
         }
