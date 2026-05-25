@@ -104,6 +104,9 @@ class DiagnosticCapture:
         results: dict[str, dict[str, Any]] = {}
         tasks: dict[str, CaptureToolDef] = {}
 
+        # query_hash ưu tiên từ finding field, fallback sang metrics dict
+        effective_query_hash: str | None = finding.query_hash or finding.metrics.get("query_hash")
+
         for tool_id in tool_ids:
             definition = CaptureToolLoader.get(tool_id)
             if definition is None:
@@ -113,7 +116,7 @@ class DiagnosticCapture:
                 continue
             if definition.params.needs_table_name:
                 continue
-            if definition.params.needs_query_hash and not finding.query_hash:
+            if definition.params.needs_query_hash and not effective_query_hash:
                 results[tool_id] = {
                     "status": "skipped",
                     "rows": [],
@@ -121,6 +124,21 @@ class DiagnosticCapture:
                     "reason": "query_hash is None",
                 }
                 continue
+            if definition.params.needs_query_hash:
+                try:
+                    _hex_to_bytes(effective_query_hash)  # type: ignore[arg-type]
+                except ValueError:
+                    results[tool_id] = {
+                        "status": "skipped",
+                        "rows": [],
+                        "row_count": 0,
+                        "reason": f"query_hash not valid hex: {str(effective_query_hash)[:30]}",
+                    }
+                    logger.warning(
+                        "Phase1 skipping tool=%s: query_hash is not valid hex (finding=%s)",
+                        tool_id, finding.finding_id,
+                    )
+                    continue
             tasks[tool_id] = definition
 
         if not tasks:
@@ -129,7 +147,7 @@ class DiagnosticCapture:
         futures: dict[Any, str] = {}
         with ThreadPoolExecutor(max_workers=len(tasks), thread_name_prefix="dc_p1") as pool:
             for tool_id, definition in tasks.items():
-                extra = (finding.query_hash,) if definition.params.needs_query_hash else ()
+                extra = (effective_query_hash,) if definition.params.needs_query_hash else ()
                 futures[pool.submit(self._run_one_sql, tool_id, definition, extra, finding.node)] = tool_id
 
             deadline = time.monotonic() + PHASE1_BUDGET_SEC

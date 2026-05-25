@@ -229,17 +229,16 @@ SELECT TOP 100
     r.session_id,
     r.blocking_session_id,
     r.wait_type,
-    r.wait_time / 1000              AS wait_duration_sec,
+    r.wait_time / 1000                  AS wait_duration_sec,
     r.wait_resource,
-    DB_NAME(r.database_id)          AS database_name,
+    DB_NAME(r.database_id)              AS database_name,
     s.login_name,
     s.host_name,
-    CONVERT(VARCHAR(64),
-        HASHBYTES('MD5', qt.text), 2) AS query_hash,
-    SUBSTRING(qt.text, 1, 1000)     AS query_text,
+    CONVERT(NVARCHAR(18), r.query_hash, 1) AS query_hash,
+    SUBSTRING(qt.text, 1, 1000)         AS query_text,
     -- Head blocker info
-    bs.login_name                   AS blocker_login,
-    SUBSTRING(bt.text, 1, 500)      AS blocker_query
+    bs.login_name                       AS blocker_login,
+    SUBSTRING(bt.text, 1, 500)          AS blocker_query
 FROM sys.dm_exec_requests r
 JOIN sys.dm_exec_sessions s   ON r.session_id = s.session_id
 CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt

@@ -10,7 +10,8 @@ from ..query_analyzer import analyze_query
 
 def run(finding: Finding) -> tuple[dict[str, Any], list[str]]:
     """Analyze query text and return a normalized result plus extracted table names."""
-    query_text = (finding.metrics or {}).get("query_text") or ""
+    m = finding.metrics or {}
+    query_text = m.get("query_text") or m.get("sql_text") or ""
     if not query_text:
         return ({"status": "skipped", "rows": [], "row_count": 0, "reason": "no query_text"}, [])
 

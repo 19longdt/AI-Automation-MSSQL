@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer1\\\\\" -Recurse -Directory | Select-Object -ExpandProperty FullName)",
+      "Bash(Get-ChildItem -Path \"c:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer1\" -Recurse -Directory)",
+      "Bash(Select-Object FullName)"
+    ]
+  }
+}
