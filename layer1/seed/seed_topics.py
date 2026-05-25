@@ -283,6 +283,8 @@ SELECT TOP 10
     r.command,
     s.login_name,
     s.host_name,
+    DB_NAME(r.database_id)        AS database_name,
+    CONVERT(NVARCHAR(18), r.query_hash, 1) AS query_hash,
     r.cpu_time / 1000.0           AS cpu_time_seconds,
     r.total_elapsed_time / 1000.0 AS elapsed_seconds,
     r.logical_reads,

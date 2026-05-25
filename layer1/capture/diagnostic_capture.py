@@ -12,6 +12,7 @@ from typing import Any
 
 import pyodbc
 
+from ..config import settings
 from ..executor.mssql_connection import mssql_connection
 from ..models.capture_tool import CaptureToolDef, ExecutionType
 from ..models.findings import Finding
@@ -212,6 +213,25 @@ class DiagnosticCapture:
         """Run SQL tools that require table_name, based on phase-2 extracted tables."""
         results: dict[str, dict[str, Any]] = {}
         if not affected_tables:
+            return results
+
+        # Skip phase 3 nếu finding thuộc DB khác với monitoring DB.
+        # OBJECT_NAME() trong phase 3 SQL chỉ tìm trong MSSQL_DATABASE context.
+        finding_db = finding.metrics.get("database_name")
+        if finding_db and finding_db.lower() != settings.mssql_database.lower():
+            logger.info(
+                "Phase3 skipped: finding db=%s != monitoring db=%s (finding=%s)",
+                finding_db, settings.mssql_database, finding.finding_id,
+            )
+            for tool_id in tool_ids:
+                definition = CaptureToolLoader.get(tool_id)
+                if definition and definition.execution_type == ExecutionType.SQL and definition.params.needs_table_name:
+                    results[tool_id] = {
+                        "status": "skipped",
+                        "rows": [],
+                        "row_count": 0,
+                        "reason": f"cross-db: finding_db={finding_db}",
+                    }
             return results
 
         tables = affected_tables[:MAX_TABLE_TOOLS]
