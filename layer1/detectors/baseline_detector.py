@@ -142,6 +142,5 @@ class BaselineDetector:
             severity=Severity.WARNING,
             node=node,
             role=role,
-            query_hash=query_hash,
             metrics=metrics,
         )

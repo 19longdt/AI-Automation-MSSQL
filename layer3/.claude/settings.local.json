@@ -11,7 +11,8 @@
       "Bash(npm run *)",
       "Bash(dir /s \"C:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer3\")",
       "Bash(findstr \"\\\\.html$\")",
-      "Bash(xargs grep \"^export\\\\|app.get\\\\|app.post\")"
+      "Bash(xargs grep \"^export\\\\|app.get\\\\|app.post\")",
+      "Bash(Get-ChildItem C:\\\\GIT\\\\AI-Automation-MSSQL\\\\plan *)"
     ]
   }
 }

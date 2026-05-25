@@ -144,7 +144,7 @@ Chạy từ dữ liệu trong finding — không query MSSQL.
 | Tool | Input | Output |
 |---|---|---|
 | `get_plan_analysis` | `finding.metrics["query_plan_xml"]` | operators, warnings, tables, implicit conversions, spills |
-| `get_query_structure` | `finding.query_text` | tables, joins, predicates, query_type |
+| `get_query_structure` | `finding.metrics["query_text]` | tables, joins, predicates, query_type |
 
 Sau Phase 2: extract `affected_tables` (unique, max 5 tables) từ cả 2 kết quả → dùng cho Phase 3.
 
