@@ -434,12 +434,11 @@ function renderSlowSessionMetricsTable(metrics: any): string {
   var m = metrics || {};
   var sessionCols = [
     "session_id",
+    "query_hash",
     "elapsed_seconds",
     "cpu_time_seconds",
     "logical_reads",
-    "alert_status",
     "command",
-    "login_name",
     "host_name",
     "sql_text",
     "query_plan_xml"
