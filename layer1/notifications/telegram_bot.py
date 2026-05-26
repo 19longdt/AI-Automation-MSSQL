@@ -55,12 +55,18 @@ class TelegramBot:
         findings_repo: FindingsRepo,
         topic_repo: TopicRepo,
         analyzer: PlanAnalyzer | None,  # None nếu không có claude_api_key
+        action_bot_token: str = "",
     ) -> None:
         self._chat_id = chat_id
         self._findings_repo = findings_repo
         self._topic_repo = topic_repo
         self._analyzer = analyzer
         self._api_base = f"https://api.telegram.org/bot{bot_token}"
+        self._action_api_base = (
+            f"https://api.telegram.org/bot{action_bot_token}"
+            if action_bot_token
+            else self._api_base
+        )
 
     def start(self) -> None:
         """Khởi động polling loop trong daemon thread."""
@@ -99,6 +105,10 @@ class TelegramBot:
     # ── Command handling ────────────────────────────────────────────────────
 
     def _handle_update(self, update: dict) -> None:
+        if update.get("callback_query"):
+            self._handle_callback_query(update["callback_query"])
+            return
+
         message = update.get("message", {})
         text = (message.get("text") or "").strip()
         chat_id = message.get("chat", {}).get("id")
@@ -114,6 +124,47 @@ class TelegramBot:
             self._handle_quick(chat_id, text, message, sender)
         elif message.get("reply_to_message"):
             self._handle_reply_to_alert(chat_id, text, message, sender)
+
+    def _handle_callback_query(self, callback_query: dict) -> None:
+        """Handle inline keyboard callback and dispatch to existing handlers."""
+        callback_id = str(callback_query.get("id") or "")
+        data = str(callback_query.get("data") or "")
+        msg = callback_query.get("message") or {}
+        chat_id = (msg.get("chat") or {}).get("id")
+        sender = self._get_sender_from_user(callback_query.get("from") or {})
+
+        if not data.startswith("l1|"):
+            self._answer_callback_query(callback_id, "Callback không hợp lệ.")
+            return
+
+        parts = data.split("|")
+        if len(parts) < 3:
+            self._answer_callback_query(callback_id, "Callback thiếu dữ liệu.")
+            return
+
+        action = parts[1]
+        finding_id = parts[2].strip()
+        if not finding_id:
+            self._answer_callback_query(callback_id, "Thiếu finding_id.")
+            return
+
+        self._answer_callback_query(callback_id, "Đang xử lý...")
+
+        if action == "quick":
+            self._handle_quick(chat_id, f"/quick {finding_id}", {}, sender)
+            return
+        if action == "analyze":
+            self._forward_to_layer2(finding_id, chat_id, sender)
+            return
+        if action == "act":
+            if len(parts) < 4:
+                self._send(chat_id, "⚠️ Callback action thiếu command.")
+                return
+            command = parts[3].strip()
+            self._handle_topic_action(chat_id, command, finding_id, sender)
+            return
+
+        self._send(chat_id, f"⚠️ Callback action không hỗ trợ: <code>{html.escape(action)}</code>")
 
     def _handle_reply_to_alert(self, chat_id: int | str, text: str, message: dict, sender: str) -> None:
         """Reply vào Layer 1 alert → /quick hoặc forward to Layer 2."""
@@ -165,7 +216,7 @@ class TelegramBot:
             session_id = str(result.get("session_id") or "")
             host = str(result.get("host") or "unknown")
             target_node = str(result.get("target_node") or host)
-            self._send(
+            self._send_action_report(
                 chat_id,
                 f"✅ Thực thi <code>{html.escape(command)}</code> thành công:\n"
                 f"• target_session: <code>{html.escape(session_id)}</code>\n"
@@ -184,13 +235,16 @@ class TelegramBot:
                 detail = html.escape(str(first.get("error") or ""))[:200]
         if detail:
             node_line = f"\n• target_node: <code>{html.escape(target_node)}</code>" if target_node else ""
-            self._send(
+            self._send_action_report(
                 chat_id,
                 f"❌ Thực thi <code>{html.escape(command)}</code> thất bại:{node_line}\n{message}\n<code>{detail}</code>",
             )
         else:
             node_line = f"\n• target_node: <code>{html.escape(target_node)}</code>" if target_node else ""
-            self._send(chat_id, f"❌ Thực thi <code>{html.escape(command)}</code> thất bại:{node_line}\n{message}")
+            self._send_action_report(
+                chat_id,
+                f"❌ Thực thi <code>{html.escape(command)}</code> thất bại:{node_line}\n{message}",
+            )
 
     def _forward_to_layer2(self, finding_id: str, chat_id: int | str, sender: str) -> None:
         """Forward finding analysis request tới Layer 2 agent qua HTTP."""
@@ -340,6 +394,17 @@ class TelegramBot:
         suffix = f"@{username}" if username else f"id={user_id}"
         return f"{name} ({suffix})"
 
+    @staticmethod
+    def _get_sender_from_user(user: dict) -> str:
+        """Format sender string from callback_query.from."""
+        first = user.get("first_name", "")
+        last = user.get("last_name", "")
+        username = user.get("username", "")
+        user_id = user.get("id", "?")
+        name = f"{first} {last}".strip() or "Unknown"
+        suffix = f"@{username}" if username else f"id={user_id}"
+        return f"{name} ({suffix})"
+
     def _format_quick_caption(self, finding: Finding, response, root_cause: str, quick_fix: str) -> str:
         """Caption cho document /quick — metadata + summary + link file."""
         time_str = finding.detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
@@ -430,6 +495,15 @@ class TelegramBot:
 
     def _send(self, chat_id: int | str, text: str) -> None:
         """Gửi message HTML, không raise — log ERROR nếu thất bại."""
+        self._send_with_api_base(self._api_base, chat_id, text)
+
+    def _send_action_report(self, chat_id: int | str, text: str) -> None:
+        """Send action execution result via ACTION_BOT_TOKEN when configured."""
+        self._send_with_api_base(self._action_api_base, chat_id, text)
+
+    @staticmethod
+    def _send_with_api_base(api_base: str, chat_id: int | str, text: str) -> None:
+        """Send HTML message to a specific Telegram bot api base."""
         try:
             payload = json.dumps({
                 "chat_id": chat_id,
@@ -437,7 +511,7 @@ class TelegramBot:
                 "parse_mode": "HTML",
             }).encode()
             req = urllib.request.Request(
-                f"{self._api_base}/sendMessage",
+                f"{api_base}/sendMessage",
                 data=payload,
                 headers={"Content-Type": "application/json"},
                 method="POST",
@@ -449,6 +523,26 @@ class TelegramBot:
             logger.error("TelegramBot send HTTP %d: %s", exc.code, body)
         except Exception as exc:
             logger.error("TelegramBot send failed: %s", exc)
+
+    def _answer_callback_query(self, callback_query_id: str, text: str | None = None) -> None:
+        """Answer callback query so Telegram client stops loading state."""
+        if not callback_query_id:
+            return
+        try:
+            body = {"callback_query_id": callback_query_id}
+            if text:
+                body["text"] = text[:180]
+            payload = json.dumps(body).encode()
+            req = urllib.request.Request(
+                f"{self._api_base}/answerCallbackQuery",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10):
+                pass
+        except Exception as exc:
+            logger.error("TelegramBot answerCallbackQuery failed: %s", exc)
 
     def _send_document(self, chat_id: int | str, filename: str, content: bytes, caption: str) -> None:
         """Gửi file document với caption HTML. Dùng multipart/form-data, không raise."""

@@ -11,12 +11,21 @@ export async function fetchJsonWithTimeout(url: string, timeoutMs = 3000): Promi
 }
 
 export async function postJsonWithTimeout(url: string, body: unknown, timeoutMs = 5000): Promise<unknown> {
+  return postJsonWithTimeoutAndHeaders(url, body, timeoutMs);
+}
+
+export async function postJsonWithTimeoutAndHeaders(
+  url: string,
+  body: unknown,
+  timeoutMs = 5000,
+  extraHeaders?: Record<string, string>
+): Promise<unknown> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(extraHeaders || {}) },
       body: JSON.stringify(body),
       signal: ctrl.signal
     });

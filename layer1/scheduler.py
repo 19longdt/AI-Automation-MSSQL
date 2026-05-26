@@ -145,6 +145,7 @@ class Layer1Service:
                 findings_repo=findings_repo,
                 topic_repo=self._topic_repo,
                 analyzer=analyzer,
+                action_bot_token=settings.action_bot_token,
             ).start()
 
         # 7. TopicRunner

@@ -85,6 +85,7 @@ class EnvSettings(BaseSettings):
     teams_webhook_url: str = Field(default="")
     slack_bot_token: str = Field(default="")
     telegram_bot_token: str = Field(default="")
+    action_bot_token: str = Field(default="")
     telegram_chat_id: str = Field(default="")
 
     # ── AI (Layer 2) ────────────────────────────────────────────────────────

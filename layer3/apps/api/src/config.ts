@@ -8,6 +8,7 @@ export interface AppConfig {
   mongodbDb: string;
   l2ApiUrl?: string;
   l1ApiUrl?: string;
+  actionBotToken?: string;
   apiPort: number;
   logLevel: string;
 }
@@ -18,6 +19,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mongodbDb: env.MONGODB_DB || "db_monitor",
     l2ApiUrl: env.L2_API_URL || "http://127.0.0.1:8000",
     l1ApiUrl: env.L1_API_URL || "http://127.0.0.1:8001",
+    actionBotToken: env.ACTION_BOT_TOKEN || "",
     apiPort: Number(env.API_PORT || 3000),
     logLevel: env.LOG_LEVEL || "info"
   };

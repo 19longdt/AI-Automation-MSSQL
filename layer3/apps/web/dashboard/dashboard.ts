@@ -1,6 +1,7 @@
 import { apiGet, apiPost } from "./api-client";
 import { withButtonLoading, withGlobalLoading } from "./loading-overlay";
 import { bindModalEvents, openActionConfirmModal, openModal } from "./modal";
+import { createTopicLayoutHandlers, TopicLayoutHandler } from "./topics/layout-registry";
 declare const QP: any;
 declare const window: any;
 
@@ -486,7 +487,7 @@ function renderSlowSessionMetricsTable(metrics: any): string {
     }
     if (field === "query_plan_xml" || field === "blocker_plan_xml" || field === "actual_plan_xml") {
       if (!val) return "<td></td>";
-      return "<td class='clickable-cell' data-field='" + esc(field) + "'>View</td>";
+      return "<td class='clickable-cell' data-field='" + esc(field) + "'><span class='plan-open-chip'>Open Plan</span></td>";
     }
     return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
   }
@@ -513,6 +514,8 @@ function bindSlowSessionMetricActions(metrics: any) {
   var box = document.getElementById("slowMetricsBox");
   if (!box) return;
   var payload = {
+    sql_text: metrics && metrics.sql_text !== undefined && metrics.sql_text !== null ? String(metrics.sql_text) : "",
+    blocker_sql_text: metrics && metrics.blocker_sql_text !== undefined && metrics.blocker_sql_text !== null ? String(metrics.blocker_sql_text) : "",
     query_plan_xml: metrics && metrics.query_plan_xml !== undefined && metrics.query_plan_xml !== null ? String(metrics.query_plan_xml) : "",
     actual_plan_xml: metrics && metrics.actual_plan_xml !== undefined && metrics.actual_plan_xml !== null ? String(metrics.actual_plan_xml) : "",
     blocker_plan_xml: metrics && metrics.blocker_plan_xml !== undefined && metrics.blocker_plan_xml !== null ? String(metrics.blocker_plan_xml) : ""
@@ -527,13 +530,30 @@ function bindSlowSessionMetricActions(metrics: any) {
     if (!detail || !planSection || !planBox) return;
     detail.classList.add("show");
     planSection.classList.add("show");
-    renderExecutionPlanToBox(planBox, xmlText, field);
+    var shouldHideRuntimeHeader = true;
+    if (field === "actual_plan_xml" && !(payload.query_plan_xml && payload.query_plan_xml.trim())) {
+      shouldHideRuntimeHeader = false;
+    }
+    var sqlText = field === "blocker_plan_xml" ? payload.blocker_sql_text : payload.sql_text;
+    renderExecutionPlanToBox(planBox, xmlText, field, shouldHideRuntimeHeader, sqlText);
+  }
+
+  function resolveSlowSessionPlanSelection(): { field: string; xml: string } {
+    if (payload.query_plan_xml && payload.query_plan_xml.trim()) {
+      return { field: "query_plan_xml", xml: payload.query_plan_xml };
+    }
+    return { field: "actual_plan_xml", xml: payload.actual_plan_xml };
   }
   for (var i = 0; i < rows.length; i++) {
     (function (row: Element) {
       row.addEventListener("click", function () {
         var field = (row as HTMLElement).getAttribute("data-plan-field") || "";
-        if (field === "query_plan_xml" || field === "blocker_plan_xml") {
+        if (field === "query_plan_xml") {
+          var slowPlan = resolveSlowSessionPlanSelection();
+          setPlanField(slowPlan.field, slowPlan.xml);
+          return;
+        }
+        if (field === "blocker_plan_xml") {
           setPlanField(field, payload[field] || "");
         }
       });
@@ -553,7 +573,8 @@ function bindSlowSessionMetricActions(metrics: any) {
     })(cells[j]);
   }
 
-  setPlanField("query_plan_xml", payload.query_plan_xml);
+  var initialSlowPlan = resolveSlowSessionPlanSelection();
+  setPlanField(initialSlowPlan.field, initialSlowPlan.xml);
 }
 
 function isRuntimeExecutionPlanXml(xmlText: string): boolean {
@@ -568,9 +589,9 @@ function isRuntimeExecutionPlanXml(xmlText: string): boolean {
   return false;
 }
 
-function renderExecutionPlanToBox(planBox: HTMLElement, xmlText: string, _sourceField?: string) {
+function renderExecutionPlanToBox(planBox: HTMLElement, xmlText: string, _sourceField?: string, hideRuntimeHeader = true, sqlTextFallback?: string) {
   var normalized = String(xmlText || "");
-  var isRuntimePlan = isRuntimeExecutionPlanXml(normalized);
+  var isRuntimePlan = hideRuntimeHeader && isRuntimeExecutionPlanXml(normalized);
   if (isRuntimePlan) {
     planBox.classList.add("plan-source-actual");
   } else {
@@ -589,10 +610,12 @@ function renderExecutionPlanToBox(planBox: HTMLElement, xmlText: string, _source
       var qpObj = getQpGlobal();
       if (qpObj && typeof qpObj.showPlan === "function") {
         qpObj.showPlan(planBox, normalized);
+        ensurePlanHeaderSqlText(planBox, sqlTextFallback || "");
         requestAnimationFrame(function () {
           redrawExecutionPlanConnectors(planBox);
           requestAnimationFrame(function () {
             redrawExecutionPlanConnectors(planBox);
+            ensurePlanHeaderSqlText(planBox, sqlTextFallback || "");
           });
         });
         bindExecutionPlanActions(planBox, normalized);
@@ -611,8 +634,8 @@ function bindExecutionPlanActions(planBox: HTMLElement, xmlText: string) {
   qpObj.bindQueryActions(planBox, {
     onOpenQueryPopup: function (ctx: any) {
       var txt = String((ctx && ctx.queryText) || "");
-      openModal("Query Detail", "<pre id='queryDetailPre'>Formatting...</pre>");
-      var pre = document.getElementById("queryDetailPre");
+      openModal("SQL Text Detail", "<pre id='sqlDetailPre'>Formatting...</pre>");
+      var pre = document.getElementById("sqlDetailPre");
       if (!pre) return;
       if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
         qpObj.beautifySqlWithFallback(txt).then(function (formatted: string) {
@@ -795,20 +818,58 @@ function renderTopicTabs() {
   });
 }
 
+function ensurePlanHeaderSqlText(planBox: HTMLElement, sqlTextFallback: string) {
+  var sql = String(sqlTextFallback || "").trim();
+  if (!sql) return;
+  var realQueryEl = planBox.querySelector(".qp-real-query") as HTMLElement | null;
+  if (realQueryEl && !String(realQueryEl.textContent || "").trim()) {
+    realQueryEl.textContent = sql;
+  }
+  var resolvedQueryEl = planBox.querySelector(".qp-resolved-query") as HTMLElement | null;
+  if (resolvedQueryEl && !String(resolvedQueryEl.textContent || "").trim()) {
+    resolvedQueryEl.textContent = sql;
+  }
+}
+
+var TOPIC_LAYOUT_HANDLERS = createTopicLayoutHandlers({
+  getPage: function () { return page; },
+  getLimit: function () { return limit; },
+  esc: esc,
+  formatDetectedAtForUi: formatDetectedAtForUi,
+  roleNodeCell: roleNodeCell,
+  severityBadge: severityBadge,
+  alertStatusBadge: alertStatusBadge,
+  sessionIdBadge: sessionIdBadge,
+  blockingBadge: blockingBadge,
+  copyTextToClipboardWithFallback: copyTextToClipboardWithFallback,
+  requestKillSession: requestKillSession,
+  withGlobalLoading: withGlobalLoading,
+  withButtonLoading: withButtonLoading,
+  apiGet: apiGet,
+  openModal: openModal,
+  renderTabbedMetricsModal: renderTabbedMetricsModal,
+  bindSlowSessionMetricActions: bindSlowSessionMetricActions,
+  bindFindingModalTabs: bindFindingModalTabs,
+  renderAiAnalysisTable: renderAiAnalysisTable,
+  bindAiAnalysisFieldButtons: bindAiAnalysisFieldButtons,
+  renderTabbedFindingModal: renderTabbedFindingModal,
+  bindJsonTreeToolbar: bindJsonTreeToolbar
+});
+
+function resolveTopicLayoutHandler(useSlowSessionLayout?: boolean): TopicLayoutHandler {
+  var useSlow = useSlowSessionLayout === undefined ? isSlowSessionTopic() : useSlowSessionLayout;
+  return useSlow ? TOPIC_LAYOUT_HANDLERS.slow_sessions : TOPIC_LAYOUT_HANDLERS.default;
+}
+
 function renderFindingsHeader(useSlowSessionLayout?: boolean) {
   var row = document.getElementById("findingsHeadRow");
   if (!row) return;
   var blockingFilter = document.getElementById("blockingStatusFilter") as HTMLSelectElement | null;
-  var slowLayout = useSlowSessionLayout === undefined ? isSlowSessionTopic() : useSlowSessionLayout;
-
-  if (slowLayout) {
-    row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Session Id</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
-  } else {
-    row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th><th></th>";
-  }
+  var layout = resolveTopicLayoutHandler(useSlowSessionLayout);
+  row.innerHTML = layout.headerHtml;
 
   if (blockingFilter) {
-    if (isSlowSessionTopic()) {
+    if (layout.showBlockingFilter) {
       blockingFilter.classList.remove("hidden");
       blockingFilter.disabled = false;
     } else {
@@ -884,7 +945,8 @@ async function loadFindings() {
       var findingId = (document.getElementById("findingIdFilter") as HTMLInputElement).value.trim();
       var severity = (document.getElementById("severityFilter") as HTMLSelectElement).value;
       var alertStatus = (document.getElementById("alertStatusFilter") as HTMLSelectElement).value;
-      var blockingStatus = isSlowSessionTopic() ? (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value : "";
+      var activeLayout = resolveTopicLayoutHandler();
+      var blockingStatus = activeLayout.showBlockingFilter ? (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value : "";
       var detectedFromRaw = (document.getElementById("detectedFromFilter") as HTMLInputElement).value;
       var detectedToRaw = (document.getElementById("detectedToFilter") as HTMLInputElement).value;
       var detectedFrom = toLocalDateTimeFilterValue(detectedFromRaw);
@@ -909,116 +971,14 @@ async function loadFindings() {
       var c = 0, w = 0, i = 0;
       var useSlowSessionLayout = isSlowSessionTopic();
       if (findingId && data.length === 1) useSlowSessionLayout = isSlowSessionFinding(data[0]);
+      var layout = resolveTopicLayoutHandler(useSlowSessionLayout);
       renderFindingsHeader(useSlowSessionLayout);
 
       data.forEach(function (x: any, idx: number) {
         if (x.severity === "CRITICAL") c++; else if (x.severity === "WARNING") w++; else i++;
         var tr = document.createElement("tr");
         tr.className = "clickable-finding-row";
-        var noCell = "<td class='no-cell'>" + String(page * limit + idx + 1) + "</td>";
-        if (useSlowSessionLayout) {
-          var metrics = x.metrics || {};
-          var aiDone = !!x.ai_analyzed;
-          var aiIcon = aiDone
-            ? "<span class='badge badge-success' title='Da phan tich'>Done</span>"
-            : "<span class='badge badge-warning' title='Chua phan tich'>Pending</span>";
-          var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
-          tr.innerHTML =
-            noCell +
-            "<td><span class='finding-id-copy' title='Click to copy ID'>" + esc(x.finding_id || "") + "</span></td>" +
-            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-            "<td>" + roleNodeCell(x.role, x.node) + "</td>" +
-            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-            "<td>" + esc(metrics.elapsed_seconds === undefined || metrics.elapsed_seconds === null ? "" : String(metrics.elapsed_seconds)) + "</td>" +
-            "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
-            "<td>" + esc(metrics.login_name || "") + "</td>" +
-            "<td>" + esc(metrics.host_name || "") + "</td>" +
-            "<td>" + sessionIdBadge(metrics) + "</td>" +
-            "<td>" + blockingBadge(metrics) + "</td>" +
-            "<td>" + aiIcon + "</td>" +
-            "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
-        } else {
-          tr.innerHTML = noCell +
-            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-            "<td>" + esc(x.issue_type || "") + "</td>" +
-            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-            "<td>" + esc(x.node || "") + "</td>" +
-            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-            "<td>" + (x.has_diagnostics ? "<span class='diag-badge-indicator' title='Diagnostics captured'>D</span>" : "") + "</td>";
-        }
-        if (useSlowSessionLayout) {
-          var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
-          var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
-          var idCopyEl = tr.querySelector(".finding-id-copy") as HTMLElement | null;
-          var blockingKillEl = tr.querySelector(".blocking-kill-btn") as HTMLElement | null;
-          var sessionKillEl = tr.querySelector(".session-kill-btn") as HTMLElement | null;
-
-          if (idCopyEl) {
-            idCopyEl.addEventListener("click", function (ev) {
-              ev.stopPropagation();
-              copyTextToClipboardWithFallback(String(x.finding_id || ""));
-            });
-          }
-
-          if (blockingKillEl) {
-            blockingKillEl.addEventListener("click", async function (ev) {
-              ev.stopPropagation();
-              var sessionId = Number(metrics && metrics.blocking_session_id);
-              if (!isFinite(sessionId) || sessionId <= 0) return;
-            await requestKillSession(sessionId, "blocking_session_id", metrics, String(x.node || ""));
-            });
-          }
-
-          if (sessionKillEl) {
-            sessionKillEl.addEventListener("click", async function (ev) {
-              ev.stopPropagation();
-              var sessionId = Number(metrics && metrics.session_id);
-              if (!isFinite(sessionId) || sessionId <= 0) return;
-            await requestKillSession(sessionId, "session_id", metrics, String(x.node || ""));
-            });
-          }
-
-          tr.addEventListener("click", async function () {
-            await withGlobalLoading(async function () {
-              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              var metrics = (d && d.metrics) || {};
-              var hasDiag = !!(d && d.has_diagnostics);
-              openModal("Finding Metrics", renderTabbedMetricsModal(metrics, hasDiag));
-              bindSlowSessionMetricActions(metrics);
-              if (hasDiag) bindFindingModalTabs(x.finding_id);
-            });
-          });
-
-          if (rowActionCell) {
-            rowActionCell.addEventListener("click", function (ev) {
-              ev.stopPropagation();
-            });
-          }
-          aiBtn.addEventListener("click", async function () {
-            if (aiBtn.disabled) return;
-            await withButtonLoading(aiBtn, async function () {
-              var ai = x.ai_analysis;
-              if (!ai) {
-                await withGlobalLoading(async function () {
-                  var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-                  ai = d && d.ai_analysis ? d.ai_analysis : null;
-                });
-              }
-              openModal("AI Analysis", renderAiAnalysisTable(ai));
-              bindAiAnalysisFieldButtons();
-            }, "Loading...");
-          });
-        } else {
-          tr.addEventListener("click", async function () {
-            await withGlobalLoading(async function () {
-              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              openModal("Finding Detail", renderTabbedFindingModal(d));
-              bindJsonTreeToolbar();
-              if (d && d.has_diagnostics) bindFindingModalTabs(x.finding_id);
-            });
-          });
-        }
+        layout.renderRow(tr, x, idx);
         body.appendChild(tr);
       });
 

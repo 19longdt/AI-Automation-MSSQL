@@ -50,7 +50,7 @@ class TelegramNotifier(BaseNotifier):
         warning nhưng không fail toàn bộ (alert core đã delivered).
         """
         text, attachments = self._format_finding(finding)
-        ok = self._post(text)
+        ok = self._post(text, reply_markup=self._build_inline_keyboard(finding))
         if not ok:
             return False
 
@@ -141,22 +141,31 @@ class TelegramNotifier(BaseNotifier):
 
         lines.append("")
         lines.append(f"🔗 ID: <code>{finding.finding_id}</code>")
-        lines.append(self._build_actions_line(finding))
 
         return "\n".join(lines), attachments
 
     @staticmethod
-    def _build_actions_line(finding: Finding) -> str:
-        """Build command options: mặc định Phân tích, Action là optional theo topic."""
-        analysis_cmds = ["⚡<code>/quick</code>", "🤖<code>/analyze</code>"]
-        lines = [f"<b>Phân tích:</b> {' | '.join(analysis_cmds)}"]
-
+    def _build_inline_keyboard(finding: Finding) -> dict:
+        """Build inline keyboard for one-tap actions without reply parsing."""
+        rows: list[list[dict[str, str]]] = [[
+            {"text": "⚡ Quick", "callback_data": f"l1|quick|{finding.finding_id}"},
+            {"text": "🤖 Analyze", "callback_data": f"l1|analyze|{finding.finding_id}"},
+        ]]
         topic_actions = topic_action_registry.commands_for_topic(finding.topic_id)
         if topic_actions:
-            action_cmds = [f"<code>{html.escape(cmd)}</code>" for cmd in topic_actions]
-            lines.append(f"<b>Action:</b> {' | '.join(action_cmds)}")
-
-        return "\n".join(lines)
+            action_row: list[dict[str, str]] = []
+            for cmd in topic_actions:
+                label = cmd
+                if cmd == "/kill-session":
+                    label = "🛑 Kill Session"
+                elif cmd == "/kill-blocking":
+                    label = "⛔ Kill Blocking"
+                action_row.append({
+                    "text": label,
+                    "callback_data": f"l1|act|{finding.finding_id}|{cmd}",
+                })
+            rows.append(action_row)
+        return {"inline_keyboard": rows}
 
     @staticmethod
     def _safe_filename(finding_id: str, field_key: str) -> str:
@@ -166,14 +175,17 @@ class TelegramNotifier(BaseNotifier):
         safe_key = "".join(c if c.isalnum() or c in "._-" else "_" for c in field_key)
         return f"{safe_id}_{safe_key}.txt"
 
-    def _post(self, text: str) -> bool:
+    def _post(self, text: str, reply_markup: dict | None = None) -> bool:
         """HTTP POST sendMessage JSON."""
         try:
-            payload = json.dumps({
+            body = {
                 "chat_id": self._chat_id,
                 "text": text,
                 "parse_mode": "HTML",
-            }).encode()
+            }
+            if reply_markup:
+                body["reply_markup"] = reply_markup
+            payload = json.dumps(body).encode()
             req = urllib.request.Request(
                 self._api_url,
                 data=payload,

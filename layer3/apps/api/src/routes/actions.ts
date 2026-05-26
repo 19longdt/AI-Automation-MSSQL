@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { postJsonWithTimeout } from "../proxy/l2-proxy";
+import { postJsonWithTimeoutAndHeaders } from "../proxy/l2-proxy";
 
 export async function registerActionRoutes(app: FastifyInstance) {
   app.post("/api/actions/kill-session", async (req, reply) => {
@@ -11,30 +11,45 @@ export async function registerActionRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: "Invalid session_id" });
     }
 
-    if (!app.config.l1ApiUrl) {
+    const layer1Url = app.config.l1ApiUrl;
+    if (!layer1Url) {
       return reply.code(503).send({ message: "Layer1 API URL is not configured" });
     }
 
     try {
-      const result = await postJsonWithTimeout(
-        `${app.config.l1ApiUrl}/kill-session`,
-        { session_id: sessionId, node },
-        8000
+      const headers: Record<string, string> = {};
+      if (app.config.actionBotToken) {
+        headers.Authorization = `Bearer ${app.config.actionBotToken}`;
+      }
+      const result = await postJsonWithTimeoutAndHeaders(
+        `${layer1Url}/kill-session`,
+        {
+          type: "action",
+          action_name: "kill-session",
+          session_id: sessionId,
+          node
+        },
+        8000,
+        headers
       );
       return reply.send({
+        flow: "action",
         ok: true,
         session_id: sessionId,
         node,
-        target: app.config.l1ApiUrl,
+        action_name: "kill-session",
+        target: layer1Url,
         result
       });
     } catch (e: any) {
-      app.log.error({ err: e, sessionId }, "Failed to call Layer1 kill-session");
+      app.log.error({ err: e, sessionId, layer1Url }, "Failed to call Layer1 action bot kill-session");
       return reply.code(502).send({
+        flow: "action",
         ok: false,
         message: "Failed to call Layer1 kill-session API",
         session_id: sessionId,
-        target: app.config.l1ApiUrl,
+        action_name: "kill-session",
+        target: layer1Url,
         upstream_status: e && e.status ? e.status : null,
         upstream_error: e && e.payload ? e.payload : { message: e && e.message ? e.message : "Unknown error" }
       });
