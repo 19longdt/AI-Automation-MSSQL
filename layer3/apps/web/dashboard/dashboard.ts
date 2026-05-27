@@ -440,8 +440,7 @@ function renderSlowSessionMetricsTable(metrics: any): string {
     "logical_reads",
     "command",
     "host_name",
-    "sql_text",
-    "query_plan_xml"
+    "actual_plan_xml"
   ];
   var blockingCols = [
     "blocking_session_id",
@@ -450,13 +449,11 @@ function renderSlowSessionMetricsTable(metrics: any): string {
     "blocker_login",
     "blocker_host",
     "blocker_status",
-    "blocker_sql_text",
-    "blocker_plan_xml",
     "blocker_open_txn",
     "wait_resource"
   ];
 
-  function renderMetricTable(title: string, cols: string[], emptyText?: string): string {
+  function renderMetricTable(title: string, cols: string[], emptyText?: string, planField?: string): string {
     if (!cols.length) return "";
     if (emptyText) {
       return "<div class='metric-section'>" +
@@ -464,11 +461,13 @@ function renderSlowSessionMetricsTable(metrics: any): string {
         "<div class='metric-empty'>" + esc(emptyText) + "</div>" +
         "</div>";
     }
+    var rowClass = planField ? "metric-row metric-row-clickable" : "metric-row";
+    var rowAttr = planField ? (" data-plan-field='" + esc(planField) + "'") : "";
     var row = "<td class='no-cell'>1</td>" + cols.map(function (c) { return cellFor(c); }).join("");
     var head = cols.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("");
     return "<div class='metric-section'>" +
       "<div class='metric-section-title'>" + esc(title) + "</div>" +
-      "<table class='kv-table'><thead><tr><th class='no-cell'>No</th>" + head + "</tr></thead><tbody><tr>" + row + "</tr></tbody></table>" +
+      "<table class='kv-table'><thead><tr><th class='no-cell'>No</th>" + head + "</tr></thead><tbody><tr class='" + rowClass + "'" + rowAttr + ">" + row + "</tr></tbody></table>" +
       "</div>";
   }
 
@@ -480,31 +479,28 @@ function renderSlowSessionMetricsTable(metrics: any): string {
 
   function cellFor(field: string): string {
     var val = asText(m[field]);
-    if (field === "sql_text" || field === "blocker_sql_text") {
-      //var isLong = val.length > 180;
-      //if (!isLong) return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
-      return "<td class='clickable-cell' data-field='" + esc(field) + "'><div class='cell-preview'>" + esc(val.substring(0, 180)) + "...</div></td>";
-    }
-    if (field === "query_plan_xml" || field === "blocker_plan_xml") {
+    if (field === "query_plan_xml" || field === "blocker_plan_xml" || field === "actual_plan_xml") {
       if (!val) return "<td></td>";
-      return "<td class='clickable-cell' data-field='" + esc(field) + "'>View</td>";
+      return "<td class='clickable-cell' data-field='" + esc(field) + "'><span class='plan-open-chip'>Open Plan</span></td>";
     }
     return "<td><pre class='cell-pre'>" + esc(val) + "</pre></td>";
   }
 
   var blockingTable = "";
   if (hasBlockingSession(m)) {
-    blockingTable = renderMetricTable("Blocking information", blockingCols);
+    blockingTable = renderMetricTable("Blocking information", blockingCols, undefined, "blocker_plan_xml");
   } else {
     blockingTable = renderMetricTable("Blocking information", [], "Khong co blocking session.");
   }
 
   return "<div id='slowMetricsBox'>" +
-    renderMetricTable("Slow session information", sessionCols) +
+    renderMetricTable("Slow session information", sessionCols, undefined, "query_plan_xml") +
     blockingTable +
     "<div id='slowMetricsDetail' class='metrics-detail'>" +
-    "<div class='metrics-detail-head'><div class='metrics-detail-title'>Detail</div><button id='slowMetricsBeautifyBtn' type='button' class='btn-inline'>Beautify</button></div>" +
-    "<pre id='slowMetricsDetailContent' class='cell-pre'></pre></div>" +
+    "<div id='slowMetricsPlanSection' class='metrics-plan-section show'>" +
+    "<div class='metrics-plan-title'>Execution Plan</div>" +
+    "<div id='slowMetricsPlanBox' class='plan-modal-box metrics-plan-box'></div>" +
+    "</div></div>" +
     "</div>";
 }
 
@@ -514,139 +510,157 @@ function bindSlowSessionMetricActions(metrics: any) {
   var payload = {
     sql_text: metrics && metrics.sql_text !== undefined && metrics.sql_text !== null ? String(metrics.sql_text) : "",
     query_plan_xml: metrics && metrics.query_plan_xml !== undefined && metrics.query_plan_xml !== null ? String(metrics.query_plan_xml) : "",
+    actual_plan_xml: metrics && metrics.actual_plan_xml !== undefined && metrics.actual_plan_xml !== null ? String(metrics.actual_plan_xml) : "",
     blocker_sql_text: metrics && metrics.blocker_sql_text !== undefined && metrics.blocker_sql_text !== null ? String(metrics.blocker_sql_text) : "",
     blocker_plan_xml: metrics && metrics.blocker_plan_xml !== undefined && metrics.blocker_plan_xml !== null ? String(metrics.blocker_plan_xml) : ""
   };
   var cells = box.querySelectorAll(".clickable-cell");
+  var rows = box.querySelectorAll(".metric-row-clickable");
   var detail = box.querySelector("#slowMetricsDetail") as HTMLElement | null;
-  var detailContent = box.querySelector("#slowMetricsDetailContent") as HTMLElement | null;
-  var beautifyBtn = box.querySelector("#slowMetricsBeautifyBtn") as HTMLButtonElement | null;
-  var activeDetailField = "";
+  var planSection = box.querySelector("#slowMetricsPlanSection") as HTMLElement | null;
+  var planBox = box.querySelector("#slowMetricsPlanBox") as HTMLElement | null;
 
-  function isSqlField(field: string): boolean {
-    return field === "sql_text" || field === "blocker_sql_text";
-  }
-
-  function setDetailField(field: string, value: string, autoBeautify?: boolean) {
-    if (!detail || !detailContent) return;
-    activeDetailField = field;
+  function setPlanField(field: string, xmlText: string) {
+    if (!detail || !planSection || !planBox) return;
     detail.classList.add("show");
-    detailContent.textContent = String(value || "");
-    if (beautifyBtn) beautifyBtn.style.display = isSqlField(field) ? "inline-block" : "none";
-    if (autoBeautify && isSqlField(field) && String(value || "").trim()) {
-      beautifyActiveSql();
-    }
+    planSection.classList.add("show");
+    var hasBlockingSql = !!(payload.blocker_sql_text && payload.blocker_sql_text.trim());
+    var shouldHideRuntimeHeader = field === "actual_plan_xml" ? false : true;
+    if (field === "blocker_plan_xml" && hasBlockingSql) shouldHideRuntimeHeader = false;
+    var sqlText = field === "blocker_plan_xml" ? payload.blocker_sql_text : payload.sql_text;
+    var forceSqlFill = field === "actual_plan_xml" || (field === "blocker_plan_xml" && hasBlockingSql);
+    renderExecutionPlanToBox(planBox, xmlText, field, shouldHideRuntimeHeader, sqlText, forceSqlFill);
   }
 
-  function beautifyActiveSql() {
-    if (!isSqlField(activeDetailField)) activeDetailField = "sql_text";
-    var raw = activeDetailField === "blocker_sql_text" ? payload.blocker_sql_text : payload.sql_text;
-    if (!raw.trim()) return;
-    if (detail) detail.classList.add("show");
-    if (detailContent) detailContent.textContent = raw;
-    var oldText = beautifyBtn ? beautifyBtn.textContent : "Beautify";
-    if (beautifyBtn) {
-      beautifyBtn.textContent = "Formatting...";
-      beautifyBtn.disabled = true;
+  function resolveSlowSessionPlanSelection(): { field: string; xml: string } {
+    if (payload.query_plan_xml && payload.query_plan_xml.trim()) {
+      return { field: "query_plan_xml", xml: payload.query_plan_xml };
     }
-    ensureQpParserLoaded(function (_ok) {
-      var qpObj = getQpGlobal();
-      function done(text: string) {
-        if (detailContent) detailContent.textContent = text;
-        if (beautifyBtn) {
-          beautifyBtn.disabled = false;
-          beautifyBtn.textContent = oldText || "Beautify";
+    return { field: "actual_plan_xml", xml: payload.actual_plan_xml };
+  }
+
+  for (var r = 0; r < rows.length; r++) {
+    (function (row: Element) {
+      row.addEventListener("click", function () {
+        var field = (row as HTMLElement).getAttribute("data-plan-field") || "";
+        if (field === "query_plan_xml") {
+          var slowPlan = resolveSlowSessionPlanSelection();
+          setPlanField(slowPlan.field, slowPlan.xml);
+          return;
         }
-      }
-      if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
-        qpObj.beautifySqlWithFallback(String(raw)).then(function (formatted: string) {
-          done(formatted);
-        }).catch(function () {
-          done(String(raw));
-        });
-        return;
-      }
-      if (qpObj && typeof qpObj.beautifySql === "function") {
-        done(qpObj.beautifySql(String(raw)));
-      } else {
-        done(String(raw));
-      }
-    });
+        if (field === "blocker_plan_xml") {
+          setPlanField(field, payload[field] || "");
+        }
+      });
+    })(rows[r]);
   }
 
-  if (beautifyBtn) {
-    beautifyBtn.addEventListener("click", function () {
-      beautifyActiveSql();
-    });
-  }
   for (var i = 0; i < cells.length; i++) {
     (function (cell: Element) {
-      cell.addEventListener("click", function () {
+      cell.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
         var field = (cell as HTMLElement).getAttribute("data-field") || "";
-        var value = payload[field] || "";
-        if (detail && detailContent) {
-          detail.classList.add("show");
-          activeDetailField = field;
-          if (beautifyBtn) beautifyBtn.style.display = (field === "sql_text" || field === "blocker_sql_text") ? "inline-block" : "none";
-          if (field === "query_plan_xml" || field === "blocker_plan_xml") {
-            var xmlText = String(value || "");
-            if (!xmlText.trim()) {
-              detailContent.textContent = "";
-              detailContent.innerHTML = "Khong co " + esc(field) + ".";
-              return;
-            }
-            openModal(
-              "Execution Plan",
-              "<div class='plan-modal-body'>" +
-              "<div id='planRenderBox' class='plan-modal-box'></div>" +
-              "</div>"
-            );
-            var planBox = document.getElementById("planRenderBox");
-            if (!planBox) return;
-            ensureQpParserLoaded(function (ok) {
-              if (!ok) {
-                planBox.innerText = "Khong tai duoc QP parser.";
-                return;
-              }
-              try {
-                var qpObj = getQpGlobal();
-                if (qpObj && typeof qpObj.showPlan === "function") {
-                  qpObj.showPlan(planBox, xmlText);
-                  requestAnimationFrame(function () {
-                    redrawExecutionPlanConnectors(planBox);
-                    requestAnimationFrame(function () {
-                      redrawExecutionPlanConnectors(planBox);
-                    });
-                  });
-                  bindExecutionPlanActions(planBox, xmlText);
-                } else {
-                  planBox.innerText = "Khong tai duoc QP parser.";
-                }
-              } catch (_e) {
-                planBox.innerHTML = "<pre>" + esc(xmlText) + "</pre>";
-              }
-            });
-            return;
-          }
-          setDetailField(field, String(value), isSqlField(field));
+        if (field === "actual_plan_xml" || field === "query_plan_xml" || field === "blocker_plan_xml") {
+          setPlanField(field, payload[field] || "");
         }
       });
     })(cells[i]);
   }
 
-  if (payload.sql_text.trim()) {
-    setDetailField("sql_text", payload.sql_text, true);
-  }
+  var initialSlowPlan = resolveSlowSessionPlanSelection();
+  setPlanField(initialSlowPlan.field, initialSlowPlan.xml);
 }
 
-function bindExecutionPlanActions(planBox: HTMLElement, xmlText: string) {
+function isRuntimeExecutionPlanXml(xmlText: string): boolean {
+  var x = String(xmlText || "");
+  if (!x.trim()) return false;
+  var lower = x.toLowerCase();
+  if (lower.indexOf("runtimeinformation") >= 0) return true;
+  if (lower.indexOf("runtimecountersperthread") >= 0) return true;
+  if (lower.indexOf("actualrows") >= 0) return true;
+  if (lower.indexOf("actualelapsedms") >= 0) return true;
+  if (lower.indexOf("actualexecutions") >= 0) return true;
+  return false;
+}
+
+function renderExecutionPlanToBox(
+  planBox: HTMLElement,
+  xmlText: string,
+  _sourceField?: string,
+  hideRuntimeHeader = true,
+  sqlTextFallback?: string,
+  forceSqlFill = false
+) {
+  var normalized = String(xmlText || "");
+  var isRuntimePlan = hideRuntimeHeader && isRuntimeExecutionPlanXml(normalized);
+  if (isRuntimePlan) {
+    planBox.classList.add("plan-source-actual");
+  } else {
+    planBox.classList.remove("plan-source-actual");
+  }
+  if (!normalized.trim()) {
+    var sqlFallback = String(sqlTextFallback || "").trim();
+    if (sqlFallback) {
+      planBox.innerHTML =
+        "<div class='metrics-plan-fallback'>" +
+        "<div class='metrics-plan-fallback-title'>SQL Text</div>" +
+        "<pre class='cell-pre metrics-plan-fallback-pre'>" + esc(sqlFallback) + "</pre>" +
+        "</div>";
+    } else {
+      planBox.innerText = "Khong co execution plan.";
+    }
+    return;
+  }
+  ensureQpParserLoaded(function (ok) {
+    if (!ok) {
+      planBox.innerText = "Khong tai duoc QP parser.";
+      return;
+    }
+    try {
+      var qpObj = getQpGlobal();
+      if (qpObj && typeof qpObj.showPlan === "function") {
+        qpObj.showPlan(planBox, normalized);
+        planBox.setAttribute("data-current-plan-xml", normalized);
+        ensurePlanHeaderSqlText(planBox, sqlTextFallback || "", forceSqlFill);
+        requestAnimationFrame(function () {
+          redrawExecutionPlanConnectors(planBox);
+          requestAnimationFrame(function () {
+            redrawExecutionPlanConnectors(planBox);
+            ensurePlanHeaderSqlText(planBox, sqlTextFallback || "", forceSqlFill);
+          });
+        });
+        setTimeout(function () {
+          ensurePlanHeaderSqlText(planBox, sqlTextFallback || "", forceSqlFill);
+        }, 180);
+        setTimeout(function () {
+          ensurePlanHeaderSqlText(planBox, sqlTextFallback || "", forceSqlFill);
+        }, 500);
+        bindExecutionPlanActions(planBox);
+      } else {
+        planBox.innerText = "Khong tai duoc QP parser.";
+      }
+    } catch (_e) {
+      planBox.innerHTML = "<pre>" + esc(normalized) + "</pre>";
+    }
+  });
+}
+
+function bindExecutionPlanActions(planBox: HTMLElement) {
   var qpObj = getQpGlobal();
   if (!qpObj || typeof qpObj.bindQueryActions !== "function") return;
+  if (planBox.getAttribute("data-qp-actions-bound") === "1") return;
+  planBox.setAttribute("data-qp-actions-bound", "1");
+
+  function getCurrentXml(): string {
+    return String(planBox.getAttribute("data-current-plan-xml") || "");
+  }
+
   qpObj.bindQueryActions(planBox, {
     onOpenQueryPopup: function (ctx: any) {
       var txt = String((ctx && ctx.queryText) || "");
-      openModal("Query Detail", "<pre id='queryDetailPre'>Formatting...</pre>");
-      var pre = document.getElementById("queryDetailPre");
+      openModal("SQL Text Detail", "<pre id='sqlDetailPre'>Formatting...</pre>");
+      var pre = document.getElementById("sqlDetailPre");
       if (!pre) return;
       if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
         qpObj.beautifySqlWithFallback(txt).then(function (formatted: string) {
@@ -659,6 +673,7 @@ function bindExecutionPlanActions(planBox: HTMLElement, xmlText: string) {
       pre.textContent = txt;
     },
     onShowPlanXml: function () {
+      var xmlText = getCurrentXml();
       var treeHtml = (qpObj && typeof qpObj.buildXmlTreeHtml === "function")
         ? qpObj.buildXmlTreeHtml(String(xmlText || ""))
         : ("<div class='xml-text'>Cannot parse XML.</div>");
@@ -672,6 +687,7 @@ function bindExecutionPlanActions(planBox: HTMLElement, xmlText: string) {
       bindXmlTreeToolbar();
     },
     onCopyPlanXml: function () {
+      var xmlText = getCurrentXml();
       copyTextToClipboardWithFallback(String(xmlText || ""));
     },
     onBeautify: function (ctx: any) {
@@ -680,6 +696,21 @@ function bindExecutionPlanActions(planBox: HTMLElement, xmlText: string) {
       }
     }
   });
+}
+
+function ensurePlanHeaderSqlText(planBox: HTMLElement, sqlTextFallback: string, forceFill?: boolean) {
+  var sql = String(sqlTextFallback || "").trim();
+  if (!sql) return;
+  var targets = planBox.querySelectorAll(".qp-real-query, .qp-resolved-query");
+  for (var i = 0; i < targets.length; i++) {
+    var el = targets[i] as HTMLElement;
+    var current = String(el.textContent || "").trim();
+    if (!forceFill && current) continue;
+    if ((el as any).value !== undefined) {
+      try { (el as any).value = sql; } catch (_e) { }
+    }
+    el.textContent = sql;
+  }
 }
 
 function redrawExecutionPlanConnectors(planBox: HTMLElement) {

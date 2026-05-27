@@ -255,6 +255,14 @@ tr.clickable-finding-row .row-action-cell {
   vertical-align: top;
 }
 
+.metric-row-clickable {
+  cursor: pointer;
+}
+
+.metric-row-clickable:hover td {
+  background: var(--color-primary-soft);
+}
+
 .metric-section {
   margin-top: 10px;
   overflow-x: auto;
@@ -300,6 +308,18 @@ tr.clickable-finding-row .row-action-cell {
   text-decoration: underline;
 }
 
+.plan-open-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-info-soft);
+  color: var(--color-info);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .metrics-detail {
   display: none;
   margin-top: 10px;
@@ -343,6 +363,20 @@ tr.clickable-finding-row .row-action-cell {
   word-break: break-word;
 }
 
+.metrics-plan-section {
+  margin-top: 10px;
+}
+
+.metrics-plan-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.metrics-plan-box {
+  height: 60vh;
+  min-height: 380px;
+}
+
 .plan-modal-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -379,6 +413,48 @@ tr.clickable-finding-row .row-action-cell {
   overflow: auto;
   --qp-block-height: 100%;
   --qp-block-height-dvh: 100%;
+}
+
+.metrics-detail .plan-modal-box .qp-statement-header-panel {
+  flex: 0 0 44%;
+  min-height: 220px;
+  overflow: auto;
+}
+
+.metrics-detail .plan-modal-box .qp-statement-header-row>div,
+.metrics-detail .plan-modal-box .qp-real-query,
+.metrics-detail .plan-modal-box .qp-resolved-query,
+.metrics-detail .plan-modal-box .qp-missing-index-panel {
+  overflow-x: auto;
+}
+
+.metrics-detail .plan-modal-box .qp-diagram-panel {
+  flex: 0 0 56%;
+  min-height: 0;
+  overflow: auto;
+  --qp-block-height: 100%;
+  --qp-block-height-dvh: 100%;
+}
+
+.metrics-plan-fallback {
+  padding: 12px;
+}
+
+.metrics-plan-fallback-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.metrics-plan-fallback-pre {
+  max-width: none;
+}
+
+.metrics-detail .plan-modal-box.plan-source-actual .qp-statement-header-panel {
+  display: none;
+}
+
+.metrics-detail .plan-modal-box.plan-source-actual .qp-diagram-panel {
+  flex: 1 1 auto;
 }
 
 .kill-result {
