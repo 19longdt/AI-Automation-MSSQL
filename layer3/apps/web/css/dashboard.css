@@ -363,14 +363,6 @@ tr.clickable-finding-row .row-action-cell {
   word-break: break-word;
 }
 
-.metrics-plan-section {
-  display: none;
-}
-
-.metrics-plan-section.show {
-  display: block;
-}
-
 .metrics-plan-title {
   font-weight: 600;
   margin-bottom: 6px;
@@ -438,6 +430,19 @@ tr.clickable-finding-row .row-action-cell {
   overflow: auto;
   --qp-block-height: 100%;
   --qp-block-height-dvh: 100%;
+}
+
+.metrics-plan-fallback {
+  padding: 12px;
+}
+
+.metrics-plan-fallback-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.metrics-plan-fallback-pre {
+  max-width: none;
 }
 
 .metrics-detail .plan-modal-box.plan-source-actual .qp-statement-header-panel {
