@@ -1,99 +1,99 @@
-# Upgrade Plan: Layer 2 — Plan Analysis Module
+﻿# Upgrade Plan: Layer 2 â€” Plan Analysis Module
 
-> **Mục tiêu:** Thay thế `executor/plan_analyzer.py` (sơ sài) bằng module phân tích plan XML toàn diện.  
-> **Phạm vi:** Layer 2 thêm endpoint mới. Layer 1 và Layer 3 gọi qua HTTP — không thay đổi gì ở hai layer đó.  
-> **Tham khảo:** `plan/analyze/xml-plan-analysis-guide.md`, `PerformanceMonitor/ShowPlanParser.cs`, `PlanAnalyzer.cs`
+> **Má»¥c tiÃªu:** Thay tháº¿ `executor/plan_analyzer.py` (sÆ¡ sÃ i) báº±ng module phÃ¢n tÃ­ch plan XML toÃ n diá»‡n.  
+> **Pháº¡m vi:** Layer 2 thÃªm endpoint má»›i. Layer 1 vÃ  Layer 3 gá»i qua HTTP â€” khÃ´ng thay Ä‘á»•i gÃ¬ á»Ÿ hai layer Ä‘Ã³.  
+> **Tham kháº£o:** `plan/analyze/xml-plan-analysis-guide.md`, `PerformanceMonitor/ShowPlanParser.cs`, `PlanAnalyzer.cs`
 
 ---
 
-## 1. Bối Cảnh & Vấn Đề Hiện Tại
+## 1. Bá»‘i Cáº£nh & Váº¥n Äá» Hiá»‡n Táº¡i
 
-### plan_analyzer.py hiện tại — những gì còn thiếu
+### plan_analyzer.py hiá»‡n táº¡i â€” nhá»¯ng gÃ¬ cÃ²n thiáº¿u
 
-| Capability | Hiện tại | Cần có |
+| Capability | Hiá»‡n táº¡i | Cáº§n cÃ³ |
 |---|---|---|
-| Top operators | ✅ Top 10 by cost | ✅ + actual elapsed, logical reads, row estimate ratio |
-| Missing indexes | ✅ Basic extract | ✅ + impact scoring, quality warnings, auto DDL |
-| Implicit conversion | ✅ Regex trên ScalarString | ✅ + phân biệt seek-blocked vs predicate |
-| Spill detection | ✅ Tag check | ✅ + loại spill, severity |
-| Parallelism | ✅ DOP + count | ✅ + efficiency %, serial reason, thread skew |
-| **Warnings** | ❌ Chỉ list tag names | ✅ 33+ rules với description + recommendation |
-| **Memory grant** | ❌ | ✅ Spill risk, waste, grant wait |
-| **Row estimate mismatch** | ❌ | ✅ Ratio, harm assessment |
-| **Key/RID Lookup** | ❌ | ✅ + columns fetched, DDL suggestion |
-| **Eager Index Spool** | ❌ | ✅ + CREATE INDEX DDL |
-| **Scalar UDF** | ❌ | ✅ Detection + rewrite options |
-| **Parameter sniffing** | ❌ | ✅ Compiled vs runtime mismatch |
-| **Wait stats** | ❌ | ✅ Per wait type + advice |
-| **Statistics stale** | ❌ | ✅ ModificationCount + LastUpdate |
-| **Recommendations** | ❌ | ✅ description + recommendation + action.ddl |
+| Top operators | âœ… Top 10 by cost | âœ… + actual elapsed, logical reads, row estimate ratio |
+| Missing indexes | âœ… Basic extract | âœ… + impact scoring, quality warnings, auto DDL |
+| Implicit conversion | âœ… Regex trÃªn ScalarString | âœ… + phÃ¢n biá»‡t seek-blocked vs predicate |
+| Spill detection | âœ… Tag check | âœ… + loáº¡i spill, severity |
+| Parallelism | âœ… DOP + count | âœ… + efficiency %, serial reason, thread skew |
+| **Warnings** | âŒ Chá»‰ list tag names | âœ… 33+ rules vá»›i description + recommendation |
+| **Memory grant** | âŒ | âœ… Spill risk, waste, grant wait |
+| **Row estimate mismatch** | âŒ | âœ… Ratio, harm assessment |
+| **Key/RID Lookup** | âŒ | âœ… + columns fetched, DDL suggestion |
+| **Eager Index Spool** | âŒ | âœ… + CREATE INDEX DDL |
+| **Scalar UDF** | âŒ | âœ… Detection + rewrite options |
+| **Parameter sniffing** | âŒ | âœ… Compiled vs runtime mismatch |
+| **Wait stats** | âŒ | âœ… Per wait type + advice |
+| **Statistics stale** | âŒ | âœ… ModificationCount + LastUpdate |
+| **Recommendations** | âŒ | âœ… description + recommendation + action.ddl |
 
-### Yêu cầu tích hợp
+### YÃªu cáº§u tÃ­ch há»£p
 
 ```
-Layer 1 (Python)  ──POST /api/v1/plan/analyze──► Layer 2
-                                                  Parse XML → Findings
+Layer 1 (Python)  â”€â”€POST /api/v1/plan/analyzeâ”€â”€â–º Layer 2
+                                                  Parse XML â†’ Findings
                                                   Return PlanAnalysisResult
-Layer 1 nhận kết quả → lưu MongoDB
+Layer 1 nháº­n káº¿t quáº£ â†’ lÆ°u MongoDB
 
-Layer 3 (Node.js) ──POST /api/v1/plan/analyze──► Layer 2
-                                                  Parse XML → Findings
+Layer 3 (Node.js) â”€â”€POST /api/v1/plan/analyzeâ”€â”€â–º Layer 2
+                                                  Parse XML â†’ Findings
                                                   Return PlanAnalysisResult
-Layer 3 nhận kết quả → render UI (không lưu)
+Layer 3 nháº­n káº¿t quáº£ â†’ render UI (khÃ´ng lÆ°u)
 ```
 
-**Endpoint mới** tách biệt hoàn toàn với `/api/v1/analyze` (AI orchestrator).  
-Phân tích plan là **pure XML parsing** — không gọi Claude, không query DB.
+**Endpoint má»›i** tÃ¡ch biá»‡t hoÃ n toÃ n vá»›i `/api/v1/analyze` (AI orchestrator).  
+PhÃ¢n tÃ­ch plan lÃ  **pure XML parsing** â€” khÃ´ng gá»i Claude, khÃ´ng query DB.
 
 ---
 
-## 2. Thiết Kế Module
+## 2. Thiáº¿t Káº¿ Module
 
-### 2.1 Vị trí trong Layer 2
+### 2.1 Vá»‹ trÃ­ trong Layer 2
 
 ```
 layer2/
-├── executor/
-│   ├── plan_analyzer.py       ← GIỮ NGUYÊN (dùng bởi AI agent tool)
-│   └── ...
-│
-└── plan/                      ← MODULE MỚI
-    ├── __init__.py
-    ├── service.py              ← PlanAnalysisService (Facade — entry point duy nhất)
-    ├── models/                 ← Pydantic data models
-    │   ├── __init__.py
-    │   ├── parsed_plan.py      ← ParsedStatement, PlanNode, MemoryGrant, ...
-    │   └── result.py           ← PlanAnalysisResult, Finding, Action, Severity
-    ├── parser/                 ← XML → ParsedPlan (pure data extraction, không logic)
-    │   ├── __init__.py
-    │   ├── plan_parser.py      ← PlanParser — orchestrate các sub-parsers
-    │   ├── statement_parser.py ← Statement-level metadata
-    │   ├── operator_parser.py  ← RelOp tree (recursive)
-    │   └── index_parser.py     ← MissingIndexes + OptimizerStatsUsage
-    └── analyzers/              ← ParsedPlan → Findings (business logic)
-        ├── __init__.py
-        ├── base.py             ← AbstractAnalyzer (Template Method)
-        ├── memory_analyzer.py
-        ├── operator_analyzer.py
-        ├── index_analyzer.py
-        ├── parallelism_analyzer.py
-        ├── parameter_analyzer.py
-        ├── wait_analyzer.py
-        └── registry.py         ← AnalyzerRegistry — quản lý danh sách analyzers
+â”œâ”€â”€ executor/
+â”‚   â”œâ”€â”€ plan_analyzer.py       â† GIá»® NGUYÃŠN (dÃ¹ng bá»Ÿi AI agent tool)
+â”‚   â””â”€â”€ ...
+â”‚
+â””â”€â”€ plan/                      â† MODULE Má»šI
+    â”œâ”€â”€ __init__.py
+    â”œâ”€â”€ service.py              â† PlanAnalysisService (Facade â€” entry point duy nháº¥t)
+    â”œâ”€â”€ models/                 â† Pydantic data models
+    â”‚   â”œâ”€â”€ __init__.py
+    â”‚   â”œâ”€â”€ parsed_plan.py      â† ParsedStatement, PlanNode, MemoryGrant, ... + PlanContext
+    â”‚   â””â”€â”€ result.py           â† PlanAnalysisResult, Finding, Action, Severity
+    â”œâ”€â”€ parser/                 â† XML â†’ ParsedPlan (pure data extraction, khÃ´ng logic)
+    â”‚   â”œâ”€â”€ __init__.py
+    â”‚   â”œâ”€â”€ plan_parser.py      â† PlanParser â€” orchestrate cÃ¡c sub-parsers
+    â”‚   â”œâ”€â”€ statement_parser.py â† Statement-level metadata
+    â”‚   â”œâ”€â”€ operator_parser.py  â† RelOp tree (recursive)
+    â”‚   â””â”€â”€ index_parser.py     â† MissingIndexes + OptimizerStatsUsage
+    â””â”€â”€ analyzers/              â† ParsedPlan â†’ Findings (business logic)
+        â”œâ”€â”€ __init__.py
+        â”œâ”€â”€ base.py             â† AbstractAnalyzer (Template Method)
+        â”œâ”€â”€ memory_analyzer.py
+        â”œâ”€â”€ operator_analyzer.py
+        â”œâ”€â”€ index_analyzer.py
+        â”œâ”€â”€ parallelism_analyzer.py
+        â”œâ”€â”€ parameter_analyzer.py
+        â”œâ”€â”€ wait_analyzer.py
+        â””â”€â”€ registry.py         â† AnalyzerRegistry â€” quáº£n lÃ½ danh sÃ¡ch analyzers
 ```
 
-> **Tại sao tách `plan/` thay vì sửa `executor/plan_analyzer.py`?**  
-> `executor/plan_analyzer.py` đang được AI agent dùng qua tool executor. Thay đổi nó sẽ break AI flow. Module `plan/` là independent, phục vụ endpoint mới.
+> **Táº¡i sao tÃ¡ch `plan/` thay vÃ¬ sá»­a `executor/plan_analyzer.py`?**  
+> `executor/plan_analyzer.py` Ä‘ang Ä‘Æ°á»£c AI agent dÃ¹ng qua tool executor. Thay Ä‘á»•i nÃ³ sáº½ break AI flow. Module `plan/` lÃ  independent, phá»¥c vá»¥ endpoint má»›i.
 
 ---
 
 ## 3. Data Models (`plan/models/`)
 
-### 3.1 `parsed_plan.py` — Output của parser
+### 3.1 `parsed_plan.py` â€” Output cá»§a parser
 
 ```python
-# Trung gian giữa parser và analyzer
-# Không có logic — chỉ là data container
+# Trung gian giá»¯a parser vÃ  analyzer
+# KhÃ´ng cÃ³ logic â€” chá»‰ lÃ  data container
 
 class PlanNode(BaseModel):
     node_id: int
@@ -105,7 +105,7 @@ class PlanNode(BaseModel):
     estimate_rows_without_row_goal: float
     parallel: bool
     lookup: bool                          # Key Lookup flag
-    # Actual stats (None nếu estimated plan)
+    # Actual stats (None náº¿u estimated plan)
     actual_rows: int | None
     actual_executions: int | None
     actual_elapsed_ms: int | None
@@ -119,7 +119,7 @@ class PlanNode(BaseModel):
     defined_values: str | None
     output_columns: str | None
     # Sub-items
-    warnings: list[NodeWarning]           # Warnings từ XML (SpillToTempDb, etc.)
+    warnings: list[NodeWarning]           # Warnings tá»« XML (SpillToTempDb, etc.)
     scalar_udfs: list[str]                # UserDefinedFunction names
     per_thread_stats: list[PerThreadStat] # Parallel skew analysis
     children: list["PlanNode"]
@@ -152,28 +152,37 @@ class ParsedStatement(BaseModel):
 class ParsedPlan(BaseModel):
     statements: list[ParsedStatement]
     build_version: str | None
+
+
+# Context object truyá»n vÃ o analyzer â€” bá»c (statement, plan) thÃ nh 1 unit
+# Khi cáº§n phÃ¢n tÃ­ch loáº¡i khÃ¡c (deadlock, query text, ...) â†’ táº¡o context riÃªng,
+# khÃ´ng sá»­a AbstractAnalyzer.
+@dataclass(frozen=True)
+class PlanContext:
+    statement: ParsedStatement
+    plan: ParsedPlan
 ```
 
-### 3.2 `result.py` — Output trả về caller
+### 3.2 `result.py` â€” Output tráº£ vá» caller
 
 ```python
 class Severity(str, Enum):
-    CRITICAL = "critical"   # Cần fix ngay
-    WARNING  = "warning"    # Có vấn đề, nên xem xét
+    CRITICAL = "critical"   # Cáº§n fix ngay
+    WARNING  = "warning"    # CÃ³ váº¥n Ä‘á», nÃªn xem xÃ©t
     INFO     = "info"       # Awareness
 
 class Action(BaseModel):
     type: str               # "create_index" | "rewrite_query" | "update_stats" | "config"
-    ddl: str | None         # SQL có thể copy-paste chạy ngay
-    description: str        # Mô tả action
+    ddl: str | None         # SQL cÃ³ thá»ƒ copy-paste cháº¡y ngay
+    description: str        # MÃ´ táº£ action
 
 class Finding(BaseModel):
     severity: Severity
     category: str           # "memory" | "operator" | "index" | "parallelism" | "parameter" | "wait" | "code"
     type: str               # "key_lookup" | "spill" | "missing_index" | "implicit_conversion" | ...
-    description: str        # Mô tả vấn đề + context (table, cost%, actual numbers)
-    recommendation: str     # Hướng giải quyết bằng ngôn ngữ tự nhiên
-    action: Action | None   # DDL hoặc SQL cụ thể nếu có
+    description: str        # MÃ´ táº£ váº¥n Ä‘á» + context (table, cost%, actual numbers)
+    recommendation: str     # HÆ°á»›ng giáº£i quyáº¿t báº±ng ngÃ´n ngá»¯ tá»± nhiÃªn
+    action: Action | None   # DDL hoáº·c SQL cá»¥ thá»ƒ náº¿u cÃ³
 
 class StatementResult(BaseModel):
     # Summary
@@ -186,13 +195,13 @@ class StatementResult(BaseModel):
     query_hash: str | None
     query_plan_hash: str | None
 
-    # Findings (kết quả phân tích)
+    # Findings (káº¿t quáº£ phÃ¢n tÃ­ch)
     findings: list[Finding]              # Sorted by severity desc
     critical_count: int
     warning_count: int
     info_count: int
 
-    # Structured data sections (dùng cho UI rendering)
+    # Structured data sections (dÃ¹ng cho UI rendering)
     top_operators: list[OperatorSummary] # Top 10 by cost/elapsed
     missing_indexes: list[IndexSuggestion]
     memory_grant: MemoryGrantSummary | None
@@ -217,15 +226,15 @@ class PlanAnalysisResult(BaseModel):
 
 ## 4. Parser Layer (`plan/parser/`)
 
-**Nguyên tắc:** Parser chỉ **đọc XML và map sang model**. Không có logic "cái này tốt hay xấu". Không raise exception — trả về partial data nếu element thiếu.
+**NguyÃªn táº¯c:** Parser chá»‰ **Ä‘á»c XML vÃ  map sang model**. KhÃ´ng cÃ³ logic "cÃ¡i nÃ y tá»‘t hay xáº¥u". KhÃ´ng raise exception â€” tráº£ vá» partial data náº¿u element thiáº¿u.
 
-### 4.1 `plan_parser.py` — Entry point
+### 4.1 `plan_parser.py` â€” Entry point
 
 ```python
 class PlanParser:
     """
-    Orchestrate toàn bộ XML parsing.
-    Single Responsibility: chỉ coordinate sub-parsers.
+    Orchestrate toÃ n bá»™ XML parsing.
+    Single Responsibility: chá»‰ coordinate sub-parsers.
     """
     NS = "http://schemas.microsoft.com/sqlserver/2004/07/showplan"
 
@@ -256,7 +265,7 @@ class PlanParser:
         )
 ```
 
-### 4.2 `operator_parser.py` — Đệ quy qua RelOp tree
+### 4.2 `operator_parser.py` â€” Äá»‡ quy qua RelOp tree
 
 ```python
 class OperatorParser:
@@ -294,89 +303,86 @@ class OperatorParser:
 
 ## 5. Analyzer Layer (`plan/analyzers/`)
 
-### 5.1 `base.py` — Template Method Pattern
+### 5.1 `base.py` â€” Template Method Pattern
 
-Template Method định nghĩa **skeleton của thuật toán** phân tích. Subclass chỉ override các bước cụ thể.
+Template Method Ä‘á»‹nh nghÄ©a **skeleton cá»§a thuáº­t toÃ¡n** phÃ¢n tÃ­ch. Subclass chá»‰ override cÃ¡c bÆ°á»›c cá»¥ thá»ƒ.
 
 ```python
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 
-class AbstractAnalyzer(ABC):
+TContext = TypeVar("TContext")
+
+
+class AbstractAnalyzer(ABC, Generic[TContext]):
     """
-    Template Method Pattern.
+    Template Method Pattern + Generic[TContext].
 
-    Skeleton cố định:
-      analyze() → _is_applicable() → _collect_findings() → _post_process()
+    TContext = kiá»ƒu context analyzer nháº­n vÃ o.
+    - XML plan analyzers dÃ¹ng: AbstractAnalyzer[PlanContext]
+    - Deadlock analyzers dÃ¹ng: AbstractAnalyzer[DeadlockContext]
+    - Má»—i loáº¡i source cÃ³ TContext riÃªng â€” AbstractAnalyzer khÃ´ng thay Ä‘á»•i.
+
+    Skeleton cá»‘ Ä‘á»‹nh:
+      analyze() â†’ _is_applicable() â†’ _collect_findings() â†’ _post_process()
 
     Subclass implement:
-      - _is_applicable(): điều kiện để analyzer này có thể chạy
-      - _collect_findings(): logic phát hiện vấn đề, trả raw findings
+      - _is_applicable(): Ä‘iá»u kiá»‡n Ä‘á»ƒ analyzer nÃ y cÃ³ thá»ƒ cháº¡y
+      - _collect_findings(): logic phÃ¡t hiá»‡n váº¥n Ä‘á», tráº£ raw findings
 
-    Subclass có thể override (optional):
+    Subclass cÃ³ thá»ƒ override (optional):
       - _post_process(): dedup, sort, limit findings
     """
 
     @property
     @abstractmethod
     def category(self) -> str:
-        """Category của analyzer: memory/operator/index/parallelism/..."""
+        """Category cá»§a analyzer: memory/operator/index/parallelism/..."""
 
-    def analyze(
-        self,
-        statement: ParsedStatement,
-        plan: ParsedPlan,
-    ) -> list[Finding]:
-        """Entry point — KHÔNG override method này."""
-        if not self._is_applicable(statement, plan):
+    def analyze(self, context: TContext) -> list[Finding]:
+        """Entry point â€” KHÃ”NG override method nÃ y."""
+        if not self._is_applicable(context):
             return []
-        findings = self._collect_findings(statement, plan)
+        findings = self._collect_findings(context)
         return self._post_process(findings)
 
     @abstractmethod
-    def _is_applicable(
-        self,
-        statement: ParsedStatement,
-        plan: ParsedPlan,
-    ) -> bool:
+    def _is_applicable(self, context: TContext) -> bool:
         """
-        Guard condition. Trả False để skip analyzer này.
-        Ví dụ: WaitAnalyzer chỉ chạy khi has_actual_stats=True.
+        Guard condition. Tráº£ False Ä‘á»ƒ skip analyzer nÃ y.
+        VÃ­ dá»¥: WaitAnalyzer chá»‰ cháº¡y khi has_actual_stats=True.
         """
 
     @abstractmethod
-    def _collect_findings(
-        self,
-        statement: ParsedStatement,
-        plan: ParsedPlan,
-    ) -> list[Finding]:
-        """Core logic — detect issues, build Finding objects."""
+    def _collect_findings(self, context: TContext) -> list[Finding]:
+        """Core logic â€” detect issues, build Finding objects."""
 
     def _post_process(self, findings: list[Finding]) -> list[Finding]:
         """
         Optional override. Default: sort by severity desc.
-        Subclass có thể override để dedup hoặc limit.
+        Subclass cÃ³ thá»ƒ override Ä‘á»ƒ dedup hoáº·c limit.
         """
         order = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.INFO: 2}
         return sorted(findings, key=lambda f: order[f.severity])
 ```
 
-### 5.2 Ví dụ concrete analyzers
+### 5.2 VÃ­ dá»¥ concrete analyzers
 
 #### `memory_analyzer.py`
 ```python
-class MemoryAnalyzer(AbstractAnalyzer):
-    """Phát hiện memory grant issues: spill risk, waste, grant wait, large grant."""
+class MemoryAnalyzer(AbstractAnalyzer[PlanContext]):
+    """PhÃ¡t hiá»‡n memory grant issues: spill risk, waste, grant wait, large grant."""
 
     @property
     def category(self) -> str:
         return "memory"
 
-    def _is_applicable(self, statement, plan) -> bool:
-        return statement.memory_grant is not None
+    def _is_applicable(self, context: PlanContext) -> bool:
+        return context.statement.memory_grant is not None
 
-    def _collect_findings(self, statement, plan) -> list[Finding]:
+    def _collect_findings(self, context: PlanContext) -> list[Finding]:
         findings = []
-        mg = statement.memory_grant
+        mg = context.statement.memory_grant
 
         # Spill risk
         if mg.max_used_kb and mg.granted_kb:
@@ -386,23 +392,23 @@ class MemoryAnalyzer(AbstractAnalyzer):
                     category=self.category,
                     type="memory_spill_risk",
                     description=(
-                        f"Query đã dùng {mg.max_used_kb // 1024} MB / "
-                        f"{mg.granted_kb // 1024} MB được cấp "
+                        f"Query Ä‘Ã£ dÃ¹ng {mg.max_used_kb // 1024} MB / "
+                        f"{mg.granted_kb // 1024} MB Ä‘Æ°á»£c cáº¥p "
                         f"({mg.max_used_kb * 100 // mg.granted_kb}%). "
-                        "Gần chạm giới hạn — rất có thể đã hoặc sắp spill ra TempDB."
+                        "Gáº§n cháº¡m giá»›i háº¡n â€” ráº¥t cÃ³ thá»ƒ Ä‘Ã£ hoáº·c sáº¯p spill ra TempDB."
                     ),
                     recommendation=(
-                        "Cập nhật statistics để optimizer ước lượng rows chính xác hơn, "
-                        "giúp memory grant phù hợp với dữ liệu thực."
+                        "Cáº­p nháº­t statistics Ä‘á»ƒ optimizer Æ°á»›c lÆ°á»£ng rows chÃ­nh xÃ¡c hÆ¡n, "
+                        "giÃºp memory grant phÃ¹ há»£p vá»›i dá»¯ liá»‡u thá»±c."
                     ),
                     action=Action(
                         type="update_stats",
                         ddl="UPDATE STATISTICS [schema].[table] WITH FULLSCAN;",
-                        description="Update statistics cho các bảng lớn trong plan",
+                        description="Update statistics cho cÃ¡c báº£ng lá»›n trong plan",
                     ),
                 ))
 
-        # Grant wait — server memory pressure
+        # Grant wait â€” server memory pressure
         if mg.grant_wait_ms and mg.grant_wait_ms > 0:
             severity = Severity.CRITICAL if mg.grant_wait_ms >= 5000 else Severity.WARNING
             findings.append(Finding(
@@ -410,12 +416,12 @@ class MemoryAnalyzer(AbstractAnalyzer):
                 category=self.category,
                 type="memory_grant_wait",
                 description=(
-                    f"Query phải chờ {mg.grant_wait_ms:,} ms để được cấp memory. "
-                    "Server đang thiếu workspace memory."
+                    f"Query pháº£i chá» {mg.grant_wait_ms:,} ms Ä‘á»ƒ Ä‘Æ°á»£c cáº¥p memory. "
+                    "Server Ä‘ang thiáº¿u workspace memory."
                 ),
                 recommendation=(
-                    "Kiểm tra memory pressure tổng thể trên server. "
-                    "Xem xét giảm max_grant_percent hoặc tối ưu các query tốn nhiều memory."
+                    "Kiá»ƒm tra memory pressure tá»•ng thá»ƒ trÃªn server. "
+                    "Xem xÃ©t giáº£m max_grant_percent hoáº·c tá»‘i Æ°u cÃ¡c query tá»‘n nhiá»u memory."
                 ),
                 action=None,
             ))
@@ -429,13 +435,13 @@ class MemoryAnalyzer(AbstractAnalyzer):
                     category=self.category,
                     type="memory_wasted_grant",
                     description=(
-                        f"Query được cấp {mg.granted_kb // 1024} MB nhưng chỉ dùng "
+                        f"Query Ä‘Æ°á»£c cáº¥p {mg.granted_kb // 1024} MB nhÆ°ng chá»‰ dÃ¹ng "
                         f"{mg.max_used_kb // 1024} MB ({waste_ratio}x overestimate). "
-                        "Memory dư bị giữ lock, giảm concurrency server."
+                        "Memory dÆ° bá»‹ giá»¯ lock, giáº£m concurrency server."
                     ),
                     recommendation=(
-                        "Statistics có thể đã stale — row estimate quá cao dẫn đến "
-                        "memory grant thừa. Chạy UPDATE STATISTICS."
+                        "Statistics cÃ³ thá»ƒ Ä‘Ã£ stale â€” row estimate quÃ¡ cao dáº«n Ä‘áº¿n "
+                        "memory grant thá»«a. Cháº¡y UPDATE STATISTICS."
                     ),
                     action=None,
                 ))
@@ -444,9 +450,9 @@ class MemoryAnalyzer(AbstractAnalyzer):
 
 #### `operator_analyzer.py`
 ```python
-class OperatorAnalyzer(AbstractAnalyzer):
+class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
     """
-    Phân tích operator tree: Key Lookup, Eager Spool, Sort, NL high exec,
+    PhÃ¢n tÃ­ch operator tree: Key Lookup, Eager Spool, Sort, NL high exec,
     Scan with predicate, Non-SARGable, Row estimate mismatch.
     """
 
@@ -454,14 +460,14 @@ class OperatorAnalyzer(AbstractAnalyzer):
     def category(self) -> str:
         return "operator"
 
-    def _is_applicable(self, statement, plan) -> bool:
-        return statement.root_node is not None
+    def _is_applicable(self, context: PlanContext) -> bool:
+        return context.statement.root_node is not None
 
-    def _collect_findings(self, statement, plan) -> list[Finding]:
+    def _collect_findings(self, context: PlanContext) -> list[Finding]:
         findings = []
-        all_nodes = self._flatten(statement.root_node)
+        all_nodes = self._flatten(context.statement.root_node)
         for node in all_nodes:
-            findings.extend(self._analyze_node(node, statement))
+            findings.extend(self._analyze_node(node, context.statement))
         return findings
 
     def _analyze_node(self, node: PlanNode, stmt: ParsedStatement) -> list[Finding]:
@@ -477,13 +483,13 @@ class OperatorAnalyzer(AbstractAnalyzer):
                 category=self.category,
                 type="key_lookup",
                 description=(
-                    f"Key Lookup trên {node.object_name or 'unknown'} "
-                    f"chiếm ~{cost_pct:.0f}% estimated cost. "
-                    f"Columns cần fetch: {include_cols}."
+                    f"Key Lookup trÃªn {node.object_name or 'unknown'} "
+                    f"chiáº¿m ~{cost_pct:.0f}% estimated cost. "
+                    f"Columns cáº§n fetch: {include_cols}."
                 ),
                 recommendation=(
-                    "Thêm các columns này vào INCLUDE list của nonclustered index "
-                    "để tạo covering index, loại bỏ Key Lookup."
+                    "ThÃªm cÃ¡c columns nÃ y vÃ o INCLUDE list cá»§a nonclustered index "
+                    "Ä‘á»ƒ táº¡o covering index, loáº¡i bá» Key Lookup."
                 ),
                 action=self._build_include_action(node),
             ))
@@ -495,17 +501,17 @@ class OperatorAnalyzer(AbstractAnalyzer):
                 category=self.category,
                 type="eager_index_spool",
                 description=(
-                    f"Eager Index Spool tại node {node.node_id}. "
-                    "SQL Server đang tự build temporary index trong TempDB mỗi lần execute."
+                    f"Eager Index Spool táº¡i node {node.node_id}. "
+                    "SQL Server Ä‘ang tá»± build temporary index trong TempDB má»—i láº§n execute."
                 ),
                 recommendation=(
-                    "Tạo permanent index trên bảng nguồn để loại bỏ spool. "
-                    "Spool này rebuild index từ đầu mỗi lần query chạy."
+                    "Táº¡o permanent index trÃªn báº£ng nguá»“n Ä‘á»ƒ loáº¡i bá» spool. "
+                    "Spool nÃ y rebuild index tá»« Ä‘áº§u má»—i láº§n query cháº¡y."
                 ),
                 action=Action(
                     type="create_index",
                     ddl=node.suggested_index,
-                    description="Tạo index permanent để thay thế spool",
+                    description="Táº¡o index permanent Ä‘á»ƒ thay tháº¿ spool",
                 ) if node.suggested_index else None,
             ))
 
@@ -524,13 +530,13 @@ class OperatorAnalyzer(AbstractAnalyzer):
                     description=(
                         f"{node.physical_op} (node {node.node_id}): "
                         f"Estimated {node.estimate_rows:,.0f} rows, "
-                        f"actual {actual_per_exec:,.0f} rows/exec — "
+                        f"actual {actual_per_exec:,.0f} rows/exec â€” "
                         f"{factor:.0f}x {direction}."
                     ),
                     recommendation=(
-                        "Row estimate sai dẫn đến sai join type, memory grant, "
-                        "và access method. Cập nhật statistics hoặc dùng "
-                        "OPTION(RECOMPILE) để force re-estimate."
+                        "Row estimate sai dáº«n Ä‘áº¿n sai join type, memory grant, "
+                        "vÃ  access method. Cáº­p nháº­t statistics hoáº·c dÃ¹ng "
+                        "OPTION(RECOMPILE) Ä‘á»ƒ force re-estimate."
                     ),
                     action=None,
                 ))
@@ -540,26 +546,26 @@ class OperatorAnalyzer(AbstractAnalyzer):
 
 #### `index_analyzer.py`
 ```python
-class IndexAnalyzer(AbstractAnalyzer):
-    """Phân tích missing indexes: impact, chất lượng gợi ý, auto DDL."""
+class IndexAnalyzer(AbstractAnalyzer[PlanContext]):
+    """PhÃ¢n tÃ­ch missing indexes: impact, cháº¥t lÆ°á»£ng gá»£i Ã½, auto DDL."""
 
     @property
     def category(self) -> str:
         return "index"
 
-    def _is_applicable(self, statement, plan) -> bool:
-        return len(statement.missing_indexes) > 0
+    def _is_applicable(self, context: PlanContext) -> bool:
+        return len(context.statement.missing_indexes) > 0
 
-    def _collect_findings(self, statement, plan) -> list[Finding]:
+    def _collect_findings(self, context: PlanContext) -> list[Finding]:
         findings = []
         table_counts: dict[str, int] = {}
 
-        for mi in statement.missing_indexes:
+        for mi in context.statement.missing_indexes:
             table_key = f"{mi.schema}.{mi.table}"
             table_counts[table_key] = table_counts.get(table_key, 0) + 1
 
         seen_tables: set[str] = set()
-        for mi in statement.missing_indexes:
+        for mi in context.statement.missing_indexes:
             table_key = f"{mi.schema}.{mi.table}"
             key_cols = mi.equality_columns + mi.inequality_columns
             include_cols = mi.include_columns
@@ -572,10 +578,10 @@ class IndexAnalyzer(AbstractAnalyzer):
                     category=self.category,
                     type="duplicate_index_suggestions",
                     description=(
-                        f"{table_counts[table_key]} gợi ý missing index cùng bảng {table_key}. "
-                        "Tạo hết sẽ gây maintenance overhead."
+                        f"{table_counts[table_key]} gá»£i Ã½ missing index cÃ¹ng báº£ng {table_key}. "
+                        "Táº¡o háº¿t sáº½ gÃ¢y maintenance overhead."
                     ),
-                    recommendation="Consolidate thành 1-2 composite index thay vì tạo riêng lẻ.",
+                    recommendation="Consolidate thÃ nh 1-2 composite index thay vÃ¬ táº¡o riÃªng láº».",
                     action=None,
                 ))
 
@@ -586,17 +592,17 @@ class IndexAnalyzer(AbstractAnalyzer):
                     category=self.category,
                     type="wide_index_suggestion",
                     description=(
-                        f"Missing index trên {table_key} có {len(include_cols)} INCLUDE columns. "
-                        "\"Kitchen sink\" index — SQL Server gợi ý cover mọi column query dùng."
+                        f"Missing index trÃªn {table_key} cÃ³ {len(include_cols)} INCLUDE columns. "
+                        "\"Kitchen sink\" index â€” SQL Server gá»£i Ã½ cover má»i column query dÃ¹ng."
                     ),
                     recommendation=(
-                        "Đánh giá lại xem columns nào thực sự cần. "
-                        "Index rộng tốn storage và làm chậm INSERT/UPDATE/DELETE."
+                        "ÄÃ¡nh giÃ¡ láº¡i xem columns nÃ o thá»±c sá»± cáº§n. "
+                        "Index rá»™ng tá»‘n storage vÃ  lÃ m cháº­m INSERT/UPDATE/DELETE."
                     ),
                     action=Action(
                         type="create_index",
                         ddl=mi.create_statement,
-                        description=f"Tham khảo DDL (review trước khi apply): impact {mi.impact:.1f}%",
+                        description=f"Tham kháº£o DDL (review trÆ°á»›c khi apply): impact {mi.impact:.1f}%",
                     ),
                 ))
             elif mi.impact >= 25:
@@ -605,13 +611,13 @@ class IndexAnalyzer(AbstractAnalyzer):
                     category=self.category,
                     type="missing_index",
                     description=(
-                        f"Missing index trên {table_key} với impact {mi.impact:.1f}%. "
+                        f"Missing index trÃªn {table_key} vá»›i impact {mi.impact:.1f}%. "
                         f"Key columns: {', '.join(key_cols)}. "
                         + (f"Include: {', '.join(include_cols)}." if include_cols else "")
                     ),
                     recommendation=(
-                        f"Tạo index này để cải thiện ước tính {mi.impact:.0f}% query cost. "
-                        "Test trên môi trường staging trước."
+                        f"Táº¡o index nÃ y Ä‘á»ƒ cáº£i thiá»‡n Æ°á»›c tÃ­nh {mi.impact:.0f}% query cost. "
+                        "Test trÃªn mÃ´i trÆ°á»ng staging trÆ°á»›c."
                     ),
                     action=Action(
                         type="create_index",
@@ -623,29 +629,33 @@ class IndexAnalyzer(AbstractAnalyzer):
         return findings
 ```
 
-### 5.3 `registry.py` — Quản lý danh sách analyzers
+### 5.3 `registry.py` â€” Quáº£n lÃ½ danh sÃ¡ch analyzers
 
 ```python
-class AnalyzerRegistry:
+class AnalyzerRegistry(Generic[TContext]):
     """
-    Open/Closed Principle: thêm analyzer mới chỉ cần register, không sửa code cũ.
-    Dependency Inversion: PlanAnalysisService phụ thuộc vào abstraction (AbstractAnalyzer),
-    không phụ thuộc vào concrete implementations.
+    Open/Closed Principle: thÃªm analyzer má»›i chá»‰ cáº§n register, khÃ´ng sá»­a code cÅ©.
+    Dependency Inversion: PlanAnalysisService phá»¥ thuá»™c vÃ o abstraction (AbstractAnalyzer),
+    khÃ´ng phá»¥ thuá»™c vÃ o concrete implementations.
+
+    Generic[TContext]: registry chá»‰ chá»©a analyzers cÃ¹ng loáº¡i context.
+    - AnalyzerRegistry[PlanContext]   â†’ plan XML analyzers
+    - AnalyzerRegistry[DeadlockContext] â†’ deadlock analyzers (tÆ°Æ¡ng lai)
     """
 
     def __init__(self) -> None:
-        self._analyzers: list[AbstractAnalyzer] = []
+        self._analyzers: list[AbstractAnalyzer[TContext]] = []
 
-    def register(self, analyzer: AbstractAnalyzer) -> "AnalyzerRegistry":
+    def register(self, analyzer: AbstractAnalyzer[TContext]) -> "AnalyzerRegistry[TContext]":
         self._analyzers.append(analyzer)
         return self  # Fluent interface
 
-    def get_all(self) -> list[AbstractAnalyzer]:
+    def get_all(self) -> list[AbstractAnalyzer[TContext]]:
         return list(self._analyzers)
 
     @classmethod
-    def default(cls) -> "AnalyzerRegistry":
-        """Factory method — tạo registry với tất cả built-in analyzers."""
+    def default(cls) -> "AnalyzerRegistry[PlanContext]":
+        """Factory method â€” táº¡o registry vá»›i táº¥t cáº£ built-in plan analyzers."""
         return (
             cls()
             .register(MemoryAnalyzer())
@@ -655,25 +665,25 @@ class AnalyzerRegistry:
             .register(ParameterAnalyzer())
             .register(WaitAnalyzer())
             .register(StatisticsAnalyzer())
-            # Thêm analyzer mới ở đây khi cần
+            # ThÃªm analyzer má»›i á»Ÿ Ä‘Ã¢y khi cáº§n
         )
 ```
 
 ---
 
-## 6. Service Layer (`plan/service.py`) — Facade
+## 6. Service Layer (`plan/service.py`) â€” Facade
 
 ```python
 class PlanAnalysisService:
     """
-    Facade — entry point duy nhất cho toàn bộ plan analysis.
-    Caller (API route, Layer 1) chỉ cần biết class này.
+    Facade â€” entry point duy nháº¥t cho toÃ n bá»™ plan analysis.
+    Caller (API route, Layer 1) chá»‰ cáº§n biáº¿t class nÃ y.
     """
 
     def __init__(
         self,
         parser: PlanParser,
-        registry: AnalyzerRegistry,
+        registry: AnalyzerRegistry[PlanContext],
     ) -> None:
         self._parser = parser
         self._registry = registry
@@ -681,13 +691,14 @@ class PlanAnalysisService:
     def analyze(self, plan_xml: str) -> PlanAnalysisResult:
         start = time.monotonic()
 
-        parsed = self._parser.parse(plan_xml)  # XML → ParsedPlan
+        parsed = self._parser.parse(plan_xml)  # XML â†’ ParsedPlan
 
         statement_results = []
         for stmt in parsed.statements:
+            context = PlanContext(statement=stmt, plan=parsed)
             findings: list[Finding] = []
             for analyzer in self._registry.get_all():
-                findings.extend(analyzer.analyze(stmt, parsed))
+                findings.extend(analyzer.analyze(context))
 
             statement_results.append(
                 StatementResult(
@@ -726,7 +737,7 @@ class PlanAnalysisService:
 
     @classmethod
     def create(cls) -> "PlanAnalysisService":
-        """Factory — wiring dependencies. Dùng trong main.py startup."""
+        """Factory â€” wiring dependencies. DÃ¹ng trong main.py startup."""
         return cls(
             parser=PlanParser(
                 statement_parser=StatementParser(),
@@ -739,7 +750,7 @@ class PlanAnalysisService:
 
 ---
 
-## 7. API Endpoint Mới
+## 7. API Endpoint Má»›i
 
 ### `api/routes/plan.py`
 
@@ -759,13 +770,13 @@ async def analyze_plan(
     body: PlanAnalyzeRequest,
 ) -> PlanAnalyzeResponse:
     """
-    Parse và phân tích SQL Server execution plan XML.
-    Pure deterministic — không gọi AI, không query DB.
-    Layer 1: gọi để lấy kết quả rồi tự lưu MongoDB.
-    Layer 3: gọi để render UI.
+    Parse vÃ  phÃ¢n tÃ­ch SQL Server execution plan XML.
+    Pure deterministic â€” khÃ´ng gá»i AI, khÃ´ng query DB.
+    Layer 1: gá»i Ä‘á»ƒ láº¥y káº¿t quáº£ rá»“i tá»± lÆ°u MongoDB.
+    Layer 3: gá»i Ä‘á»ƒ render UI.
     """
     if not body.plan_xml or not body.plan_xml.strip():
-        raise HTTPException(status_code=400, detail="plan_xml không được để trống")
+        raise HTTPException(status_code=400, detail="plan_xml khÃ´ng Ä‘Æ°á»£c Ä‘á»ƒ trá»‘ng")
 
     service: PlanAnalysisService = request.app.state.plan_analysis_service
     try:
@@ -776,7 +787,7 @@ async def analyze_plan(
     return result
 ```
 
-### Đăng ký trong `main.py`
+### ÄÄƒng kÃ½ trong `main.py`
 
 ```python
 # Startup
@@ -819,24 +830,24 @@ POST /api/v1/plan/analyze
           "severity": "critical",
           "category": "operator",
           "type": "key_lookup",
-          "description": "Key Lookup trên dbo.Orders chiếm ~45% estimated cost. Columns cần fetch: Status, TotalAmount, CreatedAt.",
-          "recommendation": "Thêm Status, TotalAmount, CreatedAt vào INCLUDE list của IX_Orders_CustomerId để tạo covering index.",
+          "description": "Key Lookup trÃªn dbo.Orders chiáº¿m ~45% estimated cost. Columns cáº§n fetch: Status, TotalAmount, CreatedAt.",
+          "recommendation": "ThÃªm Status, TotalAmount, CreatedAt vÃ o INCLUDE list cá»§a IX_Orders_CustomerId Ä‘á»ƒ táº¡o covering index.",
           "action": {
             "type": "create_index",
-            "ddl": "ALTER INDEX [IX_Orders_CustomerId] ON [dbo].[Orders] REBUILD;\n-- Hoặc tạo mới:\nCREATE NONCLUSTERED INDEX [IX_Orders_CustomerId_Cover]\nON [dbo].[Orders] ([CustomerId])\nINCLUDE ([Status], [TotalAmount], [CreatedAt]);",
-            "description": "Covering index để loại bỏ Key Lookup"
+            "ddl": "ALTER INDEX [IX_Orders_CustomerId] ON [dbo].[Orders] REBUILD;\n-- Hoáº·c táº¡o má»›i:\nCREATE NONCLUSTERED INDEX [IX_Orders_CustomerId_Cover]\nON [dbo].[Orders] ([CustomerId])\nINCLUDE ([Status], [TotalAmount], [CreatedAt]);",
+            "description": "Covering index Ä‘á»ƒ loáº¡i bá» Key Lookup"
           }
         },
         {
           "severity": "warning",
           "category": "memory",
           "type": "memory_spill_risk",
-          "description": "Query đã dùng 480 MB / 512 MB được cấp (93%). Gần chạm giới hạn.",
-          "recommendation": "Cập nhật statistics để optimizer ước lượng rows chính xác hơn.",
+          "description": "Query Ä‘Ã£ dÃ¹ng 480 MB / 512 MB Ä‘Æ°á»£c cáº¥p (93%). Gáº§n cháº¡m giá»›i háº¡n.",
+          "recommendation": "Cáº­p nháº­t statistics Ä‘á»ƒ optimizer Æ°á»›c lÆ°á»£ng rows chÃ­nh xÃ¡c hÆ¡n.",
           "action": {
             "type": "update_stats",
             "ddl": "UPDATE STATISTICS [dbo].[Orders] WITH FULLSCAN;",
-            "description": "Update statistics cho bảng Orders"
+            "description": "Update statistics cho báº£ng Orders"
           }
         }
       ],
@@ -892,15 +903,15 @@ POST /api/v1/plan/analyze
 
 ---
 
-## 9. Analyzers Cần Implement
+## 9. Analyzers Cáº§n Implement
 
-| Analyzer | Category | Rules chính |
+| Analyzer | Category | Rules chÃ­nh |
 |---|---|---|
 | `MemoryAnalyzer` | memory | Spill risk, wasted grant, grant wait, large grant (>1GB) |
 | `OperatorAnalyzer` | operator | Key Lookup, RID Lookup, Eager Index Spool, Sort>20%, Filter operator, Lazy Spool ineffective, NL high exec, Row estimate mismatch, Non-SARGable (CONVERT_IMPLICIT, ISNULL, leading LIKE, CASE, function on column), Scan with predicate |
 | `IndexAnalyzer` | index | Missing index (impact, DDL), wide INCLUDE, low impact, duplicate suggestions |
 | `ParallelismAnalyzer` | parallelism | Serial plan reason (actionable vs passive), ineffective parallelism efficiency%, parallel wait bottleneck, thread skew |
-| `ParameterAnalyzer` | parameter | Sniffing mismatch (compiled≠runtime), local variables (no compiled value), OPTIMIZE FOR UNKNOWN |
+| `ParameterAnalyzer` | parameter | Sniffing mismatch (compiledâ‰ runtime), local variables (no compiled value), OPTIMIZE FOR UNKNOWN |
 | `WaitAnalyzer` | wait | LCK (blocking), PAGEIOLATCH (disk I/O), CXPACKET (parallelism), RESOURCE_SEMAPHORE (memory), SOS_SCHEDULER_YIELD (CPU) |
 | `StatisticsAnalyzer` | statistics | Stale stats (high ModificationCount + old LastUpdate), low sampling %, never updated |
 | `CodePatternAnalyzer` | code | Scalar UDF detected, table variable, CTE multi-reference, NOT IN nullable, Row Goal active |
@@ -908,7 +919,7 @@ POST /api/v1/plan/analyze
 
 ---
 
-## 10. Danh Sách Finding Types
+## 10. Danh SÃ¡ch Finding Types
 
 ```python
 # operator
@@ -961,102 +972,126 @@ POST /api/v1/plan/analyze
 
 ## 11. SOLID Compliance
 
-| Nguyên tắc | Áp dụng |
+| NguyÃªn táº¯c | Ãp dá»¥ng |
 |---|---|
-| **S** Single Responsibility | Parser chỉ parse. Mỗi Analyzer chỉ analyze 1 category. Service chỉ orchestrate. |
-| **O** Open/Closed | Thêm analyzer mới: tạo class + `registry.register()`. Không sửa code cũ. |
-| **L** Liskov Substitution | Mọi `AbstractAnalyzer` subclass có thể thay thế nhau trong registry. |
-| **I** Interface Segregation | `AbstractAnalyzer` chỉ expose `analyze()`. Parser sub-classes tách theo domain. |
-| **D** Dependency Inversion | `PlanAnalysisService` nhận `PlanParser` và `AnalyzerRegistry` qua constructor — testable và replaceable. |
+| **S** Single Responsibility | Parser chá»‰ parse. Má»—i Analyzer chá»‰ analyze 1 category. Service chá»‰ orchestrate. `PlanContext` chá»‰ lÃ  data holder. |
+| **O** Open/Closed | ThÃªm plan analyzer má»›i: táº¡o class `AbstractAnalyzer[PlanContext]` + register. ThÃªm loáº¡i source má»›i (deadlock): táº¡o `DeadlockContext` + `AbstractAnalyzer[DeadlockContext]`. KhÃ´ng sá»­a code cÅ©. |
+| **L** Liskov Substitution | Má»i `AbstractAnalyzer[PlanContext]` subclass cÃ³ thá»ƒ thay tháº¿ nhau trong `AnalyzerRegistry[PlanContext]`. |
+| **I** Interface Segregation | `AbstractAnalyzer` chá»‰ expose `analyze(context)`. Parser sub-classes tÃ¡ch theo domain. `PlanContext` khÃ´ng expose method â€” chá»‰ lÃ  data. |
+| **D** Dependency Inversion | `AbstractAnalyzer` phá»¥ thuá»™c `TContext` abstraction, khÃ´ng phá»¥ thuá»™c `ParsedPlan` concrete. `PlanAnalysisService` nháº­n `AnalyzerRegistry[PlanContext]` qua constructor. |
 
 ---
 
-## 12. Template Method — Extensibility
+## 12. Template Method â€” Extensibility
 
-Khi cần thêm analyzer mới (ví dụ `ColumnstoreAnalyzer` trong tương lai):
+Khi cáº§n thÃªm analyzer má»›i (vÃ­ dá»¥ `ColumnstoreAnalyzer` trong tÆ°Æ¡ng lai):
 
 ```python
-class ColumnstoreAnalyzer(AbstractAnalyzer):
+# ThÃªm analyzer cÃ¹ng loáº¡i (XML plan) â€” chá»‰ cáº§n táº¡o class vÃ  register
+class ColumnstoreAnalyzer(AbstractAnalyzer[PlanContext]):
 
     @property
     def category(self) -> str:
         return "columnstore"
 
-    def _is_applicable(self, statement, plan) -> bool:
-        # Chỉ chạy khi plan có columnstore operators
+    def _is_applicable(self, context: PlanContext) -> bool:
         return any(
             "Columnstore" in n.physical_op
-            for n in self._flatten(statement.root_node)
+            for n in self._flatten(context.statement.root_node)
         )
 
-    def _collect_findings(self, statement, plan) -> list[Finding]:
+    def _collect_findings(self, context: PlanContext) -> list[Finding]:
         findings = []
-        # ... logic phân tích segment reads/skips, batch mode, ...
+        # ... logic phÃ¢n tÃ­ch segment reads/skips, batch mode, ...
         return findings
 
-# Đăng ký — KHÔNG cần sửa bất kỳ file nào khác
+# ÄÄƒng kÃ½ â€” KHÃ”NG cáº§n sá»­a báº¥t ká»³ file nÃ o khÃ¡c
 registry.register(ColumnstoreAnalyzer())
+
+
+# ThÃªm loáº¡i phÃ¢n tÃ­ch má»›i (deadlock graph) â€” TContext khÃ¡c, khÃ´ng cháº¡m code plan/
+@dataclass(frozen=True)
+class DeadlockContext:
+    deadlock: ParsedDeadlock          # model riÃªng trong layer2/deadlock/
+
+class VictimChainAnalyzer(AbstractAnalyzer[DeadlockContext]):
+
+    @property
+    def category(self) -> str:
+        return "deadlock"
+
+    def _is_applicable(self, context: DeadlockContext) -> bool:
+        return len(context.deadlock.victims) > 1
+
+    def _collect_findings(self, context: DeadlockContext) -> list[Finding]:
+        findings = []
+        # ... logic phÃ¢n tÃ­ch deadlock chain, ...
+        return findings
+
+deadlock_registry = AnalyzerRegistry[DeadlockContext]()
+deadlock_registry.register(VictimChainAnalyzer())
+# AbstractAnalyzer khÃ´ng thay Ä‘á»•i â€” Finding model dÃ¹ng chung
 ```
 
 ---
 
-## 13. Migration từ plan_analyzer.py Hiện Tại
+## 13. Migration tá»« plan_analyzer.py Hiá»‡n Táº¡i
 
-`executor/plan_analyzer.py` **giữ nguyên** — AI agent tool vẫn dùng nó.
+`executor/plan_analyzer.py` **giá»¯ nguyÃªn** â€” AI agent tool váº«n dÃ¹ng nÃ³.
 
-Sau khi module `plan/` hoàn thành:
-- Layer 1's `plan_analysis` detector: giữ nguyên logic hiện có hoặc upgrade gọi endpoint mới
-- AI agent (`tool_executor.py`): tool `analyze_plan` vẫn gọi `executor/plan_analyzer.py`
-- Endpoint mới `/api/v1/plan/analyze`: dùng module `plan/` hoàn toàn mới
+Sau khi module `plan/` hoÃ n thÃ nh:
+- Layer 1's `plan_analysis` detector: giá»¯ nguyÃªn logic hiá»‡n cÃ³ hoáº·c upgrade gá»i endpoint má»›i
+- AI agent (`tool_executor.py`): tool `analyze_plan` váº«n gá»i `executor/plan_analyzer.py`
+- Endpoint má»›i `/api/v1/plan/analyze`: dÃ¹ng module `plan/` hoÃ n toÃ n má»›i
 
-Không có breaking change.
+KhÃ´ng cÃ³ breaking change.
 
 ---
 
-## 14. Thứ Tự Implementation
+## 14. Thá»© Tá»± Implementation
 
 ```
-Phase 1 — Foundation (không có UI, test bằng curl)
-  [ ] plan/models/parsed_plan.py  — PlanNode, ParsedStatement, ParsedPlan
-  [ ] plan/models/result.py       — Finding, Action, Severity, PlanAnalysisResult
-  [ ] plan/parser/plan_parser.py  — XML → ParsedPlan
-  [ ] plan/analyzers/base.py      — AbstractAnalyzer (Template Method)
-  [ ] plan/service.py             — PlanAnalysisService.create()
-  [ ] api/routes/plan.py          — POST /api/v1/plan/analyze
-  [ ] main.py                     — register route + init service
+Phase 1 â€” Foundation (khÃ´ng cÃ³ UI, test báº±ng curl)
+  [ ] plan/models/parsed_plan.py  â€” PlanNode, ParsedStatement, ParsedPlan
+  [ ] plan/models/result.py       â€” Finding, Action, Severity, PlanAnalysisResult
+  [ ] plan/parser/plan_parser.py  â€” XML â†’ ParsedPlan
+  [ ] plan/analyzers/base.py      â€” AbstractAnalyzer (Template Method)
+  [ ] plan/service.py             â€” PlanAnalysisService.create()
+  [ ] api/routes/plan.py          â€” POST /api/v1/plan/analyze
+  [ ] main.py                     â€” register route + init service
 
-Phase 2 — Core Analyzers (các vấn đề quan trọng nhất)
-  [ ] OperatorAnalyzer            — Key Lookup, Eager Spool, Row estimate mismatch
-  [ ] IndexAnalyzer               — Missing index + DDL
-  [ ] MemoryAnalyzer              — Spill risk, grant wait, waste
-  [ ] ParallelismAnalyzer         — Serial reason, efficiency
+Phase 2 â€” Core Analyzers (cÃ¡c váº¥n Ä‘á» quan trá»ng nháº¥t)
+  [ ] OperatorAnalyzer            â€” Key Lookup, Eager Spool, Row estimate mismatch
+  [ ] IndexAnalyzer               â€” Missing index + DDL
+  [ ] MemoryAnalyzer              â€” Spill risk, grant wait, waste
+  [ ] ParallelismAnalyzer         â€” Serial reason, efficiency
 
-Phase 3 — Full Coverage
-  [ ] ParameterAnalyzer           — Sniffing, local variables
-  [ ] WaitAnalyzer                — Per wait type advice
-  [ ] StatisticsAnalyzer          — Stale stats
-  [ ] CodePatternAnalyzer         — UDF, table variable, CTE
-  [ ] CompilationAnalyzer         — High compile CPU, CE version
+Phase 3 â€” Full Coverage
+  [ ] ParameterAnalyzer           â€” Sniffing, local variables
+  [ ] WaitAnalyzer                â€” Per wait type advice
+  [ ] StatisticsAnalyzer          â€” Stale stats
+  [ ] CodePatternAnalyzer         â€” UDF, table variable, CTE
+  [ ] CompilationAnalyzer         â€” High compile CPU, CE version
 
-Phase 4 — Integration
-  [ ] Layer 1: gọi endpoint + lưu MongoDB
-  [ ] Layer 3: gọi endpoint + render UI
+Phase 4 â€” Integration
+  [ ] Layer 1: gá»i endpoint + lÆ°u MongoDB
+  [ ] Layer 3: gá»i endpoint + render UI
 ```
 
 ---
 
 ## 15. File Summary
 
-| File | Dòng ước tính | Mô tả |
+| File | DÃ²ng Æ°á»›c tÃ­nh | MÃ´ táº£ |
 |---|---|---|
-| `plan/models/parsed_plan.py` | ~150 | Data containers từ XML |
+| `plan/models/parsed_plan.py` | ~150 | Data containers tá»« XML |
 | `plan/models/result.py` | ~100 | Output models |
 | `plan/parser/plan_parser.py` | ~80 | Orchestrator parser |
 | `plan/parser/statement_parser.py` | ~120 | Statement metadata |
 | `plan/parser/operator_parser.py` | ~200 | RelOp tree recursion |
 | `plan/parser/index_parser.py` | ~80 | Missing indexes + stats |
 | `plan/analyzers/base.py` | ~60 | Template Method abstract |
-| `plan/analyzers/operator_analyzer.py` | ~300 | Largest — 15+ rules |
+| `plan/analyzers/operator_analyzer.py` | ~300 | Largest â€” 15+ rules |
 | `plan/analyzers/memory_analyzer.py` | ~120 | 4 rules |
 | `plan/analyzers/index_analyzer.py` | ~100 | 4 rules |
 | `plan/analyzers/parallelism_analyzer.py` | ~120 | 4 rules |
@@ -1068,8 +1103,59 @@ Phase 4 — Integration
 | `plan/service.py` | ~120 | Facade + wiring |
 | `api/routes/plan.py` | ~40 | Endpoint |
 
-**Tổng:** ~1,900 dòng Python — thay thế 243 dòng hiện tại với coverage tăng 10x.
+**Tá»•ng:** ~1,900 dÃ²ng Python â€” thay tháº¿ 243 dÃ²ng hiá»‡n táº¡i vá»›i coverage tÄƒng 10x.
 
 ---
 
-*Tài liệu này là implementation plan — không phải code cuối cùng. Các method signatures và model fields có thể điều chỉnh trong quá trình implement.*
+## 16. Definition of Done
+
+### v1 â€” XML Plan Only (Phase 1â€“3)
+
+**Parser:**
+- [ ] Parse Ä‘Æ°á»£c `ShowPlanXML` há»£p lá»‡ â€” estimated plan vÃ  actual plan
+- [ ] `ParsedPlan.statements` khÃ´ng rá»—ng vá»›i plan cÃ³ Ã­t nháº¥t 1 `StmtSimple`
+- [ ] Tráº£ `PlanParseError` rÃµ rÃ ng khi XML malformed â€” khÃ´ng crash silently
+- [ ] `PlanNode` tree Ä‘Ãºng cáº¥u trÃºc chaâ€“con (parent/children links)
+- [ ] `has_actual_stats=True` khi plan cÃ³ `RunTimeCountersPerThread`
+
+**Analyzers:**
+- [ ] 9 analyzers implement Ä‘á»§ (Memory, Operator, Index, Parallelism, Parameter, Wait, Statistics, CodePattern, Compilation)
+- [ ] Má»—i `Finding` cÃ³ `severity`, `category`, `type`, `description`, `recommendation` â€” khÃ´ng cÃ³ field None báº¯t buá»™c
+- [ ] `Finding.action.ddl` lÃ  SQL cÃ³ thá»ƒ cháº¡y Ä‘Æ°á»£c (khÃ´ng pháº£i placeholder) cho: Key Lookup, Missing Index, Eager Spool
+- [ ] `_is_applicable()` guard hoáº¡t Ä‘á»™ng â€” analyzer khÃ´ng cháº¡y khi thiáº¿u data (VD: `WaitAnalyzer` bá» qua estimated plan)
+
+**Endpoint:**
+- [ ] `POST /api/v1/plan/analyze` tráº£ HTTP 200 vá»›i valid plan
+- [ ] Tráº£ HTTP 400 khi `plan_xml` rá»—ng, HTTP 422 khi XML malformed
+- [ ] `analysis_duration_ms` < 500ms cho plan thÃ´ng thÆ°á»ng (< 50 nodes)
+- [ ] KhÃ´ng gá»i Claude API, khÃ´ng query DB trong code path nÃ y
+
+**Integration:**
+- [ ] Layer 1 gá»i endpoint thÃ nh cÃ´ng, nháº­n `PlanAnalysisResult` JSON
+- [ ] Layer 3 gá»i endpoint thÃ nh cÃ´ng, render findings trÃªn UI
+- [ ] `executor/plan_analyzer.py` váº«n hoáº¡t Ä‘á»™ng bÃ¬nh thÆ°á»ng â€” khÃ´ng cÃ³ breaking change
+
+---
+
+### v2 â€” Multi-Source (tÆ°Æ¡ng lai â€” chÆ°a implement)
+
+**Äiá»u kiá»‡n báº¯t Ä‘áº§u v2:** cÃ³ use case thá»±c táº¿ thá»© 2 (deadlock graph hoáº·c query text analysis).
+
+- [ ] `AbstractAnalyzer[TContext]` tÃ¡i dÃ¹ng Ä‘Æ°á»£c cho source má»›i mÃ  khÃ´ng sá»­a `base.py`
+- [ ] `Finding` model dÃ¹ng chung giá»¯a cÃ¡c domain â€” khÃ´ng fork model
+- [ ] Source má»›i cÃ³ `Parser` + `Context` + `AnalyzerRegistry` riÃªng trong thÆ° má»¥c riÃªng (`layer2/deadlock/`, `layer2/querytext/`)
+- [ ] Endpoint má»›i (`/api/v1/deadlock/analyze`) Ä‘á»™c láº­p â€” khÃ´ng áº£nh hÆ°á»Ÿng `/api/v1/plan/analyze`
+
+---
+
+### v3 â€” Cross-Source Correlation (tÆ°Æ¡ng lai)
+
+**Äiá»u kiá»‡n báº¯t Ä‘áº§u v3:** v2 stable vá»›i Ã­t nháº¥t 2 source.
+
+- [ ] CÃ³ thá»ƒ correlate finding tá»« nhiá»u source (VD: deadlock victim = query cÃ³ Key Lookup trong plan)
+- [ ] Unified `AnalysisReport` aggregate findings tá»« nhiá»u `AnalysisResult`
+
+---
+
+*TÃ i liá»‡u nÃ y lÃ  implementation plan â€” khÃ´ng pháº£i code cuá»‘i cÃ¹ng. CÃ¡c method signatures vÃ  model fields cÃ³ thá»ƒ Ä‘iá»u chá»‰nh trong quÃ¡ trÃ¬nh implement.*
+

@@ -27,9 +27,10 @@ from .agent.context_builder import ContextBuilder
 from .agent.orchestrator import AgentOrchestrator
 from .agent.skill_loader import SkillLoader
 from .agent.tool_executor import ToolExecutor
-from .api.routes import admin, analysis, health, insights, skills
+from .api.routes import admin, analysis, health, insights, plan, skills
 from .config import settings
 from .executor.node_role_cache import NodeRoleCache
+from .plan.service import PlanAnalysisService
 from .storage.indexes import create_all_indexes
 from .storage.mongo_client import MongoConnection
 
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
     app.state.skill_loader = sl
     app.state.node_role_cache = nrc
     app.state.orchestrator = orch
+    app.state.plan_analysis_service = PlanAnalysisService.create()
 
     _start_telegram_bot(app, orch, sl, nrc)
 
@@ -186,6 +188,7 @@ app.include_router(analysis.router)
 app.include_router(insights.router)
 app.include_router(skills.router)
 app.include_router(admin.router)
+app.include_router(plan.router)
 
 
 if __name__ == "__main__":
