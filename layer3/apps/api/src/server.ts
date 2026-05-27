@@ -11,6 +11,7 @@ import { registerInsightRoutes } from "./routes/insights";
 import { registerTopicRoutes } from "./routes/topics";
 import { registerJobRoutes } from "./routes/jobs";
 import { registerActionRoutes } from "./routes/actions";
+import { registerPlanRoutes } from "./routes/plan";
 import { fetchJsonWithTimeout } from "./proxy/l2-proxy";
 
 declare module "fastify" {
@@ -94,6 +95,7 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   await registerTopicRoutes(app);
   await registerJobRoutes(app);
   await registerActionRoutes(app);
+  await registerPlanRoutes(app);
 
   app.setNotFoundHandler(async (_req, reply) => reply.code(404).send({ message: "Not found" }));
 

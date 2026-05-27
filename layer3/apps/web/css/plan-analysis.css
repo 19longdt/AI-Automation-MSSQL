@@ -1,0 +1,48 @@
+.pa-root, .pa-page-root { font-size: 13px; color: #1e293b; }
+.pa-summary { display: flex; align-items: center; gap: 10px; padding: 8px 0 12px; flex-wrap: wrap; }
+.pa-summary-sep { color: #cbd5e1; }
+.pa-sev.critical { color: #dc2626; font-weight: 600; }
+.pa-sev.warning { color: #d97706; font-weight: 600; }
+.pa-actual-badge { font-size: 11px; background: #dcfce7; color: #166534; border-radius: 10px; padding: 1px 8px; }
+.pa-est-badge { font-size: 11px; background: #f1f5f9; color: #64748b; border-radius: 10px; padding: 1px 8px; }
+.pa-stmt-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.pa-stmt-tab { border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
+.pa-stmt-tab.active { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+.pa-tabs { display: flex; gap: 2px; border-bottom: 2px solid #e5e7eb; margin-bottom: 16px; }
+.pa-tab { padding: 6px 12px; background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -2px; cursor: pointer; color: #64748b; font-size: 13px; }
+.pa-tab.active { color: #1e40af; border-bottom-color: #1e40af; font-weight: 600; }
+.pa-tab-badge { background: #e2e8f0; color: #475569; border-radius: 10px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+.pa-panel.hidden { display: none; }
+.pa-finding-card { border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+.pa-finding-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f8fafc; }
+.pa-finding-body { padding: 10px 14px; }
+.pa-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; }
+.pa-badge.critical { background: #fee2e2; color: #dc2626; }
+.pa-badge.warning { background: #fef3c7; color: #d97706; }
+.pa-badge.info { background: #dbeafe; color: #2563eb; }
+.pa-category-tag { font-size: 11px; color: #6b7280; border: 1px solid #e5e7eb; border-radius: 4px; padding: 1px 6px; }
+.pa-recommendation { color: #475569; margin-top: 6px; }
+.pa-action-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-top: 10px; margin-bottom: 4px; }
+.pa-ddl-wrap { position: relative; }
+.pa-ddl { background: #0f172a; color: #e2e8f0; border-radius: 4px; padding: 10px 12px; font-family: Consolas, monospace; font-size: 12px; white-space: pre; overflow-x: auto; }
+.pa-ddl-copy { position: absolute; top: 6px; right: 8px; font-size: 11px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+.pa-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pa-table th { background: #f1f5f9; padding: 6px 10px; text-align: left; font-weight: 600; white-space: nowrap; }
+.pa-table td { padding: 5px 10px; border-bottom: 1px solid #f1f5f9; }
+.pa-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.pa-table .high { color: #dc2626; font-weight: 600; }
+.pa-table .mid { color: #d97706; }
+.pa-index-card { border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 10px; padding: 12px 14px; }
+.pa-index-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.pa-index-table { font-size: 12px; color: #64748b; }
+.pa-memory-grid { display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; align-items: center; }
+.pa-memory-label { color: #64748b; font-size: 12px; }
+.pa-bar-wrap { background: #e5e7eb; border-radius: 4px; height: 8px; margin-bottom: 4px; }
+.pa-bar { height: 8px; border-radius: 4px; min-width: 4px; }
+.pa-bar.danger { background: #dc2626; }
+.pa-bar.warning { background: #d97706; }
+.pa-bar.ok { background: #16a34a; }
+.pa-empty { color: #64748b; padding: 12px 0; }
+.qp-btn-analyze { background: #1e40af; color: #fff; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px; margin-left: 4px; }
+.qp-btn-analyze:hover { background: #1d4ed8; }
+.qp-btn-analyze:disabled { opacity: 0.6; cursor: not-allowed; }
