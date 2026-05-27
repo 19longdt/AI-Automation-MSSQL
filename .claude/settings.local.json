@@ -17,7 +17,9 @@
       "Read(//c/Program Files/Google/Chrome/Application/**)",
       "Bash(where wkhtmltopdf *)",
       "Bash(pip install *)",
-      "Bash(python generate_pdf.py)"
+      "Bash(python generate_pdf.py)",
+      "WebFetch(domain:www.mssql.ee)",
+      "Bash(curl -s \"https://www.mssql.ee/tools/sql-plan-parser.html\")"
     ]
   }
 }
