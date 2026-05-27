@@ -1,6 +1,8 @@
 import { apiGet, apiPost } from "./api-client";
 import { withButtonLoading, withGlobalLoading } from "./loading-overlay";
 import { bindModalEvents, openActionConfirmModal, openModal } from "./modal";
+import { PlanAnalysisResult } from "@layer3/core";
+import { PlanAnalysisComponent } from "./plan-analysis-component";
 declare const QP: any;
 declare const window: any;
 
@@ -696,6 +698,45 @@ function bindExecutionPlanActions(planBox: HTMLElement) {
       }
     }
   });
+
+  ensureAnalyzeButton(planBox, getCurrentXml);
+}
+
+function ensureAnalyzeButton(planBox: HTMLElement, getCurrentXml: () => string) {
+  if (planBox.getAttribute("data-qp-analyze-bound") === "1") return;
+  var host = planBox.querySelector(".qp-query-tabs, .qp-statement-header-panel, .qp-statement-header") as HTMLElement | null;
+  if (!host) return;
+  var btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "qp-btn-analyze";
+  btn.textContent = "Analyze";
+  btn.addEventListener("click", async function () {
+    var xml = String(getCurrentXml() || "").trim();
+    if (!xml) {
+      openModal("Plan Analysis", "<div class='pa-error'>Plan XML is empty.</div>");
+      return;
+    }
+    await withButtonLoading(btn, async function () {
+      try {
+        var result = await apiPost("/api/plan/analyze", { plan_xml: xml }) as PlanAnalysisResult;
+        var mountId = "pa-root-" + String(Date.now());
+        openModal("Plan Analysis", "<div id='" + mountId + "'></div>");
+        var root = document.getElementById(mountId);
+        if (!root) return;
+        new PlanAnalysisComponent(root, result).render();
+      } catch (e: any) {
+        var status = e && e.status ? String(e.status) : "unknown";
+        var payload = e && e.payload ? JSON.stringify(e.payload, null, 2) : "";
+        openModal(
+          "Plan Analysis - Error",
+          "<div class='pa-error'><p>Khong the phan tich plan. Kiem tra Layer 2.</p><div>Status: " + esc(status) + "</div>" +
+          (payload ? "<pre>" + esc(payload) + "</pre>" : "") + "</div>"
+        );
+      }
+    }, "Analyzing...");
+  });
+  host.appendChild(btn);
+  planBox.setAttribute("data-qp-analyze-bound", "1");
 }
 
 function ensurePlanHeaderSqlText(planBox: HTMLElement, sqlTextFallback: string, forceFill?: boolean) {
