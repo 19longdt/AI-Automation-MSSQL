@@ -261,6 +261,83 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     threshold: "Cao với INSERT workload = allocation contention (thường trên SGAM/PFS pages).",
     impact: "Có thể fix bằng cách dùng multiple data files hoặc trace flag 1118/1117.",
   },
+  latch_sh: {
+    term: "LATCH_SH",
+    definition: "Chờ non-page latch shared. Ít gây contention hơn LATCH_EX nhưng nhiều waiter cùng lúc vẫn có thể thành vấn đề.",
+    threshold: "Rất cao = cấu trúc nội bộ bị tranh chấp mạnh.",
+    impact: "Thường ít nghiêm trọng hơn LATCH_EX.",
+  },
+  cxconsumer: {
+    term: "CXCONSUMER",
+    definition: "Consumer thread trong parallel plan đang chờ producer thread cung cấp data. Tách từ CXPACKET kể từ SQL Server 2016 SP2.",
+    threshold: "Thường benign — bình thường với parallel queries. Cao bất thường = producer chậm hoặc data skew.",
+    impact: "Ít lo ngại hơn CXPACKET. Nếu CXCONSUMER >> CXPACKET = producer là bottleneck.",
+  },
+  memory_allocation_ext: {
+    term: "MEMORY_ALLOCATION_EXT",
+    definition: "Chờ cấp phát workspace memory cho operator (Sort, Hash Join, Hash Aggregate) từ memory grant đã được cấp. Xảy ra khi nhiều operator cùng tranh workspace memory trong cùng query.",
+    threshold: "Cao = memory grant tuy được cấp nhưng phân phối nội bộ chậm. Thường đi kèm với query phức tạp có nhiều Sort/Hash.",
+    impact: "Tăng latency cho từng Sort/Hash operator. Cân nhắc tách query hoặc tối ưu plan để giảm số operator cần memory.",
+  },
+  reserved_memory_allocation_ext: {
+    term: "RESERVED_MEMORY_ALLOCATION_EXT",
+    definition: "Chờ cấp phát phần memory đã được reserved (dự trữ) trong memory grant pool. Liên quan đến batch-mode execution và columnstore.",
+    threshold: "Xuất hiện = query đang dùng batch mode hoặc columnstore với memory reservation cao.",
+    impact: "Thường nhỏ. Nếu lớn, kiểm tra columnstore segment loading và batch mode memory pressure.",
+  },
+  pageiolatch_up: {
+    term: "PAGEIOLATCH_UP",
+    definition: "Chờ update latch trên page đang trong quá trình I/O (đọc từ đĩa). Ít phổ biến hơn SH/EX.",
+    threshold: "Cao = storage contention khi nhiều process cùng đọc/ghi page.",
+    impact: "Tương tự PAGEIOLATCH_SH nhưng cho update operations.",
+  },
+  pagelatch_sh: {
+    term: "PAGELATCH_SH",
+    definition: "Chờ shared latch trên page đã nằm trong buffer pool (không liên quan I/O). Xảy ra khi nhiều thread đọc cùng một page trong memory.",
+    threshold: "Cao = hot page contention trong memory. Phân biệt với PAGEIOLATCH (có disk I/O).",
+    impact: "Thường do index hot spot (last-page insert, identity column). Fix: GUID key, partition, hay sắp xếp data.",
+  },
+  pagelatch_ex: {
+    term: "PAGELATCH_EX",
+    definition: "Chờ exclusive latch trên page trong buffer pool khi ghi. Phổ biến với concurrent INSERT vào cùng page (last-page contention).",
+    threshold: "Cao với identity/sequence INSERT = hot page. Nghiêm trọng hơn PAGELATCH_SH.",
+    impact: "Fix: dùng GUID, phân tán INSERT sang nhiều partitions, hay fill factor thấp hơn.",
+  },
+  pagelatch_up: {
+    term: "PAGELATCH_UP",
+    definition: "Chờ update latch trên page trong buffer pool cho lần đọc-sửa. Ít phổ biến nhất trong nhóm PAGELATCH.",
+    impact: "Thường liên quan đến GAM/SGAM/PFS page khi cấp phát extent mới.",
+  },
+  threadpool: {
+    term: "THREADPOOL",
+    definition: "Không có worker thread khả dụng để thực thi task. SQL Server thread pool đã cạn kiệt.",
+    threshold: "Bất kỳ giá trị nào = nghiêm trọng. Server đang overload hoặc worker threads bị leak/block.",
+    impact: "Queries bị xếp hàng chờ thread. Fix: tăng max worker threads, kill blocking sessions, scale up.",
+  },
+  logbuffer: {
+    term: "LOGBUFFER",
+    definition: "Chờ log buffer được flush để ghi log record. Xảy ra khi log buffer đầy hoặc flush chưa xong.",
+    threshold: "Cao = log I/O không đủ nhanh so với tốc độ write của workload.",
+    impact: "Bottleneck cho mọi write transaction. Liên quan chặt với WRITELOG.",
+  },
+  execsync: {
+    term: "EXECSYNC",
+    definition: "Chờ đồng bộ hóa trong parallel execution — thường tại Gather Streams khi tất cả threads cần sync trước bước tiếp theo.",
+    threshold: "Thường nhỏ và bình thường. Cao = có thread rất chậm trong parallel plan.",
+    impact: "Gây ra serial bottleneck giữa các giai đoạn parallel.",
+  },
+  hadr_sync_commit: {
+    term: "HADR_SYNC_COMMIT",
+    definition: "Primary đang chờ secondary xác nhận đã hardened log (synchronous commit mode trong AlwaysOn AG). Phát sinh ngay khi COMMIT transaction.",
+    threshold: "Cao = network latency đến secondary cao hoặc secondary disk I/O chậm.",
+    impact: "Tăng trực tiếp commit latency cho mọi write transaction. Fix: network optimization, SSD cho secondary, xem xét async commit cho secondary xa.",
+  },
+  hadr_work_queue: {
+    term: "HADR_WORK_QUEUE",
+    definition: "AlwaysOn AG background worker đang chờ task mới. Thường idle-wait bình thường của AG thread pool.",
+    threshold: "Xuất hiện trong query wait stats là bất thường — có thể AG redo thread bị chậm.",
+    impact: "Liên quan đến AG redo lag nếu cao bất thường.",
+  },
 
   // ── Analysis Groups ───────────────────────────────────────────────────────
   group_orientation: {

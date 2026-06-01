@@ -509,11 +509,24 @@ export class PlanAnalysisComponent {
 
     private _waitCls(type: string): string {
         var t = (type || "").toUpperCase();
-        if (t === "CXPACKET" || t === "CXCONSUMER") return "sum-blue";
-        if (t.indexOf("PAGEIOLATCH") >= 0 || t === "IO_COMPLETION" || t === "WRITELOG") return "sum-orange";
-        if (t === "RESOURCE_SEMAPHORE" || t === "RESOURCE_SEMAPHORE_QUERY_COMPILE") return "sum-red";
-        if (t === "SOS_SCHEDULER_YIELD" || t === "THREADPOOL") return "sum-orange";
+        // Parallelism — blue (informational)
+        if (t === "CXPACKET" || t === "CXCONSUMER" || t === "EXECSYNC") return "sum-blue";
+        // Memory — red
+        if (t === "RESOURCE_SEMAPHORE" || t === "RESOURCE_SEMAPHORE_QUERY_COMPILE" || t === "THREADPOOL") return "sum-red";
+        // Memory allocation — orange
+        if (t === "MEMORY_ALLOCATION_EXT" || t === "RESERVED_MEMORY_ALLOCATION_EXT") return "sum-orange";
+        // Disk I/O — orange
+        if (t.indexOf("PAGEIOLATCH") >= 0 || t.indexOf("PAGELATCH") >= 0 || t === "IO_COMPLETION" || t === "ASYNC_IO_COMPLETION") return "sum-orange";
+        // Log I/O — orange
+        if (t === "WRITELOG" || t === "LOGBUFFER" || t === "LOG_RATE_GOVERNOR") return "sum-orange";
+        // CPU — orange
+        if (t === "SOS_SCHEDULER_YIELD") return "sum-orange";
+        // AlwaysOn — red for sync commit, orange otherwise
+        if (t === "HADR_SYNC_COMMIT") return "sum-red";
+        if (t.indexOf("HADR") >= 0) return "sum-orange";
+        // Latch — orange
         if (t.indexOf("LATCH") >= 0) return "sum-orange";
+        // Network — neutral (client-side)
         if (t === "ASYNC_NETWORK_IO") return "sum-neutral";
         return "sum-neutral";
     }

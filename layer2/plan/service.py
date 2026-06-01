@@ -188,18 +188,32 @@ class PlanAnalysisService:
     def _build_wait_summary(self, stmt: ParsedStatement) -> list[WaitStatSummary]:
         out: list[WaitStatSummary] = []
         for w in stmt.wait_stats:
-            category = "other"
-            if w.wait_type.startswith("LCK_M_"):
+            wt = w.wait_type
+            if wt.startswith("LCK_M_"):
                 category = "blocking"
-            elif w.wait_type.startswith("PAGEIOLATCH"):
+            elif wt.startswith("PAGEIOLATCH") or wt.startswith("PAGELATCH"):
                 category = "disk_io"
-            elif w.wait_type in {"CXPACKET", "CXCONSUMER"}:
+            elif wt in {"CXPACKET", "CXCONSUMER", "EXECSYNC"}:
                 category = "parallelism"
-            elif w.wait_type == "RESOURCE_SEMAPHORE":
+            elif wt in {"RESOURCE_SEMAPHORE", "RESOURCE_SEMAPHORE_QUERY_COMPILE",
+                        "MEMORY_ALLOCATION_EXT", "RESERVED_MEMORY_ALLOCATION_EXT"}:
                 category = "memory"
-            elif w.wait_type == "SOS_SCHEDULER_YIELD":
+            elif wt in {"SOS_SCHEDULER_YIELD", "THREADPOOL"}:
                 category = "cpu"
-            out.append(WaitStatSummary(type=w.wait_type, ms=w.wait_time_ms, count=w.wait_count, category=category))
+            elif wt in {"WRITELOG", "LOGBUFFER", "LOG_RATE_GOVERNOR"}:
+                category = "log_io"
+            elif wt in {"HADR_SYNC_COMMIT", "HADR_WORK_QUEUE", "HADR_FILESTREAM_IOMGR_IOCOMPLETION",
+                        "DBMIRRORING_CMD", "DBMIRROR_EVENTS_QUEUE"}:
+                category = "hadr"
+            elif wt in {"IO_COMPLETION", "ASYNC_IO_COMPLETION"}:
+                category = "disk_io"
+            elif wt == "ASYNC_NETWORK_IO":
+                category = "network"
+            elif wt.startswith("LATCH_"):
+                category = "latch"
+            else:
+                category = "other"
+            out.append(WaitStatSummary(type=wt, ms=w.wait_time_ms, count=w.wait_count, category=category))
         return out
 
     def _build_stats_summary(self, stmt: ParsedStatement) -> list[StatsSummary]:
