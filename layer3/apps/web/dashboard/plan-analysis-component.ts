@@ -50,7 +50,7 @@ export class PlanAnalysisComponent {
 
         var cost = this._group("cost", "COST ANALYSIS", "Operators, row estimates & I/O", [
             this._section("Top Expensive Operations", this._buildTopExpensiveSection(s), false, this._dotForTopOps(s), (s.top_operators || []).length, hasTopOps),
-            this._section("Est vs Actual Rows", this._buildEstActualSection(s), false, this._dotForEstActual(s), undefined, hasEstActual),
+            this._section("Est vs Actual Rows", this._buildEstActualSectionBalanced(s), false, this._dotForEstActual(s), undefined, hasEstActual),
             this._section("I/O Statistics", this._buildIoSection(s), false, hasIo ? "yellow" : "green", (s.io_stats || []).length, hasIo),
         ], (hasTopOps ? 1 : 0) + (hasEstActual ? 1 : 0) + (hasIo ? 1 : 0));
 
@@ -63,7 +63,7 @@ export class PlanAnalysisComponent {
         var context = this._group("context", "CONTEXT", "Index usage, join algorithms & memory", [
             this._section("Indexes Used", this._buildIndexesUsedSection(s), false, hasIndexesUsed ? "blue" : "green", (s.indexes_used || []).length, hasIndexesUsed),
             this._section("Join Types & Operations", this._buildJoinTypesSection(s), false, this._dotForJoinTypes(s), undefined, hasJoin),
-            this._section("Memory Grant", this._buildMemorySection(s), false, this._dotForMemory(s), undefined, hasMemory),
+            this._section("Memory Grant", this._buildMemorySectionBalanced(s), false, this._dotForMemory(s), undefined, hasMemory),
             this._section("Wait Statistics", this._buildWaitsSection(s), false, hasWait ? "yellow" : "green", (s.wait_stats || []).length, hasWait),
         ], (hasIndexesUsed ? 1 : 0) + (hasJoin ? 1 : 0) + (hasMemory ? 1 : 0) + (hasWait ? 1 : 0));
 
@@ -184,15 +184,15 @@ export class PlanAnalysisComponent {
             var pct = max > 0 ? Math.round((x.logical_reads * 100) / max) : 0;
             var cls = pct >= 75 ? "danger" : (pct >= 40 ? "warning" : (pct >= 15 ? "seek" : "muted"));
             var metricParts: string[] = [];
-            metricParts.push("<strong>" + this._fmtReads(x.logical_reads) + "</strong><span class='pa-io-unit' data-glossary='logical_reads'> log</span>");
-            if (x.physical_reads > 0) metricParts.push("<strong>" + this._fmtReads(x.physical_reads) + "</strong><span class='pa-io-unit' data-glossary='physical_reads'> phys</span>");
-            if (x.read_ahead_reads > 0) metricParts.push("<strong>" + this._fmtReads(x.read_ahead_reads) + "</strong><span class='pa-io-unit' data-glossary='read_ahead'> RA</span>");
-            if (x.scan_count > 0) metricParts.push("<strong>" + this._fmtReads(x.scan_count) + "</strong><span class='pa-io-unit' data-glossary='scan_count'> scans</span>");
+            metricParts.push("<span class='pa-io-stat major " + cls + "'><strong>" + this._fmtReads(x.logical_reads) + "</strong><span class='pa-io-unit' data-glossary='logical_reads'> log</span></span>");
+            if (x.physical_reads > 0) metricParts.push("<span class='pa-io-stat'><strong>" + this._fmtReads(x.physical_reads) + "</strong><span class='pa-io-unit' data-glossary='physical_reads'> phys</span></span>");
+            if (x.read_ahead_reads > 0) metricParts.push("<span class='pa-io-stat'><strong>" + this._fmtReads(x.read_ahead_reads) + "</strong><span class='pa-io-unit' data-glossary='read_ahead'> RA</span></span>");
+            if (x.scan_count > 0) metricParts.push("<span class='pa-io-stat scans'><strong>" + this._fmtReads(x.scan_count) + "</strong><span class='pa-io-unit' data-glossary='scan_count'> scans</span></span>");
             return "<div class='pa-io-row'><div class='pa-io-head'>" +
                 "<div class='pa-io-name'><span class='pa-op-tag'>" + this._esc(x.op_type_tag || "OTHER") + "</span> " +
                 "<strong>" + this._esc(this._opDisplayNameFromIo(x)) + "</strong>" +
                 (idx === 0 ? " <span class='pa-badge warning'>Highest</span>" : "") + "</div>" +
-                "<div class='pa-io-metrics'>" + metricParts.join("&emsp;") + "</div></div>" +
+                "<div class='pa-io-metrics'>" + metricParts.join("") + "</div></div>" +
                 "<div class='pa-bar-wrap'><div class='pa-bar " + cls + "' style='width:" + String(pct) + "%'></div></div></div>";
         }).join("");
         return rows + "<div class='pa-recommendation'>Logical reads = buffer pool 8KB page reads.</div>";
@@ -206,6 +206,10 @@ export class PlanAnalysisComponent {
             var badges = (o.has_row_est_off ? "<span class='pa-badge warning' data-glossary='estimated_rows'>Row Est Off</span>" : "") + (o.has_spill ? "<span class='pa-badge critical' data-glossary='spill_to_tempdb'>Spill</span>" : "");
             var glKey = this._opGlossaryKey(o.physical_op, o.logical_op);
             var glAttr = glKey ? " data-glossary='" + glKey + "'" : "";
+            var metricCost = "<span class='pa-teo-metric'><span class='lbl'>Cost</span><strong>" + this._num(o.cost, 2) + "</strong></span>";
+            var metricPct = "<span class='pa-teo-metric'><span class='lbl'>% Total</span><span class='val " + pctCls + "'>" + this._num(o.cost_pct, 1) + "%</span></span>";
+            var metricEst = "<span class='pa-teo-metric'><span class='lbl'>Est Rows</span><strong>" + this._num(o.estimated_rows, 0) + "</strong></span>";
+            var metricAct = "<span class='pa-teo-metric'><span class='lbl'>Act Rows</span><strong>" + this._nullableNum(o.actual_rows, 0) + "</strong></span>";
             return "<div class='pa-teo-item'>" +
                 "<div class='pa-teo-head'>" +
                 "<span class='pa-teo-op-name'" + glAttr + ">" + this._esc(this._opDisplayName(o)) + "</span>" +
@@ -213,10 +217,7 @@ export class PlanAnalysisComponent {
                 badges +
                 "<span class='pa-teo-num'>#" + String(idx + 1) + "</span>" +
                 "</div>" +
-                "<div class='pa-teo-metrics'>Cost: <strong>" + this._num(o.cost, 2) + "</strong>" +
-                "&emsp;% total: <span class='val " + pctCls + "'>" + this._num(o.cost_pct, 1) + "%</span>" +
-                "&emsp;Est rows: " + this._num(o.estimated_rows, 0) +
-                "&emsp;Act rows: " + this._nullableNum(o.actual_rows, 0) + "</div>" +
+                "<div class='pa-teo-metrics'>" + metricCost + metricPct + metricEst + metricAct + "</div>" +
                 "<div class='pa-bar-wrap'><div class='pa-teo-bar " + this._opTagClass(o.op_type_tag || "") + "' style='width:" + String(pct) + "%'></div></div>" +
                 "</div>";
         }).join("");
@@ -346,12 +347,16 @@ export class PlanAnalysisComponent {
 
     private _buildStatsSection(s: StatementResult): string {
         if (!s.statistics || !s.statistics.length) return "<div class='pa-empty'>No statistics usage.</div>";
-        var rows = s.statistics.map((x) => {
-            var staleRow = x.is_stale ? " class='stale'" : "";
-            return "<tr" + staleRow + "><td>" + this._esc(x.table) + "</td><td>" + this._esc(x.statistic) + "</td><td class='num'>" + this._nullableNum(x.modification_count, 0) +
-                "</td><td class='num'>" + this._nullableNum(x.sampling_percent, 0) + "%</td><td>" + this._esc(x.last_update || "") + "</td></tr>";
-        }).join("");
-        return "<table class='pa-table pa-stats-table'><thead><tr><th>Table</th><th>Statistic</th><th><span data-glossary='statistics_modification_count'>Modification</span></th><th><span data-glossary='sampling_percent'>Sampling</span></th><th>Last Update</th></tr></thead><tbody>" + rows + "</tbody></table>";
+        return "<div class='pa-stats-list'>" + s.statistics.map((x) => {
+            var staleCls = x.is_stale ? " stale" : "";
+            var head = "<div class='pa-stats-item-head'><span class='pa-stats-item-name'>[" + this._esc(x.table) + "] - [" + this._esc(x.statistic) + "]</span></div>";
+            var metrics = "<div class='pa-stats-item-metrics'>" +
+                "<span class='metric'><span class='lbl'>Updated:</span><strong>" + this._esc(x.last_update || "-") + "</strong></span>" +
+                "<span class='metric'><span class='lbl'>Sampling:</span><strong>" + this._nullableNum(x.sampling_percent, 0) + "%</strong></span>" +
+                "<span class='metric'><span class='lbl'>Modifications:</span><strong>" + this._nullableNum(x.modification_count, 0) + "</strong></span>" +
+                "</div>";
+            return "<div class='pa-stats-item" + staleCls + "'>" + head + metrics + "</div>";
+        }).join("") + "</div>";
     }
 
     private _buildParametersSection(s: StatementResult): string {
@@ -404,6 +409,50 @@ export class PlanAnalysisComponent {
             this._kbToMb(used) + " MB (" + String(ratio) + "%)</div><div class='pa-memory-label' data-glossary='resource_semaphore'>Wait</div><div>" + String(mg.grant_wait_ms || 0) + " ms</div></div>";
     }
 
+    private _buildEstActualSectionBalanced(s: StatementResult): string {
+        var mismatches = (s.top_operators || []).filter((o) => o.has_row_est_off);
+        if (!mismatches.length) return "<div class='pa-empty'>No significant estimate mismatch.</div>";
+        mismatches = mismatches.slice().sort((a, b) => {
+            var ra = (a.actual_rows !== null && a.actual_rows !== undefined && a.estimated_rows > 0) ? a.actual_rows / a.estimated_rows : 0;
+            var rb = (b.actual_rows !== null && b.actual_rows !== undefined && b.estimated_rows > 0) ? b.actual_rows / b.estimated_rows : 0;
+            var sa = ra > 1 ? ra : (ra > 0 ? 1 / ra : 0);
+            var sb = rb > 1 ? rb : (rb > 0 ? 1 / rb : 0);
+            return sb - sa;
+        });
+        return "<div class='pa-ea-list'>" + mismatches.map((o) => {
+            var ratio = (o.actual_rows !== null && o.actual_rows !== undefined && o.estimated_rows > 0)
+                ? o.actual_rows / o.estimated_rows : null;
+            var ratioStr = ratio === null ? "-" : (ratio >= 1 ? ("+" + this._num(ratio, 1) + "x") : ("/" + this._num(1 / ratio, 1) + "x"));
+            var ratioLevel = ratio === null ? "ok" : ((ratio >= 100 || ratio <= 0.01) ? "danger" : "warning");
+            var ratioPct = ratio === null ? 0 : Math.min(100, Math.max(8, Math.round((ratio >= 1 ? ratio : (1 / ratio)) * 10)));
+            return "<div class='pa-ea-row'>" +
+                "<div class='pa-ea-head'><div class='pa-ea-op'>" + this._esc(o.physical_op) + " #" + String(o.node_id) + "</div>" +
+                "<div class='pa-ea-metrics'>" +
+                "<span class='pa-ea-metric'><span class='lbl'>Est</span><strong>" + this._num(o.estimated_rows, 0) + "</strong></span>" +
+                "<span class='pa-ea-metric'><span class='lbl'>Act</span><strong>" + this._nullableNum(o.actual_rows, 0) + "</strong></span>" +
+                "<span class='pa-ea-metric " + ratioLevel + "'><span class='lbl'>Ratio</span><strong>" + ratioStr + "</strong></span>" +
+                "</div></div>" +
+                "<div class='pa-bar-wrap'><div class='pa-bar " + ratioLevel + "' style='width:" + String(ratioPct) + "%'></div></div>" +
+                "</div>";
+        }).join("") + "</div>";
+    }
+
+    private _buildMemorySectionBalanced(s: StatementResult): string {
+        if (!s.memory_grant) return "<div class='pa-empty'>No memory grant info.</div>";
+        var mg = s.memory_grant;
+        var used = mg.max_used_kb || 0;
+        var granted = mg.granted_kb || 0;
+        var ratio = granted > 0 ? Math.min(100, Math.round((used * 100) / granted)) : 0;
+        var level = ratio >= 90 ? "danger" : (ratio >= 50 ? "warning" : "ok");
+        return "<div class='pa-memory-kpis'>" +
+            "<div class='pa-memory-kpi'><span class='lbl' data-glossary='memory_grant'>Granted</span><strong>" + this._kbToMb(granted) + " MB</strong></div>" +
+            "<div class='pa-memory-kpi'><span class='lbl' data-glossary='memory_grant'>Used</span><strong>" + this._kbToMb(used) + " MB (" + String(ratio) + "%)</strong></div>" +
+            "<div class='pa-memory-kpi'><span class='lbl' data-glossary='resource_semaphore'>Wait</span><strong>" + String(mg.grant_wait_ms || 0) + " ms</strong></div>" +
+            "</div>" +
+            "<div class='pa-memory-bar-container'><div class='pa-bar-wrap'><div class='pa-bar " + level + "' style='width:" + String(ratio) + "%'></div></div>" +
+            "<span class='pa-memory-threshold-line low'></span><span class='pa-memory-threshold-line high'></span></div>";
+    }
+
     private _buildWaitsSection(s: StatementResult): string {
         if (!s.wait_stats || !s.wait_stats.length) return "<div class='pa-empty'>No wait stats.</div>";
         var max = 1;
@@ -413,8 +462,8 @@ export class PlanAnalysisComponent {
             var cls = pct >= 75 ? "danger" : (pct >= 40 ? "warning" : "ok");
             return "<div class='pa-wait-row'><div class='pa-wait-head'>" +
                 "<span class='pa-wait-type' data-glossary='" + this._esc(w.type.toLowerCase()) + "'>" + this._esc(w.type) + "</span>" +
-                "<span class='pa-wait-stats'><strong>" + this._num(w.ms, 0) + "</strong><span class='pa-io-unit'> ms</span>" +
-                "&emsp;<span class='pa-wait-count'>" + this._num(w.count, 0) + "&times;</span></span>" +
+                "<span class='pa-wait-stats'><span class='pa-wait-ms'><strong>" + this._num(w.ms, 0) + "</strong><span class='pa-io-unit'> ms</span></span>" +
+                "<span class='pa-wait-count'>" + this._num(w.count, 0) + "&times;</span></span>" +
                 "</div><div class='pa-bar-wrap'><div class='pa-bar " + cls + "' style='width:" + String(pct) + "%'></div></div></div>";
         }).join("");
     }
