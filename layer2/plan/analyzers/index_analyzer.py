@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from ..models.parsed_plan import PlanContext
 from ..models.result import Action, Finding, Severity
@@ -16,7 +16,7 @@ class IndexAnalyzer(AbstractAnalyzer[PlanContext]):
     def _collect_findings(self, context: PlanContext) -> list[Finding]:
         findings: list[Finding] = []
         for idx in context.statement.missing_indexes:
-            table = f"{idx.schema}.{idx.table}".strip(".")
+            table = f"{idx.schema_name}.{idx.table}".strip(".")
             severity = Severity.CRITICAL if idx.impact >= 50 else Severity.WARNING
             key_cols = [*idx.equality_columns, *idx.inequality_columns]
             include_cols = idx.include_columns
@@ -25,7 +25,7 @@ class IndexAnalyzer(AbstractAnalyzer[PlanContext]):
             if table and key_cols:
                 keys = ", ".join(f"[{c}]" for c in key_cols)
                 includes = ", ".join(f"[{c}]" for c in include_cols)
-                ddl = f"CREATE NONCLUSTERED INDEX [IX_{name}] ON [{idx.schema or 'dbo'}].[{idx.table}] ({keys})"
+                ddl = f"CREATE NONCLUSTERED INDEX [IX_{name}] ON [{idx.schema_name or 'dbo'}].[{idx.table}] ({keys})"
                 if includes:
                     ddl += f" INCLUDE ({includes})"
                 ddl += ";"
@@ -33,16 +33,16 @@ class IndexAnalyzer(AbstractAnalyzer[PlanContext]):
                 severity=severity,
                 category=self.category,
                 type="missing_index",
-                description=f"Missing index suggestion for {table} impact={idx.impact:.1f}.",
-                recommendation="��nh gi� workload tru?c khi t?o index d? tr�nh over-indexing.",
-                action=Action(type="create_index", description="T?o index theo g?i � plan", ddl=ddl) if ddl else None,
+                description=f"Gợi ý index bị thiếu cho {table} - SQL Server ước tính impact {idx.impact:.1f}% nếu có index này.",
+                recommendation="Đánh giá workload trước khi tạo: index mới có hữu ích cho nhiều query không? Tránh tạo quá nhiều index (over-indexing) làm chậm INSERT/UPDATE.",
+                action=Action(type="create_index", description="Tạo index theo gợi ý execution plan", ddl=ddl) if ddl else None,
             ))
             if len(include_cols) > 5 or len(key_cols) > 4:
                 findings.append(Finding(
                     severity=Severity.INFO,
                     category=self.category,
                     type="wide_index_suggestion",
-                    description=f"Wide index suggestion on {table}.",
-                    recommendation="C�n d?i l?i �ch d?c v� chi ph� maintenance/write.",
+                    description=f"Gợi ý index rộng trên {table}: {len(key_cols)} key columns, {len(include_cols)} INCLUDE columns.",
+                    recommendation="Cân bằng lợi ích đọc và chi phí bảo trì: index rộng tốn nhiều bộ nhớ và làm chậm write operation.",
                 ))
         return findings

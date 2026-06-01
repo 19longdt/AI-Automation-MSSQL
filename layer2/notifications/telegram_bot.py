@@ -113,8 +113,16 @@ class TelegramBot:
                     except Exception as exc:
                         logger.error("TelegramBot handle_update error: %s", exc, exc_info=True)
             except Exception as exc:
-                logger.warning("TelegramBot poll error: %s — retry in 5s", exc)
-                time.sleep(5)
+                err_str = str(exc)
+                if "409" in err_str or "Conflict" in err_str:
+                    logger.error(
+                        "TelegramBot 409 Conflict: another instance is polling the same token. "
+                        "Stop duplicate process (docker ps / ps aux) then restart — retry in 30s"
+                    )
+                    time.sleep(30)
+                else:
+                    logger.warning("TelegramBot poll error: %s — retry in 5s", exc)
+                    time.sleep(5)
 
     def _get_updates(self, offset: int, timeout: int) -> list[dict]:
         url = f"{self._api_base}/getUpdates?offset={offset}&timeout={timeout}"

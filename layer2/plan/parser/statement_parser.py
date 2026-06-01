@@ -13,6 +13,7 @@ class StatementParser:
 
         stmt = ParsedStatement(
             statement_text=stmt_el.get("StatementText", ""),
+            statement_text_truncated=False,
             statement_type=stmt_el.get("StatementType", ""),
             total_cost=self._to_float(stmt_el.get("StatementSubTreeCost")),
             query_hash=stmt_el.get("QueryHash"),
@@ -23,6 +24,7 @@ class StatementParser:
             compile_cpu_ms=self._to_int(stmt_el.get("CompileCPU")),
             compile_memory_kb=self._to_int(stmt_el.get("CompileMemory")),
         )
+        stmt.statement_text_truncated = len(stmt.statement_text) >= 3990
 
         if qp is not None:
             stmt.dop = self._to_int(qp.get("DegreeOfParallelism"))

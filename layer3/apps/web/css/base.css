@@ -11,19 +11,29 @@
   --color-row-hover: #f1f5f9;
   --color-overlay: rgba(15, 23, 42, 0.22);
   --color-modal-backdrop: rgba(0, 0, 0, 0.35);
-  --color-danger: #8a1f1b;
+  --color-danger: #d5443e;
   --color-danger-soft: #fdecea;
-  --color-warning: #92400e;
-  --color-warning-soft: #fef3c7;
+  --color-warning: #ca8a04;
+  --color-warning-soft: #fef9c3;
   --color-info: #004085;
   --color-info-soft: #e8f1ff;
   --color-success: #166534;
   --color-success-soft: #dcfce7;
   --color-accent-strong: #123a94;
   --color-accent-border: #b9cdfa;
+  --color-purple: #7c3aed;
+  --color-purple-soft: #f3e8ff;
+  --group-color-orientation: #2563eb;
+  --group-color-cost: #dc2626;
+  --group-color-actionable: #16a34a;
+  --group-color-context: #7c3aed;
+  --group-color-deepdive: #6b7280;
   --color-spinner-track: #d6e2ff;
   --color-tag-neutral-text: #4b5563;
   --color-tag-neutral-bg: #f5f7fb;
+  --color-code-bg: #0f172a;
+  --color-code-text: #e2e8f0;
+  --color-code-border: #334155;
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-code: Consolas, "Liberation Mono", Menlo, Monaco, "Courier New", monospace;
 }
@@ -41,19 +51,29 @@
   --color-row-hover: #1a2b48;
   --color-overlay: rgba(2, 8, 20, 0.55);
   --color-modal-backdrop: rgba(1, 6, 15, 0.62);
-  --color-danger: #ffb8b5;
+  --color-danger: #d5443e;
   --color-danger-soft: #432022;
-  --color-warning: #ffd891;
-  --color-warning-soft: #43371d;
+  --color-warning: #facc15;
+  --color-warning-soft: #3f3410;
   --color-info: #b6d4ff;
   --color-info-soft: #18365f;
   --color-success: #b5f5ca;
   --color-success-soft: #193d2a;
   --color-accent-strong: #d7e6ff;
   --color-accent-border: #4b76b5;
+  --color-purple: #c084fc;
+  --color-purple-soft: #2e1065;
+  --group-color-orientation: #60a5fa;
+  --group-color-cost: #f87171;
+  --group-color-actionable: #4ade80;
+  --group-color-context: #c084fc;
+  --group-color-deepdive: #9ca3af;
   --color-spinner-track: #31496f;
   --color-tag-neutral-text: #b8c5dc;
   --color-tag-neutral-bg: #1c2a44;
+  --color-code-bg: #07111e;
+  --color-code-text: #cbd5e1;
+  --color-code-border: #243856;
 }
 
 body {

@@ -29,7 +29,7 @@
         <input type="file" id="upload" />
         <button type="button" id="openXmlModal">Paste XML</button>
         <button type="button" id="clearXml">Clear</button>
-        <span class="muted">Editor má»Ÿ trong popup, khÃ´ng chiáº¿m layout chÃ­nh</span>
+        <span class="muted">Editor mở trong popup, không chiếm layout chính</span>
       </div>
 
       <div id="errorBanner" class="error-banner"></div>
@@ -38,7 +38,7 @@
   </main>
 
   <div id="globalLoadingOverlay" class="global-loading-overlay">
-    <div id="globalLoadingText" class="global-loading-box">Äang xá»­ lÃ½...</div>
+    <div id="globalLoadingText" class="global-loading-box">Đang xử lý...</div>
   </div>
 
   <div class="xml-modal-backdrop" id="xmlModalBackdrop">
@@ -51,7 +51,7 @@
         <textarea id="xmlInput" placeholder="Paste ShowPlan XML here..."></textarea>
         <div class="xml-modal-actions">
           <button type="button" id="renderNow">Render now</button>
-          <span class="muted">Auto render sau 2 giÃ¢y</span>
+          <span class="muted">Auto render sau 2 giây</span>
         </div>
       </div>
     </div>
@@ -125,7 +125,7 @@
 
     function beginActionLoading(message) {
       actionLoadingCount += 1;
-      globalLoadingText.textContent = message || 'Äang xá»­ lÃ½...';
+      globalLoadingText.textContent = message || 'Đang xử lý...';
       globalLoadingOverlay.classList.add('show');
     }
     function endActionLoading() {
@@ -153,7 +153,7 @@
       if (!xmlText || !xmlText.trim()) return;
       clearError();
       isRendering = true;
-      beginActionLoading('Äang parse XML vÃ  render diagram...');
+      beginActionLoading('Đang parse XML và render diagram...');
       currentXmlText = xmlText;
       setTimeout(function () {
         try {
@@ -161,7 +161,7 @@
           QP.showPlan(document.getElementById('container'), xmlText);
           applyHeatColoring(document.getElementById('container'));
         } catch (err) {
-          showError('KhÃ´ng thá»ƒ render plan. Vui lÃ²ng kiá»ƒm tra XML.\n' + (err && err.message ? err.message : 'Unknown error'));
+          showError('Không thể render plan. Vui lòng kiểm tra XML.\n' + (err && err.message ? err.message : 'Unknown error'));
         } finally {
           isRendering = false;
           endActionLoading();
@@ -212,12 +212,12 @@
     function openXmlViewer() {
       var sourceXml = (planData && planData.rawXml) || ((xmlInput.value && xmlInput.value.trim()) ? xmlInput.value : currentXmlText);
       if (!sourceXml || !sourceXml.trim()) {
-        showError('Khong co XML de hien thi. Hay upload hoac paste XML truoc.');
+        showError('Không có XML để hiển thị. Hãy upload hoặc paste XML trước.');
         return;
       }
       if (!planData || planData.rawXml !== sourceXml) savePlanData(sourceXml, 'viewer');
       currentXmlText = sourceXml;
-      runWithActionLoading('Dang chuan bi ShowPlan XML...', function () {
+      runWithActionLoading('Đang chuẩn bị ShowPlan XML...', function () {
         xmlViewerContent.classList.add('tree');
         xmlViewerContent.innerHTML = buildXmlTreeHtml(planData.rawXml);
         xmlViewerBackdrop.classList.add('open');
@@ -272,7 +272,7 @@
     document.getElementById('container').addEventListener('click', function (e) {
       var target = e.target;
       if (target && target.classList && target.classList.contains('qp-query-tab') && target.getAttribute('data-tab')) {
-        runWithActionLoading('Dang tai noi dung query...', function () {});
+        runWithActionLoading('Đang tải nội dung query...', function () {});
       }
     });
     if (window.QP && typeof window.QP.bindQueryActions === 'function') {
@@ -304,7 +304,7 @@
         savePlanData(xmlText, 'file');
         renderPlan(xmlText);
       };
-      reader.onerror = function () { showError('KhÃ´ng thá»ƒ Ä‘á»c file XML. Vui lÃ²ng thá»­ láº¡i.'); };
+      reader.onerror = function () { showError('Không thể đọc file XML. Vui lòng thử lại.'); };
       reader.readAsText(file, 'UTF-8');
     });
   </script>

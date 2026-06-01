@@ -1,0 +1,266 @@
+QUERY TEXT
+RECOMPILE
+▼
+⎘ COPY
+DECLARE @P10 int = (3584)
+DECLARE @P9 int = (3584)
+DECLARE @P5 nvarchar(4000) = N'N5'
+DECLARE @P6 nvarchar(4000) = N'X4'
+DECLARE @P7 nvarchar(4000) = N'X8'
+DECLARE @P8 nvarchar(4000) = N'X8'
+DECLARE @P4 int = (528942)
+DECLARE @P3 int = (3508)
+DECLARE @P2 int = (3508)
+DECLARE @P1 int = (3508)
+DECLARE @P0 int = (3508)
+
+(@P0 int,
+    @P1 int,
+    @P2 int,
+    @P3 int,
+    @P4 int,
+    @P5 nvarchar(4000),
+    @P6 nvarchar(4000),
+    @P7 nvarchar(4000),
+    @P8 nvarchar(4000),
+    @P9 int,
+    @P10 int)
+select count(p.id) 
+from product p 
+join rs_inoutward_detail rid 
+on p.com_id = @P0 
+    and p.id = rid.product_id 
+join rs_inoutward ri 
+on ri.com_id = @P1 
+    and rid.rs_inoutward_id = ri.id 
+join business_type bt 
+on bt.com_id = @P2 
+    and ri.business_type_id = bt.id 
+where p.com_id = @P3 
+    and p.id = @P4 
+    and bt.business_type_code in (@P5, @P6, @P7, @P8) 
+    and (rid.from_warehouse_id = @P9 
+    or rid.to_warehouse_id = @P10)
+PARAMETERS
+@P10
+int
+(3584) compiled
+@P9
+int
+(3584) compiled
+@P5
+nvarchar(4000)
+N'N5' compiled
+@P6
+nvarchar(4000)
+N'X4' compiled
+@P7
+nvarchar(4000)
+N'X8' compiled
+@P8
+nvarchar(4000)
+N'X8' compiled
+@P4
+int
+(528942) compiled
+@P3
+int
+(3508) compiled
+@P2
+int
+(3508) compiled
+@P1
+int
+(3508) compiled
+@P0
+int
+(3508) compiled
+I/O STATISTICS
+▼
+No I/O data — requires an actual execution plan.
+In SSMS: Query → Include Actual Execution Plan (Ctrl+M), then run.
+INDEXES USED
+5
+▼
+[dbo].[product] → [PK__product__3213E83F6D392813]
+Seek
+DB: [easyposbackoffice]
+[dbo].[business_type] → [idx_com_id_type_code]
+Seek
+DB: [easyposbackoffice]
+[dbo].[rs_inoutward] → [idx_rs_inoutward_com_id_type_date]
+Seek
+DB: [easyposbackoffice]
+[dbo].[rs_inoutward_detail] → [idx_rs_inoutward_id]
+Seek
+DB: [easyposbackoffice]
+[dbo].[rs_inoutward_detail] → [PK_rs_inoutward_detail]
+Lookup
+DB: [easyposbackoffice]
+STATISTICS USED
+28
+▼
+[dbo].[product] — [idx_product_comId_active]
+Updated: 2026-05-25 14:36:12.32 Sampling: 1.2% Modifications: 70044
+[dbo].[product] — [idx_product_comId_active_status]
+Updated: 2026-05-30 09:56:09.50 Sampling: 29.9% Modifications: 2005
+[dbo].[product] — [_WA_Sys_00000021_5CD6CB2B]
+Updated: 2026-05-30 09:55:58.49 Sampling: 29.7% Modifications: 2071
+[dbo].[product] — [_WA_Sys_0000000E_5CD6CB2B]
+Updated: 2026-05-30 00:26:46.84 Sampling: 1.2% Modifications: 6802
+[dbo].[rs_inoutward] — [_WA_Sys_00000003_71D1E811]
+Updated: 2026-05-29 22:37:26.28 Sampling: 0.6% Modifications: 43892
+[dbo].[rs_inoutward_detail] — [idx_rs_inoutward_detail_fromWarehouseId]
+Updated: 2026-05-28 19:03:59.30 Sampling: 0.6% Modifications: 193609
+[dbo].[product] — [idx_product_comId_name_included]
+Updated: 2026-05-25 14:36:09.34 Sampling: 1.2% Modifications: 70045
+[dbo].[business_type] — [_WA_Sys_00000003_32E0915F]
+Updated: 2026-05-27 09:33:21.93 Sampling: 6.4% Modifications: 5784
+[dbo].[rs_inoutward_detail] — [idx_id]
+Updated: 2026-05-28 19:02:57.49 Sampling: 0.6% Modifications: 193751
+[dbo].[rs_inoutward] — [idx_RSInoutward_comId_type_date_billId]
+Updated: 2026-05-28 20:17:04.45 Sampling: 0.6% Modifications: 199265
+[dbo].[rs_inoutward] — [idx_norm_quarter_com_id_norm_date]
+Updated: 2026-05-29 23:02:27.38 Sampling: 0.6% Modifications: 40363
+[dbo].[rs_inoutward_detail] — [idx_rs_inoutward_id]
+Updated: 2026-05-28 19:02:56.16 Sampling: 0.6% Modifications: 193751
+[dbo].[rs_inoutward_detail] — [idx_rs_inoutward_detail_ppuId_rsInoutwardId]
+Updated: 2026-05-28 19:02:27.79 Sampling: 0.6% Modifications: 193837
+[dbo].[rs_inoutward_detail] — [_WA_Sys_0000001A_73BA3083]
+Updated: 2026-05-29 10:59:13.79 Sampling: 0.6% Modifications: 126227
+[dbo].[rs_inoutward] — [idx_rs_inoutward_com_id_type_date]
+Updated: 2026-05-29 20:09:06.21 Sampling: 0.6% Modifications: 67799
+[dbo].[rs_inoutward] — [idx_rs_inoutward_bill_id_nc]
+Updated: 2026-05-29 22:11:33.50 Sampling: 0.6% Modifications: 47856
+[dbo].[rs_inoutward] — [idx_id]
+Updated: 2026-05-29 23:01:56.70 Sampling: 0.6% Modifications: 40679
+[dbo].[rs_inoutward] — [_WA_Sys_0000000D_71D1E811]
+Updated: 2026-05-29 22:11:00.18 Sampling: 0.6% Modifications: 47925
+[dbo].[product] — [_WA_Sys_00000004_5CD6CB2B]
+Updated: 2026-05-23 15:05:39.77 Sampling: 1.1% Modifications: 98872
+[dbo].[product] — [_WA_Sys_00000003_5CD6CB2B]
+Updated: 2026-05-25 14:36:07.68 Sampling: 1.1% Modifications: 70146
+[dbo].[product] — [idx_product_comId_code_active_included]
+Updated: 2026-05-25 14:36:10.34 Sampling: 1.2% Modifications: 70045
+[dbo].[product] — [PK__product__3213E83F6D392813]
+Updated: 2026-05-25 14:36:11.25 Sampling: 1.2% Modifications: 70045
+[dbo].[business_type] — [PK__business__3213E83F375498F5]
+Updated: 2026-05-27 09:33:22.17 Sampling: 6.4% Modifications: 5784
+[dbo].[rs_inoutward_detail] — [PK_rs_inoutward_detail]
+Updated: 2026-05-28 19:02:56.91 Sampling: 0.6% Modifications: 193751
+[dbo].[rs_inoutward] — [PK_RsInOutWard]
+Updated: 2026-05-29 23:02:24.78 Sampling: 0.6% Modifications: 40376
+[dbo].[business_type] — [idx_com_id_type_code]
+Updated: 2026-05-23 08:13:41.29 Sampling: 6.7% Modifications: 11285
+[dbo].[rs_inoutward] — [_WA_Sys_00000004_71D1E811]
+Updated: 2026-05-29 22:23:39.51 Sampling: 0.6% Modifications: 46102
+[dbo].[rs_inoutward_detail] — [_WA_Sys_00000003_73BA3083]
+Updated: 2026-05-29 19:57:00.87 Sampling: 0.6% Modifications: 60626
+TOP EXPENSIVE OPERATIONS
+8
+▼
+#1
+Nested Loops
+JOIN
+Cost: 23.80 % total: 100.0% Est rows: 1
+#2
+Stream Aggregate
+AGG
+Cost: 23.80 % total: 100.0% Est rows: 1
+#3
+Nested Loops
+JOIN
+Cost: 23.80 % total: 100.0% Est rows: 1
+#4
+Nested Loops
+JOIN
+Cost: 23.80 % total: 100.0% Est rows: 1
+#5
+Index Seek: [rs_inoutward_detail] → [idx_rs_inoutward_id]
+SEEK
+Cost: 22.99 % total: 96.6% Est rows: 1
+#6
+Hash Match
+JOIN
+Cost: 0.8072 % total: 3.4% Est rows: 706
+#7
+Index Seek: [rs_inoutward] → [idx_rs_inoutward_com_id_type_date]
+SEEK
+Cost: 0.5567 % total: 2.3% Est rows: 34.9K
+#8
+Index Seek: [business_type] → [idx_com_id_type_code]
+SEEK
+Cost: 0.0034 % total: 0.0% Est rows: 64
+WARNINGS
+0
+▼
+No warnings detected.
+EST VS ACTUAL ROWS
+0
+▼
+No significant row estimate differences (or actual plan not available).
+JOIN TYPES & OPERATIONS
+5
+▼
+Hash Match ×1
+Nested Loops ×4
+💡 Hash Match — check indexes on join columns to allow more efficient seeks.
+MEMORY GRANT
+▼
+0 KB
+GRANTED
+0 KB
+MAX USED
+WAIT STATISTICS
+0
+▼
+No wait statistics found (requires Actual Plan).
+COMPILATION & SETTINGS
+▼
+COMPILATION
+Compile Time
+0 ms
+Compile CPU
+0 ms
+Compile Memory
+0 KB
+ACTIVE TRACE FLAGS
+None
+PLAN METADATA
+▼
+QueryHash
+0x1F629DC6DB432249
+QueryPlanHash
+0x351AE041D62D4E16
+Cached Plan Size
+128 KB
+🔍 LOOKUP QUERIES
+PLAN CACHE (in-memory, flushed on restart)
+SELECT  dest.text          AS query_text,
+        deqs.execution_count,
+        deqs.total_logical_reads,
+        deqs.total_elapsed_time / 1000 AS elapsed_ms,
+        deqp.query_plan
+FROM    sys.dm_exec_query_stats  AS deqs
+        CROSS APPLY sys.dm_exec_query_plan(deqs.plan_handle) AS deqp
+        CROSS APPLY sys.dm_exec_sql_text(deqs.sql_handle)    AS dest
+WHERE   deqs.query_hash = 0x1F629DC6DB432249;
+⎘ COPY
+QUERY STORE ✓ persistent, recommended
+SELECT  qt.query_sql_text,
+        q.query_id,
+        qp.plan_id,
+        rs.count_executions,
+        rs.avg_logical_io_reads,
+        rs.avg_duration / 1000 AS avg_ms
+FROM    sys.query_store_query        AS q
+        JOIN sys.query_store_query_text  AS qt ON q.query_text_id  = qt.query_text_id
+        JOIN sys.query_store_plan        AS qp ON q.query_id       = qp.query_id
+        JOIN sys.query_store_runtime_stats AS rs ON qp.plan_id     = rs.plan_id
+WHERE   q.query_hash = 0x1F629DC6DB432249
+ORDER BY rs.avg_logical_io_reads DESC;
+⎘ COPY
+MISSING INDEXES
+0
+▼
+No missing index hints found.

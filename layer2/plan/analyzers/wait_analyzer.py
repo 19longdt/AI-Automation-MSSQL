@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from ..models.parsed_plan import PlanContext
 from ..models.result import Finding, Severity
@@ -19,26 +19,50 @@ class WaitAnalyzer(AbstractAnalyzer[PlanContext]):
             wt = w.wait_type
             if wt.startswith("LCK_M_"):
                 t = "wait_blocking"
-                rec = "Ki?m tra blocking chain v� transaction d�i."
+                rec = "Kiểm tra blocking chain: query nào đang giữ lock, transaction có được commit/rollback đúng lúc không."
+                severity = Severity.CRITICAL if w.wait_time_ms > 5000 else Severity.WARNING
             elif wt.startswith("PAGEIOLATCH"):
                 t = "wait_disk_io"
-                rec = "Ki?m tra I/O latency, cache warmup, v� index/selectivity."
+                rec = "Kiểm tra I/O latency (disk health), cache warmup, index/selectivity để giảm physical reads."
+                severity = Severity.CRITICAL if w.wait_time_ms > 10000 else Severity.WARNING
             elif wt in {"CXPACKET", "CXCONSUMER"}:
                 t = "wait_parallelism"
-                rec = "��nh gi� skew v� hi?u qu? parallelism."
+                rec = "Đánh giá data skew (một partition gánh nhiều hàng hơn), kiểm tra MAXDOP và COST THRESHOLD FOR PARALLELISM."
+                severity = Severity.WARNING
             elif wt == "RESOURCE_SEMAPHORE":
                 t = "wait_memory"
-                rec = "Memory grant contention, c?n t?i uu query ho?c c?u h�nh memory."
+                rec = "Tối ưu query nặng memory, xem xét điều chỉnh max server memory, Resource Governor memory limit."
+                severity = Severity.CRITICAL
             elif wt == "SOS_SCHEDULER_YIELD":
                 t = "wait_cpu"
-                rec = "CPU pressure, xem top CPU queries v� plan quality."
+                rec = "Xem top CPU queries, kiểm tra plan quality (missing stats -> bad plan -> loop scan), tăng phần cứng nếu cần."
+                severity = Severity.WARNING
+            elif wt == "WRITELOG":
+                t = "wait_log_io"
+                rec = "I/O log chậm: kiểm tra latency ổ đĩa log, tránh small transaction nhiều lần, gom batch."
+                severity = Severity.CRITICAL if w.wait_time_ms > 5000 else Severity.WARNING
+            elif wt == "ASYNC_NETWORK_IO":
+                t = "wait_network"
+                rec = "Client đọc kết quả chậm (network/client-side throttle): xem xét pagination, giảm result set."
+                severity = Severity.WARNING
+            elif wt == "IO_COMPLETION":
+                t = "wait_io_completion"
+                rec = "I/O async completion chậm: kiểm tra storage latency."
+                severity = Severity.WARNING
+            elif wt.startswith("LATCH_"):
+                t = "wait_latch"
+                rec = "Latch contention: hotspot page (PFS/GAM/SGAM) hoặc index contention."
+                severity = Severity.WARNING
             else:
-                continue
+                t = "wait_other"
+                rec = f"Wait type {wt} cần điều tra thêm."
+                severity = Severity.INFO
+
             findings.append(Finding(
-                severity=Severity.WARNING,
+                severity=severity,
                 category=self.category,
                 type=t,
-                description=f"Wait {wt}: {w.wait_time_ms}ms / {w.wait_count} waits.",
+                description=f"Wait {wt}: {w.wait_time_ms}ms / {w.wait_count} lần - dấu hiệu nghẽn tài nguyên cần theo dõi.",
                 recommendation=rec,
             ))
         return findings

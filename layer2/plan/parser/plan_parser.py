@@ -33,6 +33,8 @@ class PlanParser:
 
         statements = []
         for stmt_el in root.iter(self._tag("StmtSimple")):
+            if stmt_el.find(f".//{self._tag('QueryPlan')}") is None:
+                continue
             stmt = self._statement_parser.parse(stmt_el)
             if stmt is None:
                 continue

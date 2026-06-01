@@ -19,7 +19,24 @@
       "Bash(pip install *)",
       "Bash(python generate_pdf.py)",
       "WebFetch(domain:www.mssql.ee)",
-      "Bash(curl -s \"https://www.mssql.ee/tools/sql-plan-parser.html\")"
+      "Bash(curl -s \"https://www.mssql.ee/tools/sql-plan-parser.html\")",
+      "Bash(python *)",
+      "Bash(Get-ChildItem *)",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "Bash(.venv\\\\Scripts\\\\python.exe *)",
+      "Bash(cmd *)",
+      "Bash(npx playwright *)",
+      "PowerShell(Set-Location \"C:\\\\GIT\\\\AI-Automation-MSSQL\\\\layer3\"; Start-Process powershell -ArgumentList \"-NoExit\", \"-Command\", \"npm run dev\" -PassThru | Select-Object Id)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:4000)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s \"http://localhost:3000/api/findings?finding_id=80bc08c8-b8d0-4c0c-a031-8b933be63473\")",
+      "Bash(curl -s \"http://localhost:3000/api/findings?finding_id=80bc08c8-b8d0-4c0c-a031-8b933be63473&limit=15&page=0\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\(f'Count: {len\\(data\\)}'\\); [print\\(d.get\\('finding_id','?'\\)[:36]\\) for d in data[:5]]\")",
+      "Bash(python3 *)"
     ]
   }
 }

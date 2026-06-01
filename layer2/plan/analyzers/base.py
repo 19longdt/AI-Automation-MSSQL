@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 
+from ..models.parsed_plan import PlanNode
 from ..models.result import Finding, Severity
 
 TContext = TypeVar("TContext")
@@ -31,3 +32,12 @@ class AbstractAnalyzer(ABC, Generic[TContext]):
     def _post_process(self, findings: list[Finding]) -> list[Finding]:
         order = {Severity.CRITICAL: 0, Severity.WARNING: 1, Severity.INFO: 2}
         return sorted(findings, key=lambda f: order.get(f.severity, 3))
+
+    def _flatten(self, root: PlanNode | None) -> list[PlanNode]:
+        if root is None:
+            return []
+        out = [root]
+        for child in root.children:
+            out.extend(self._flatten(child))
+        return out
+

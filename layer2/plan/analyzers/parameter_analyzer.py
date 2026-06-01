@@ -1,4 +1,4 @@
-from __future__ import annotations
+Ôªøfrom __future__ import annotations
 
 from ..models.parsed_plan import PlanContext
 from ..models.result import Finding, Severity
@@ -15,21 +15,31 @@ class ParameterAnalyzer(AbstractAnalyzer[PlanContext]):
 
     def _collect_findings(self, context: PlanContext) -> list[Finding]:
         findings: list[Finding] = []
+        sniffing: list[tuple[str, str, str, str | None]] = []
         for p in context.statement.parameters:
             if p.compiled_value and p.runtime_value and p.compiled_value != p.runtime_value:
-                findings.append(Finding(
-                    severity=Severity.WARNING,
-                    category=self.category,
-                    type="parameter_sniffing",
-                    description=f"Compiled value kh·c runtime value cho {p.name}.",
-                    recommendation="Xem xÈt sniffing mitigation (recompile/optimize for/query store hints).",
-                ))
+                sniffing.append((p.name, p.compiled_value, p.runtime_value, p.data_type))
             if not p.compiled_value:
                 findings.append(Finding(
                     severity=Severity.INFO,
                     category=self.category,
                     type="local_variables",
-                    description=f"KhÙng cÛ compiled value cho {p.name}.",
-                    recommendation="CÛ th? query d˘ng local variable, estimate cÛ th? kÈm chÌnh x·c.",
+                    description=f"Kh√¥ng c√≥ compiled value cho {p.name}.",
+                    recommendation="C√≥ th·ªÉ query d√πng local variable, estimate c√≥ th·ªÉ k√©m ch√≠nh x√°c.",
                 ))
+
+        if sniffing:
+            snippets: list[str] = []
+            for name, compiled, runtime, data_type in sniffing[:3]:
+                dtype = f" ({data_type})" if data_type else ""
+                snippets.append(f"{name}{dtype} compiled={compiled!r} runtime={runtime!r}")
+            if len(sniffing) > 3:
+                snippets.append(f"... v√† {len(sniffing) - 3} params kh√°c")
+            findings.append(Finding(
+                severity=Severity.WARNING,
+                category=self.category,
+                type="parameter_sniffing",
+                description=f"Parameter sniffing tr√™n {len(sniffing)} param: " + "; ".join(snippets),
+                recommendation="Xem x√©t sniffing mitigation (recompile/optimize for/query store hints).",
+            ))
         return findings

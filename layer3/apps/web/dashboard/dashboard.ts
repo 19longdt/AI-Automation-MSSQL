@@ -324,8 +324,13 @@ function bindFindingModalTabs(findingId: string): void {
               pp.innerHTML = renderDiagnosticsPanel(diag);
               bindDiagnosticsPanel(diag);
             }
-          } catch (_e) {
-            if (pp) pp.innerHTML = "<div class='diag-empty-msg'>Failed to load diagnostics.</div>";
+          } catch (e) {
+            var status = e && e.status ? Number(e.status) : 0;
+            if (pp) {
+              pp.innerHTML = status === 404
+                ? "<div class='diag-empty-msg'>No diagnostics data.</div>"
+                : "<div class='diag-empty-msg'>Failed to load diagnostics.</div>";
+            }
           }
         }
       });
@@ -456,10 +461,25 @@ function renderSlowSessionMetricsTable(metrics: any): string {
   ];
 
   function renderMetricTable(title: string, cols: string[], emptyText?: string, planField?: string): string {
+    var isSlowSessionHeader = title === "Slow session information";
+    var titleHtml = "<div class='metric-section-title'>" + esc(title) + "</div>";
+    if (isSlowSessionHeader) {
+      titleHtml =
+        "<div class='metric-section-title-wrap'>" +
+        "<div class='metric-section-title'>" + esc(title) + "</div>" +
+        "<div class='slow-analyze-wrap'>" +
+        "<button type='button' class='slow-analyze-btn'>Analyze</button>" +
+        "<div class='slow-analyze-menu'>" +
+        "<button type='button' class='slow-analyze-option' data-plan-kind='compile'>Compile XML</button>" +
+        "<button type='button' class='slow-analyze-option' data-plan-kind='actual'>Actual XML</button>" +
+        "</div>" +
+        "</div>" +
+        "</div>";
+    }
     if (!cols.length) return "";
     if (emptyText) {
       return "<div class='metric-section'>" +
-        "<div class='metric-section-title'>" + esc(title) + "</div>" +
+        titleHtml +
         "<div class='metric-empty'>" + esc(emptyText) + "</div>" +
         "</div>";
     }
@@ -468,7 +488,7 @@ function renderSlowSessionMetricsTable(metrics: any): string {
     var row = "<td class='no-cell'>1</td>" + cols.map(function (c) { return cellFor(c); }).join("");
     var head = cols.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("");
     return "<div class='metric-section'>" +
-      "<div class='metric-section-title'>" + esc(title) + "</div>" +
+      titleHtml +
       "<table class='kv-table'><thead><tr><th class='no-cell'>No</th>" + head + "</tr></thead><tbody><tr class='" + rowClass + "'" + rowAttr + ">" + row + "</tr></tbody></table>" +
       "</div>";
   }
@@ -521,6 +541,9 @@ function bindSlowSessionMetricActions(metrics: any) {
   var detail = box.querySelector("#slowMetricsDetail") as HTMLElement | null;
   var planSection = box.querySelector("#slowMetricsPlanSection") as HTMLElement | null;
   var planBox = box.querySelector("#slowMetricsPlanBox") as HTMLElement | null;
+  var analyzeBtn = box.querySelector(".slow-analyze-btn") as HTMLButtonElement | null;
+  var analyzeMenu = box.querySelector(".slow-analyze-menu") as HTMLElement | null;
+  var analyzeOptions = box.querySelectorAll(".slow-analyze-option");
 
   function setPlanField(field: string, xmlText: string) {
     if (!detail || !planSection || !planBox) return;
@@ -539,6 +562,31 @@ function bindSlowSessionMetricActions(metrics: any) {
       return { field: "query_plan_xml", xml: payload.query_plan_xml };
     }
     return { field: "actual_plan_xml", xml: payload.actual_plan_xml };
+  }
+
+  async function runAnalyzeByKind(kind: string) {
+    var sourceField = kind === "actual" ? "actual_plan_xml" : "query_plan_xml";
+    var xml = String(payload[sourceField] || "").trim();
+    if (!xml) {
+      openModal("Plan Analysis", "<div class='pa-error'>Khong co " + esc(kind === "actual" ? "Actual XML" : "Compile XML") + " de phan tich.</div>");
+      return;
+    }
+    try {
+      var result = await apiPost("/api/plan/analyze", { plan_xml: xml }) as PlanAnalysisResult;
+      var mountId = "pa-root-" + String(Date.now());
+      openModal("Plan Analysis", "<div id='" + mountId + "'></div>");
+      var root = document.getElementById(mountId);
+      if (!root) return;
+      new PlanAnalysisComponent(root, result).render();
+    } catch (e) {
+      var status = e && e.status ? String(e.status) : "unknown";
+      var payloadErr = e && e.payload ? JSON.stringify(e.payload, null, 2) : "";
+      openModal(
+        "Plan Analysis - Error",
+        "<div class='pa-error'><p>Khong the phan tich plan. Kiem tra Layer 2.</p><div>Status: " + esc(status) + "</div>" +
+        (payloadErr ? "<pre>" + esc(payloadErr) + "</pre>" : "") + "</div>"
+      );
+    }
   }
 
   for (var r = 0; r < rows.length; r++) {
@@ -572,6 +620,49 @@ function bindSlowSessionMetricActions(metrics: any) {
 
   var initialSlowPlan = resolveSlowSessionPlanSelection();
   setPlanField(initialSlowPlan.field, initialSlowPlan.xml);
+
+  if (analyzeBtn && analyzeMenu) {
+    var closeAnalyzeMenu = function () {
+      analyzeMenu.classList.remove("is-open");
+    };
+    var openAnalyzeMenu = function () {
+      var rect = analyzeBtn.getBoundingClientRect();
+      analyzeMenu.style.left = String(Math.max(8, rect.right - 136)) + "px";
+      analyzeMenu.style.top = String(rect.bottom + 6) + "px";
+      analyzeMenu.classList.add("is-open");
+    };
+    analyzeBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (analyzeMenu.classList.contains("is-open")) {
+        closeAnalyzeMenu();
+        return;
+      }
+      openAnalyzeMenu();
+    });
+    document.addEventListener("click", function (ev) {
+      var t = ev.target as HTMLElement | null;
+      if (!t) return;
+      if (!t.closest(".slow-analyze-wrap") && !t.closest(".slow-analyze-menu")) closeAnalyzeMenu();
+    });
+  }
+
+  for (var o = 0; o < analyzeOptions.length; o++) {
+    (function (el: Element) {
+      el.addEventListener("click", async function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var btn = el as HTMLButtonElement;
+        var kind = String(btn.getAttribute("data-plan-kind") || "compile");
+        if (analyzeMenu) {
+          analyzeMenu.classList.remove("is-open");
+        }
+        await withButtonLoading(btn, async function () {
+          await runAnalyzeByKind(kind);
+        }, "Analyzing...");
+      });
+    })(analyzeOptions[o]);
+  }
 }
 
 function isRuntimeExecutionPlanXml(xmlText: string): boolean {
@@ -651,92 +742,102 @@ function renderExecutionPlanToBox(
 function bindExecutionPlanActions(planBox: HTMLElement) {
   var qpObj = getQpGlobal();
   if (!qpObj || typeof qpObj.bindQueryActions !== "function") return;
-  if (planBox.getAttribute("data-qp-actions-bound") === "1") return;
-  planBox.setAttribute("data-qp-actions-bound", "1");
 
   function getCurrentXml(): string {
     return String(planBox.getAttribute("data-current-plan-xml") || "");
   }
 
-  qpObj.bindQueryActions(planBox, {
-    onOpenQueryPopup: function (ctx: any) {
-      var txt = String((ctx && ctx.queryText) || "");
-      openModal("SQL Text Detail", "<pre id='sqlDetailPre'>Formatting...</pre>");
-      var pre = document.getElementById("sqlDetailPre");
-      if (!pre) return;
-      if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
-        qpObj.beautifySqlWithFallback(txt).then(function (formatted: string) {
-          pre.textContent = formatted || "";
-        }).catch(function () {
-          pre.textContent = txt;
-        });
-        return;
+  if (planBox.getAttribute("data-qp-actions-bound") !== "1") {
+    qpObj.bindQueryActions(planBox, {
+      onOpenQueryPopup: function (ctx: any) {
+        var txt = String((ctx && ctx.queryText) || "");
+        openModal("SQL Text Detail", "<pre id='sqlDetailPre'>Formatting...</pre>");
+        var pre = document.getElementById("sqlDetailPre");
+        if (!pre) return;
+        if (qpObj && typeof qpObj.beautifySqlWithFallback === "function") {
+          qpObj.beautifySqlWithFallback(txt).then(function (formatted: string) {
+            pre.textContent = formatted || "";
+          }).catch(function () {
+            pre.textContent = txt;
+          });
+          return;
+        }
+        pre.textContent = txt;
+      },
+      onShowPlanXml: function () {
+        var xmlText = getCurrentXml();
+        var treeHtml = (qpObj && typeof qpObj.buildXmlTreeHtml === "function")
+          ? qpObj.buildXmlTreeHtml(String(xmlText || ""))
+          : ("<div class='xml-text'>Cannot parse XML.</div>");
+        openModal(
+          "Show Plan XML",
+          "<div style='margin-bottom:8px'><button id='expandAllXml' type='button'>Expand all</button> <button id='collapseAllXml' type='button'>Collapse all</button></div>" +
+          "<div id='xmlViewerContent' class='xml-viewer-content tree'>" +
+          treeHtml +
+          "</div>"
+        );
+        bindXmlTreeToolbar();
+      },
+      onCopyPlanXml: function () {
+        var xmlText = getCurrentXml();
+        copyTextToClipboardWithFallback(String(xmlText || ""));
+      },
+      onBeautify: function (ctx: any) {
+        if (qpObj && typeof qpObj.applyBeautifyToBlock === "function" && ctx && ctx.block) {
+          qpObj.applyBeautifyToBlock(ctx.block);
+        }
       }
-      pre.textContent = txt;
-    },
-    onShowPlanXml: function () {
-      var xmlText = getCurrentXml();
-      var treeHtml = (qpObj && typeof qpObj.buildXmlTreeHtml === "function")
-        ? qpObj.buildXmlTreeHtml(String(xmlText || ""))
-        : ("<div class='xml-text'>Cannot parse XML.</div>");
-      openModal(
-        "Show Plan XML",
-        "<div style='margin-bottom:8px'><button id='expandAllXml' type='button'>Expand all</button> <button id='collapseAllXml' type='button'>Collapse all</button></div>" +
-        "<div id='xmlViewerContent' class='xml-viewer-content tree'>" +
-        treeHtml +
-        "</div>"
-      );
-      bindXmlTreeToolbar();
-    },
-    onCopyPlanXml: function () {
-      var xmlText = getCurrentXml();
-      copyTextToClipboardWithFallback(String(xmlText || ""));
-    },
-    onBeautify: function (ctx: any) {
-      if (qpObj && typeof qpObj.applyBeautifyToBlock === "function" && ctx && ctx.block) {
-        qpObj.applyBeautifyToBlock(ctx.block);
-      }
-    }
-  });
+    });
+    planBox.setAttribute("data-qp-actions-bound", "1");
+  }
 
   ensureAnalyzeButton(planBox, getCurrentXml);
 }
 
 function ensureAnalyzeButton(planBox: HTMLElement, getCurrentXml: () => string) {
-  if (planBox.getAttribute("data-qp-analyze-bound") === "1") return;
-  var host = planBox.querySelector(".qp-query-tabs, .qp-statement-header-panel, .qp-statement-header") as HTMLElement | null;
-  if (!host) return;
-  var btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "qp-btn-analyze";
-  btn.textContent = "Analyze";
-  btn.addEventListener("click", async function () {
-    var xml = String(getCurrentXml() || "").trim();
-    if (!xml) {
-      openModal("Plan Analysis", "<div class='pa-error'>Plan XML is empty.</div>");
-      return;
-    }
-    await withButtonLoading(btn, async function () {
-      try {
-        var result = await apiPost("/api/plan/analyze", { plan_xml: xml }) as PlanAnalysisResult;
-        var mountId = "pa-root-" + String(Date.now());
-        openModal("Plan Analysis", "<div id='" + mountId + "'></div>");
-        var root = document.getElementById(mountId);
-        if (!root) return;
-        new PlanAnalysisComponent(root, result).render();
-      } catch (e: any) {
-        var status = e && e.status ? String(e.status) : "unknown";
-        var payload = e && e.payload ? JSON.stringify(e.payload, null, 2) : "";
-        openModal(
-          "Plan Analysis - Error",
-          "<div class='pa-error'><p>Khong the phan tich plan. Kiem tra Layer 2.</p><div>Status: " + esc(status) + "</div>" +
-          (payload ? "<pre>" + esc(payload) + "</pre>" : "") + "</div>"
-        );
+  var tabs = planBox.querySelectorAll(".qp-query-tabs");
+  for (var i = 0; i < tabs.length; i++) {
+    var tabHost = tabs[i] as HTMLElement;
+    if (tabHost.querySelector(".qp-open-plan-analyze")) continue;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "qp-query-tab qp-query-action qp-open-plan-analyze";
+    btn.textContent = "Analyze";
+    tabHost.appendChild(btn);
+  }
+
+  if (planBox.getAttribute("data-qp-analyze-bound") !== "1") {
+    planBox.addEventListener("click", async function (event) {
+      var t = event.target as HTMLElement | null;
+      if (!t) return;
+      var btn = t.closest(".qp-open-plan-analyze") as HTMLButtonElement | null;
+      if (!btn) return;
+      var xml = String(getCurrentXml() || "").trim();
+      if (!xml) {
+        openModal("Plan Analysis", "<div class='pa-error'>Plan XML is empty.</div>");
+        return;
       }
-    }, "Analyzing...");
-  });
-  host.appendChild(btn);
-  planBox.setAttribute("data-qp-analyze-bound", "1");
+      await withButtonLoading(btn, async function () {
+        try {
+          var result = await apiPost("/api/plan/analyze", { plan_xml: xml }) as PlanAnalysisResult;
+          var mountId = "pa-root-" + String(Date.now());
+          openModal("Plan Analysis", "<div id='" + mountId + "'></div>");
+          var root = document.getElementById(mountId);
+          if (!root) return;
+          new PlanAnalysisComponent(root, result).render();
+        } catch (e) {
+          var status = e && e.status ? String(e.status) : "unknown";
+          var payload = e && e.payload ? JSON.stringify(e.payload, null, 2) : "";
+          openModal(
+            "Plan Analysis - Error",
+            "<div class='pa-error'><p>Khong the phan tich plan. Kiem tra Layer 2.</p><div>Status: " + esc(status) + "</div>" +
+            (payload ? "<pre>" + esc(payload) + "</pre>" : "") + "</div>"
+          );
+        }
+      }, "Analyzing...");
+    });
+    planBox.setAttribute("data-qp-analyze-bound", "1");
+  }
 }
 
 function ensurePlanHeaderSqlText(planBox: HTMLElement, sqlTextFallback: string, forceFill?: boolean) {

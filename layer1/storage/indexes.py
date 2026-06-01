@@ -25,19 +25,19 @@ from pymongo.operations import IndexModel
 logger = logging.getLogger(__name__)
 
 # TTL values (giây)
-TTL_RAW_METRICS_SEC = 30 * 24 * 3600
-TTL_FINDINGS_SEC = 90 * 24 * 3600
-TTL_FINDING_DIAGNOSTICS_SEC = 90 * 24 * 3600
-TTL_AI_ANALYSIS_SEC = 90 * 24 * 3600
+TTL_RAW_METRICS_SEC = 3 * 24 * 3600
+TTL_FINDINGS_SEC = 9 * 24 * 3600
+TTL_FINDING_DIAGNOSTICS_SEC = 9 * 24 * 3600
+TTL_AI_ANALYSIS_SEC = 9 * 24 * 3600
 TTL_DEDUP_CACHE_SEC = 7 * 24 * 3600
-TTL_JOB_EXECUTIONS_SEC = 30 * 24 * 3600
+TTL_JOB_EXECUTIONS_SEC = 3 * 24 * 3600
 
 # Giữ alias ngày để backward compat với các module khác import constants này
-TTL_RAW_METRICS_DAYS = 30
-TTL_FINDINGS_DAYS = 90
-TTL_AI_ANALYSIS_DAYS = 90
+TTL_RAW_METRICS_DAYS = 3
+TTL_FINDINGS_DAYS = 9
+TTL_AI_ANALYSIS_DAYS = 9
 TTL_DEDUP_CACHE_DAYS = 7
-TTL_JOB_EXECUTIONS_DAYS = 30
+TTL_JOB_EXECUTIONS_DAYS = 3
 
 
 def create_all_indexes(db: Database) -> None:
@@ -69,12 +69,8 @@ def _create_raw_metrics_indexes(db: Database) -> None:
             [("node", ASCENDING), ("collected_at", DESCENDING)],
             name="node_time",
         ),
-        IndexModel(
-            [("collected_at", ASCENDING)],
-            expireAfterSeconds=TTL_RAW_METRICS_SEC,
-            name="ttl_collected_at",
-        ),
     ])
+    _ensure_ttl_index(col, [("collected_at", ASCENDING)], "ttl_collected_at", TTL_RAW_METRICS_SEC)
 
 
 def _create_findings_indexes(db: Database) -> None:
@@ -107,12 +103,8 @@ def _create_findings_indexes(db: Database) -> None:
             [("alert_status", ASCENDING), ("detected_at", DESCENDING)],
             name="alert_status_time",
         ),
-        IndexModel(
-            [("detected_at", ASCENDING)],
-            expireAfterSeconds=TTL_FINDINGS_SEC,
-            name="ttl_detected_at",
-        ),
     ])
+    _ensure_ttl_index(col, [("detected_at", ASCENDING)], "ttl_detected_at", TTL_FINDINGS_SEC)
 
 
 def _create_baselines_indexes(db: Database) -> None:
@@ -144,12 +136,8 @@ def _create_dedup_cache_indexes(db: Database) -> None:
             unique=True,
             name="unique_finding_hash",
         ),
-        IndexModel(
-            [("last_alerted_at", ASCENDING)],
-            expireAfterSeconds=TTL_DEDUP_CACHE_SEC,
-            name="ttl_last_alerted_at",
-        ),
     ])
+    _ensure_ttl_index(col, [("last_alerted_at", ASCENDING)], "ttl_last_alerted_at", TTL_DEDUP_CACHE_SEC)
 
 
 def _create_job_executions_indexes(db: Database) -> None:
@@ -164,12 +152,8 @@ def _create_job_executions_indexes(db: Database) -> None:
             [("status", ASCENDING), ("started_at", ASCENDING)],
             name="status_time",
         ),
-        IndexModel(
-            [("started_at", ASCENDING)],
-            expireAfterSeconds=TTL_JOB_EXECUTIONS_SEC,
-            name="ttl_started_at",
-        ),
     ])
+    _ensure_ttl_index(col, [("started_at", ASCENDING)], "ttl_started_at", TTL_JOB_EXECUTIONS_SEC)
 
 
 def _create_monitor_topics_indexes(db: Database) -> None:
@@ -216,12 +200,8 @@ def _create_finding_diagnostics_indexes(db: Database) -> None:
             name="topic_captured_time",
         ),
         # Tu dong xoa snapshot qua han de giam dung luong.
-        IndexModel(
-            [("captured_at", ASCENDING)],
-            expireAfterSeconds=TTL_FINDING_DIAGNOSTICS_SEC,
-            name="ttl_captured_at",
-        ),
     ])
+    _ensure_ttl_index(col, [("captured_at", ASCENDING)], "ttl_captured_at", TTL_FINDING_DIAGNOSTICS_SEC)
 
 
 def _create_capture_tool_defs_indexes(db: Database) -> None:
@@ -245,3 +225,36 @@ def _create_capture_tool_defs_indexes(db: Database) -> None:
             name="phase",
         ),
     ])
+
+
+def _ensure_ttl_index(col, keys, name: str, ttl_seconds: int) -> None:
+    """
+    Ensure TTL index exists with exact options.
+    If same name exists with different key/options, drop and recreate.
+    """
+    existing = None
+    for idx in col.list_indexes():
+        if idx.get("name") == name:
+            existing = idx
+            break
+
+    expected_key = dict(keys)
+    recreate = False
+    if existing is None:
+        recreate = True
+    else:
+        existing_ttl = int(existing.get("expireAfterSeconds", -1))
+        existing_key = dict(existing.get("key", {}))
+        if existing_ttl != ttl_seconds or existing_key != expected_key:
+            logger.info(
+                "TTL index '%s' on collection '%s' changed (old_ttl=%s, new_ttl=%s). Recreating.",
+                name,
+                col.name,
+                existing.get("expireAfterSeconds"),
+                ttl_seconds,
+            )
+            col.drop_index(name)
+            recreate = True
+
+    if recreate:
+        col.create_index(keys, name=name, expireAfterSeconds=ttl_seconds)

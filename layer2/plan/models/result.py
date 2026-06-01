@@ -28,15 +28,39 @@ class Finding(BaseModel):
     action: Action | None = None
 
 
+class FindingInstance(BaseModel):
+    description: str
+    action: Action | None = None
+
+
+class FindingGroup(BaseModel):
+    severity: Severity
+    category: str
+    type: str
+    recommendation: str
+    shared_action: Action | None = None
+    instances: list[FindingInstance] = Field(default_factory=list)
+    count: int = 0
+
+
 class OperatorSummary(BaseModel):
     node_id: int
     physical_op: str
     logical_op: str
+    op_type_tag: str = "OTHER"
+    cost: float = 0.0
     cost_pct: float = 0.0
     estimated_rows: float = 0.0
     actual_rows: float | None = None
     actual_elapsed_ms: float | None = None
     actual_logical_reads: float | None = None
+    actual_physical_reads: float | None = None
+    read_ahead_reads: float | None = None
+    scan_count: float | None = None
+    has_row_est_off: bool = False
+    has_spill: bool = False
+    table_name: str | None = None
+    index_name: str | None = None
 
 
 class IndexSuggestion(BaseModel):
@@ -75,23 +99,68 @@ class StatsSummary(BaseModel):
     modification_count: int | None = None
     sampling_percent: float | None = None
     last_update: str | None = None
+    is_stale: bool = False
 
 
 class IOStatSummary(BaseModel):
+    node_id: int
+    physical_op: str
+    op_type_tag: str = "OTHER"
+    table_name: str | None = None
+    index_name: str | None = None
+    logical_reads: int = 0
+    physical_reads: int = 0
+    read_ahead_reads: int = 0
+    scan_count: int = 0
+
+
+class JoinTypeSummary(BaseModel):
+    join_type: str
+    count: int = 0
+    has_spill: bool = False
+
+
+class IndexUsage(BaseModel):
     table: str
-    logical_reads: int
+    index: str
+    index_kind: str
+    op_type: str
+    is_partitioned: bool = False
+
+
+class LookupQueries(BaseModel):
+    plan_cache_sql: str
+    query_store_sql: str
+
+
+class CompilationInfo(BaseModel):
+    ce_model_version: int = 0
+    dop: int = 0
+    non_parallel_reason: str | None = None
+    compile_cpu_ms: int = 0
+    compile_memory_kb: int = 0
+    cached_plan_size_kb: int = 0
+    optm_level: str | None = None
+    early_abort_reason: str | None = None
+    query_hash: str | None = None
+    query_plan_hash: str | None = None
+    lookup_queries: LookupQueries | None = None
 
 
 class StatementResult(BaseModel):
     statement_text: str
+    statement_text_truncated: bool = False
     statement_type: str
     total_cost: float
+    elapsed_ms: int | None = None
+    cpu_ms: int | None = None
     dop: int
     has_actual_stats: bool
     ce_model_version: int
+    optm_level: str | None = None
     query_hash: str | None = None
     query_plan_hash: str | None = None
-    findings: list[Finding] = Field(default_factory=list)
+    finding_groups: list[FindingGroup] = Field(default_factory=list)
     critical_count: int = 0
     warning_count: int = 0
     info_count: int = 0
@@ -102,6 +171,9 @@ class StatementResult(BaseModel):
     wait_stats: list[WaitStatSummary] = Field(default_factory=list)
     statistics: list[StatsSummary] = Field(default_factory=list)
     io_stats: list[IOStatSummary] = Field(default_factory=list)
+    join_types: list[JoinTypeSummary] = Field(default_factory=list)
+    indexes_used: list[IndexUsage] = Field(default_factory=list)
+    compilation: CompilationInfo | None = None
 
 
 class PlanAnalysisResult(BaseModel):

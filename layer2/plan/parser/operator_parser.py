@@ -20,6 +20,11 @@ class OperatorParser:
 
     def parse_node(self, relop_el: ET.Element) -> PlanNode:
         runtime = relop_el.find(self._tag("RunTimeInformation"))
+        index_scan = relop_el.find(f".//{self._tag('IndexScan')}")
+        lookup = (
+            ("Lookup" in (relop_el.get("PhysicalOp") or ""))
+            or (index_scan is not None and index_scan.get("Lookup") == "1")
+        )
         counters = runtime.findall(f".//{self._tag('RunTimeCountersPerThread')}") if runtime is not None else []
         actual_rows = sum(self._to_float(c.get("ActualRows")) for c in counters) if counters else None
         actual_cpu = sum(self._to_float(c.get("ActualCPUms")) for c in counters) if counters else None
@@ -35,7 +40,7 @@ class OperatorParser:
             table_cardinality=self._to_float(relop_el.get("TableCardinality")),
             estimate_rows_without_row_goal=self._to_float(relop_el.get("EstimateRowsWithoutRowGoal")),
             parallel=(relop_el.get("Parallel") == "1"),
-            lookup=("Lookup" in (relop_el.get("PhysicalOp") or "")),
+            lookup=lookup,
             actual_rows=actual_rows,
             actual_executions=(sum(self._to_float(c.get("ActualExecutions")) for c in counters) if counters else None),
             actual_elapsed_ms=actual_elapsed,
@@ -48,17 +53,26 @@ class OperatorParser:
             output_columns=None,
             table_name=self._table(relop_el),
             index_name=self._index(relop_el),
+            index_kind=self._index_kind(relop_el),
+            partitioned=(relop_el.get("Partitioned") == "1"),
             warnings=self._parse_warnings(relop_el),
             scalar_udfs=self._parse_udfs(relop_el),
             per_thread_stats=self._parse_threads(counters),
         )
 
-        for nested in relop_el.findall(f"./{self._tag('RelOp')}"):
-            node.children.append(self.parse_node(nested))
-        for container_tag in ("Children", "NestedLoops", "Hash", "Merge", "Parallelism"):
-            for container in relop_el.findall(self._tag(container_tag)):
-                for nested in container.findall(self._tag("RelOp")):
-                    node.children.append(self.parse_node(nested))
+        child_relop_map: dict[int, ET.Element] = {}
+        for child in relop_el:
+            child_tag = self._strip_tag(child.tag)
+            if child_tag == "RelOp":
+                nid = self._to_int(child.get("NodeId"))
+                child_relop_map[nid] = child
+                continue
+            for grandchild in child:
+                if self._strip_tag(grandchild.tag) == "RelOp":
+                    nid = self._to_int(grandchild.get("NodeId"))
+                    child_relop_map[nid] = grandchild
+        for child_el in child_relop_map.values():
+            node.children.append(self.parse_node(child_el))
         return node
 
     def _parse_warnings(self, relop_el: ET.Element) -> list[NodeWarning]:
@@ -92,10 +106,15 @@ class OperatorParser:
         return out
 
     def _first_scalar(self, relop_el: ET.Element, name: str) -> str | None:
-        target = relop_el.find(f".//{self._tag(name)}/{self._tag('ScalarOperator')}")
-        if target is None:
+        container = relop_el.find(f".//{self._tag(name)}")
+        if container is None:
             return None
-        return target.get("ScalarString")
+        parts = [
+            el.get("ScalarString", "")
+            for el in container.iter(self._tag("ScalarOperator"))
+            if el.get("ScalarString")
+        ]
+        return "; ".join(parts) if parts else None
 
     def _table(self, relop_el: ET.Element) -> str | None:
         obj = relop_el.find(f".//{self._tag('Object')}")
@@ -112,6 +131,13 @@ class OperatorParser:
         if obj is None:
             return None
         return (obj.get("Index") or "").strip("[]") or None
+
+    def _index_kind(self, relop_el: ET.Element) -> str | None:
+        obj = relop_el.find(f".//{self._tag('Object')}")
+        if obj is None:
+            return None
+        kind = (obj.get("IndexKind") or "").strip()
+        return kind or None
 
     def _strip_tag(self, tag: str) -> str:
         return tag.split("}", 1)[-1] if "}" in tag else tag

@@ -27,6 +27,8 @@ from .agent.context_builder import ContextBuilder
 from .agent.orchestrator import AgentOrchestrator
 from .agent.skill_loader import SkillLoader
 from .agent.tool_executor import ToolExecutor
+from .analysis.plan.pipeline import PlanAnalysisPipeline
+from .analysis.registry import PipelineRegistry
 from .api.routes import admin, analysis, health, insights, plan, skills
 from .config import settings
 from .executor.node_role_cache import NodeRoleCache
@@ -58,11 +60,16 @@ async def lifespan(app: FastAPI):
     tool_exec = ToolExecutor(nrc, settings.peak_hours_start, settings.peak_hours_end)
     orch = AgentOrchestrator(sl, ctx_builder, tool_exec)
 
+    plan_service = PlanAnalysisService.create()
+    pipeline_registry = PipelineRegistry()
+    pipeline_registry.register(PlanAnalysisPipeline(plan_service))
+
     # Routes truy cập qua request.app.state
     app.state.skill_loader = sl
     app.state.node_role_cache = nrc
     app.state.orchestrator = orch
-    app.state.plan_analysis_service = PlanAnalysisService.create()
+    app.state.plan_analysis_service = plan_service   # backward compat — giữ cho cũ dùng
+    app.state.pipeline_registry = pipeline_registry
 
     _start_telegram_bot(app, orch, sl, nrc)
 

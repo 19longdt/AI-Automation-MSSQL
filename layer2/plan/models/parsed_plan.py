@@ -33,7 +33,7 @@ class PlanParameter(BaseModel):
 
 class MissingIndex(BaseModel):
     database: str = ""
-    schema: str = ""
+    schema_name: str = ""
     table: str = ""
     impact: float = 0.0
     equality_columns: list[str] = Field(default_factory=list)
@@ -82,6 +82,8 @@ class PlanNode(BaseModel):
     output_columns: str | None = None
     table_name: str | None = None
     index_name: str | None = None
+    index_kind: str | None = None
+    partitioned: bool = False
     warnings: list[NodeWarning] = Field(default_factory=list)
     scalar_udfs: list[str] = Field(default_factory=list)
     per_thread_stats: list[PerThreadStat] = Field(default_factory=list)
@@ -90,6 +92,7 @@ class PlanNode(BaseModel):
 
 class ParsedStatement(BaseModel):
     statement_text: str = ""
+    statement_text_truncated: bool = False
     statement_type: str = ""
     total_cost: float = 0.0
     dop: int = 0

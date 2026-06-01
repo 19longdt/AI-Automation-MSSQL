@@ -14,7 +14,7 @@ class IndexParser:
             for idx in group.findall(self._tag("MissingIndex")):
                 mi = MissingIndex(
                     database=(idx.get("Database") or "").strip("[]"),
-                    schema=(idx.get("Schema") or "").strip("[]"),
+                    schema_name=(idx.get("Schema") or "").strip("[]"),
                     table=(idx.get("Table") or "").strip("[]"),
                     impact=impact,
                 )
