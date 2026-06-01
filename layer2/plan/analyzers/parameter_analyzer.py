@@ -24,7 +24,7 @@ class ParameterAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=Severity.INFO,
                     category=self.category,
                     type="local_variables",
-                    description=f"Không có compiled value cho {p.name}.",
+                    description=f"Không có compiled value cho `{p.name}`.",
                     recommendation="Có thể query dùng local variable, estimate có thể kém chính xác.",
                 ))
 
@@ -40,6 +40,6 @@ class ParameterAnalyzer(AbstractAnalyzer[PlanContext]):
                 category=self.category,
                 type="parameter_sniffing",
                 description=f"Parameter sniffing trên {len(sniffing)} param: " + "; ".join(snippets),
-                recommendation="Xem xét sniffing mitigation (recompile/optimize for/query store hints).",
+                recommendation="Xem xét sniffing mitigation (`OPTIMIZE FOR`/`RECOMPILE`/query store hints).",
             ))
         return findings

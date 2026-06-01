@@ -33,8 +33,8 @@ class IndexAnalyzer(AbstractAnalyzer[PlanContext]):
                 severity=severity,
                 category=self.category,
                 type="missing_index",
-                description=f"Gợi ý index bị thiếu cho {table} - SQL Server ước tính impact {idx.impact:.1f}% nếu có index này.",
-                recommendation="Đánh giá workload trước khi tạo: index mới có hữu ích cho nhiều query không? Tránh tạo quá nhiều index (over-indexing) làm chậm INSERT/UPDATE.",
+                description=f"Gợi ý index bị thiếu cho `{table}` - SQL Server ước tính impact {idx.impact:.1f}% nếu có index này.",
+                recommendation="Đánh giá workload trước khi tạo: index mới có hữu ích cho nhiều query không? Tránh tạo quá nhiều index (over-indexing) làm chậm `INSERT`/`UPDATE`.",
                 action=Action(type="create_index", description="Tạo index theo gợi ý execution plan", ddl=ddl) if ddl else None,
             ))
             if len(include_cols) > 5 or len(key_cols) > 4:
@@ -42,7 +42,7 @@ class IndexAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=Severity.INFO,
                     category=self.category,
                     type="wide_index_suggestion",
-                    description=f"Gợi ý index rộng trên {table}: {len(key_cols)} key columns, {len(include_cols)} INCLUDE columns.",
+                    description=f"Gợi ý index rộng trên `{table}`: {len(key_cols)} key columns, {len(include_cols)} `INCLUDE` columns.",
                     recommendation="Cân bằng lợi ích đọc và chi phí bảo trì: index rộng tốn nhiều bộ nhớ và làm chậm write operation.",
                 ))
         return findings

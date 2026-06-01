@@ -30,7 +30,7 @@ class CompilationAnalyzer(AbstractAnalyzer[PlanContext]):
                 category=self.category,
                 type="compile_memory_exceeded",
                 description="Optimizer dừng sớm (early abort) do vượt giới hạn bộ nhớ trong quá trình tối ưu hóa - plan có thể không tối ưu.",
-                recommendation="Giảm độ phức tạp query: bớt join không cần thiết, rà biểu thức ORDER BY/GROUP BY, kiểm tra view nesting sâu.",
+                recommendation="Giảm độ phức tạp query: bớt join không cần thiết, rà biểu thức `ORDER BY`/`GROUP BY`, kiểm tra view nesting sâu.",
             ))
         if stmt.ce_model_version == 70:
             findings.append(Finding(
@@ -38,14 +38,14 @@ class CompilationAnalyzer(AbstractAnalyzer[PlanContext]):
                 category=self.category,
                 type="ce_model_legacy",
                 description="Cardinality Estimation model 70 (SQL Server 2012 legacy) - ước lượng số hàng có thể kém chính xác với dữ liệu hiện đại.",
-                recommendation="Đánh giá tác động khi nâng compatibility level lên 150 (SQL 2019 CE). Dùng Query Store để so sánh plan trước/sau.",
+                recommendation="Đánh giá tác động khi nâng `compatibility level` lên 150 (SQL 2019 CE). Dùng Query Store để so sánh plan trước/sau.",
             ))
         if stmt.optm_level == "TRIVIAL":
             findings.append(Finding(
                 severity=Severity.INFO,
                 category=self.category,
                 type="trivial_plan",
-                description="Plan được compile ở mức TRIVIAL - optimizer bỏ qua nhiều bước tối ưu hóa.",
-                recommendation="Nếu query chậm, kiểm tra missing index hoặc statistics để optimizer chọn FULL optimization.",
+                description="Plan được compile ở mức `TRIVIAL` - optimizer bỏ qua nhiều bước tối ưu hóa.",
+                recommendation="Nếu query chậm, kiểm tra missing index hoặc statistics để optimizer chọn `FULL` optimization.",
             ))
         return findings

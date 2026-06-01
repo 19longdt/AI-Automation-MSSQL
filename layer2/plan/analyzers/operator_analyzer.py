@@ -28,8 +28,8 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=severity,
                     category=self.category,
                     type="key_lookup",
-                    description=f"Key Lookup tại NodeId={node.node_id}, bảng={node.table_name or 'unknown'} - SQL Server đọc thêm cột ngoài index dẫn đến 2 lần I/O.",
-                    recommendation="Tạo covering index bằng cách INCLUDE các cột được truy xuất thêm vào index hiện tại, tránh lookup.",
+                    description=f"Key Lookup tại `NodeId={node.node_id}`, bảng=`{node.table_name or 'unknown'}` - SQL Server đọc thêm cột ngoài index dẫn đến 2 lần I/O.",
+                    recommendation="Tạo covering index bằng cách `INCLUDE` các cột được truy xuất thêm vào index hiện tại, tránh lookup.",
                     action=Action(type="create_index", description="Covering index để giảm lookup", ddl=None),
                 ))
             if op == "RID Lookup":
@@ -37,7 +37,7 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=Severity.WARNING,
                     category=self.category,
                     type="rid_lookup",
-                    description=f"RID Lookup tại NodeId={node.node_id} - bảng dạng heap (không có clustered index), SQL đọc thêm cột qua RowID.",
+                    description=f"RID Lookup tại `NodeId={node.node_id}` - bảng dạng heap (không có clustered index), SQL đọc thêm cột qua RowID.",
                     recommendation="Cân nhắc tạo clustered index cho heap table để loại bỏ RID Lookup và giảm I/O.",
                 ))
             if op == "Sort" and total_cost > 0 and node.estimated_cost / total_cost > 0.2:
@@ -49,8 +49,8 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=Severity.WARNING,
                     category=self.category,
                     type="sort_expensive",
-                    description=f"Sort chiếm khoảng {pct:.0%} estimated cost - operation sort tốn kém, dữ liệu chưa được sắp xếp sẵn. {metric}",
-                    recommendation="Xem xét index theo ORDER BY/GROUP BY để dữ liệu đọc ra đã có thứ tự, loại bỏ Sort operation.",
+                    description=f"`Sort #{node.node_id}` chiếm khoảng {pct:.0%} estimated cost - operation sort tốn kém, dữ liệu chưa được sắp xếp sẵn. {metric}",
+                    recommendation="Xem xét index theo `ORDER BY`/`GROUP BY` để dữ liệu đọc ra đã có thứ tự, loại bỏ Sort operation.",
                 ))
             if op == "Hash Match":
                 findings.append(Finding(
@@ -58,7 +58,7 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                     category=self.category,
                     type="hash_match_join_hint",
                     description=(
-                        f"Hash Match tại NodeId={node.node_id} | Cost: {node.estimated_cost:.2f} | "
+                        f"`Hash Match` tại `NodeId={node.node_id}` | Cost: {node.estimated_cost:.2f} | "
                         f"Est rows: {node.estimate_rows:g} - có thể là dấu hiệu join đang phải băm dữ liệu."
                     ),
                     recommendation="Kiểm tra index trên cột join để optimizer có thể chọn seek/join hiệu quả hơn khi phù hợp.",
@@ -70,7 +70,7 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                         severity=Severity.WARNING,
                         category=self.category,
                         type="scan_with_predicate",
-                        description=f"{op} với predicate tại NodeId={node.node_id} - scan toàn bộ index/bảng rồi lọc, thay vì seek trực tiếp vào dòng cần.",
+                        description=f"`{op}` với predicate tại `NodeId={node.node_id}` - scan toàn bộ index/bảng rồi lọc, thay vì seek trực tiếp vào dòng cần.",
                         recommendation="Đánh giá lại index và selectivity: tạo index phù hợp để chuyển từ Scan sang Seek khi predicate có selectivity cao.",
                     ))
             if node.estimate_rows > 0 and node.actual_rows is not None:
@@ -86,12 +86,12 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                             category=self.category,
                             type="row_underestimate",
                             description=(
-                                f"{op_label} (NodeId={node.node_id}): under-estimate {ratio:.0f}× — "
+                                f"`{op_label}` (`NodeId={node.node_id}`): under-estimate {ratio:.0f}× — "
                                 f"optimizer ước lượng {node.estimate_rows:g} hàng nhưng thực tế {node.actual_rows:g} hàng."
                             ),
                             recommendation=(
                                 "Under-estimate dẫn đến memory grant quá nhỏ → nguy cơ Hash/Sort spill ra TempDB. "
-                                "Kiểm tra: (1) UPDATE STATISTICS WITH FULLSCAN cho bảng liên quan, "
+                                "Kiểm tra: (1) `UPDATE STATISTICS WITH FULLSCAN` cho bảng liên quan, "
                                 "(2) parameter sniffing nếu compiled value khác runtime value, "
                                 "(3) implicit type conversion làm histogram không dùng được."
                             ),
@@ -103,12 +103,12 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                             category=self.category,
                             type="row_overestimate",
                             description=(
-                                f"{op_label} (NodeId={node.node_id}): over-estimate {over_factor:.0f}× — "
+                                f"`{op_label}` (`NodeId={node.node_id}`): over-estimate {over_factor:.0f}× — "
                                 f"optimizer ước lượng {node.estimate_rows:g} hàng nhưng thực tế {node.actual_rows:g} hàng."
                             ),
                             recommendation=(
                                 "Over-estimate dẫn đến memory grant quá lớn, lãng phí workspace memory. "
-                                "Kiểm tra: (1) UPDATE STATISTICS WITH FULLSCAN, "
+                                "Kiểm tra: (1) `UPDATE STATISTICS WITH FULLSCAN`, "
                                 "(2) filtered index/statistics nếu query có predicate chọn lọc cao, "
                                 "(3) Row Goal có thể bị ảnh hưởng bởi TOP/EXISTS."
                             ),
@@ -118,8 +118,8 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=Severity.CRITICAL,
                     category=self.category,
                     type="spill_to_tempdb",
-                    description=f"SpillToTempDb tại NodeId={node.node_id} ({node.physical_op}) - bộ nhớ không đủ, dữ liệu tràn ra đĩa (TempDB).",
-                    recommendation="Tối ưu row estimate và memory grant: sửa statistics, kiểm tra Sort/Hash spill path, tăng query memory nếu cần.",
+                    description=f"SpillToTempDb tại `NodeId={node.node_id}` (`{node.physical_op}`) - bộ nhớ không đủ, dữ liệu tràn ra đĩa (TempDB).",
+                    recommendation="Tối ưu row estimate và memory grant: sửa statistics, kiểm tra `Sort`/`Hash` spill path, tăng query memory nếu cần.",
                 ))
             pred = (node.predicate or "") + " " + (node.seek_predicates or "")
             if "CONVERT_IMPLICIT" in pred:
@@ -129,7 +129,7 @@ class OperatorAnalyzer(AbstractAnalyzer[PlanContext]):
                     severity=Severity.WARNING,
                     category=self.category,
                     type="non_sargable_implicit",
-                    description=f"CONVERT_IMPLICIT tại NodeId={node.node_id}: {expr_hint} - SQL Server ép kiểu dữ liệu ngầm, không thể dùng index seek.",
-                    recommendation="Đồng bộ kiểu dữ liệu giữa parameter và cột (tránh VARCHAR vs NVARCHAR, INT vs BIGINT) để index seek hoạt động.",
+                    description=f"`CONVERT_IMPLICIT` tại `NodeId={node.node_id}`: `{expr_hint}` - SQL Server ép kiểu dữ liệu ngầm, không thể dùng index seek.",
+                    recommendation="Đồng bộ kiểu dữ liệu giữa parameter và cột (tránh `VARCHAR` vs `NVARCHAR`, `INT` vs `BIGINT`) để index seek hoạt động.",
                 ))
         return findings

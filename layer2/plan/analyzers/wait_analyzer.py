@@ -27,7 +27,7 @@ class WaitAnalyzer(AbstractAnalyzer[PlanContext]):
                 severity = Severity.CRITICAL if w.wait_time_ms > 10000 else Severity.WARNING
             elif wt in {"CXPACKET", "CXCONSUMER"}:
                 t = "wait_parallelism"
-                rec = "Đánh giá data skew (một partition gánh nhiều hàng hơn), kiểm tra MAXDOP và COST THRESHOLD FOR PARALLELISM."
+                rec = "Đánh giá data skew (một partition gánh nhiều hàng hơn), kiểm tra `MAXDOP` và `COST THRESHOLD FOR PARALLELISM`."
                 severity = Severity.WARNING
             elif wt == "RESOURCE_SEMAPHORE":
                 t = "wait_memory"
@@ -55,14 +55,14 @@ class WaitAnalyzer(AbstractAnalyzer[PlanContext]):
                 severity = Severity.WARNING
             else:
                 t = "wait_other"
-                rec = f"Wait type {wt} cần điều tra thêm."
+                rec = f"Wait type `{wt}` cần điều tra thêm."
                 severity = Severity.INFO
 
             findings.append(Finding(
                 severity=severity,
                 category=self.category,
                 type=t,
-                description=f"Wait {wt}: {w.wait_time_ms}ms / {w.wait_count} lần - dấu hiệu nghẽn tài nguyên cần theo dõi.",
+                description=f"Wait `{wt}`: {w.wait_time_ms}ms / {w.wait_count} lần - dấu hiệu nghẽn tài nguyên cần theo dõi.",
                 recommendation=rec,
             ))
         return findings

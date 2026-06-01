@@ -27,7 +27,7 @@ class ParallelismAnalyzer(AbstractAnalyzer[PlanContext]):
                     + ("query có chi phí lớn nhưng chạy đơn luồng." if actionable else "đây là hành vi bình thường theo thiết kế.")
                 ),
                 recommendation=(
-                    "Rà MAXDOP setting, UDF inline-able không, table variable có thể đổi sang temp table, loại bỏ non_parallel_reason."
+                    "Rà `MAXDOP` setting, UDF inline-able không, table variable có thể đổi sang temp table, loại bỏ non_parallel_reason."
                     if actionable
                     else "Không cần can thiệp; lý do serial là policy (DOP=1 ước lượng) hoặc edition."
                 ),
@@ -47,6 +47,6 @@ class ParallelismAnalyzer(AbstractAnalyzer[PlanContext]):
                         f"DOP: {stmt.dop} | CPU: {qt.cpu_time}ms | Elapsed: {qt.elapsed_time}ms | "
                         f"Efficiency: ({speedup:.2f}-1)/({stmt.dop}-1)x100 = {efficiency:.1f}%"
                     ),
-                    recommendation="Kiểm tra skew data (một thread gánh quá nhiều hàng), chờ CXPACKET. Cân nhắc giảm DOP hoặc đổi plan shape.",
+                    recommendation="Kiểm tra skew data (một thread gánh quá nhiều hàng), chờ `CXPACKET`. Cân nhắc giảm `DOP` hoặc đổi plan shape.",
                 ))
         return findings

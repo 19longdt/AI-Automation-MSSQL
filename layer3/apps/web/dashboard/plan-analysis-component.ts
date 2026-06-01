@@ -262,7 +262,7 @@ export class PlanAnalysisComponent {
                 : "";
             // description: chỉ hiện khi count=1
             var descHtml = g.count === 1 && g.instances.length
-                ? "<div class='pa-finding-desc'>" + this._esc(g.instances[0].description) + "</div>"
+                ? "<div class='pa-finding-desc'>" + this._renderText(g.instances[0].description) + "</div>"
                 : "";
             // DDL: shared (count>1, tất cả cùng DDL) hoặc instance đơn
             var ddlSource = g.count === 1 && g.instances.length ? g.instances[0].action
@@ -280,7 +280,7 @@ export class PlanAnalysisComponent {
                             : "";
                         return "<div class='pa-finding-inst'>" +
                             "<span class='pa-finding-inst-bullet'>&#8226;</span>" +
-                            "<span class='pa-finding-inst-desc'>" + this._esc(inst.description) + "</span>" +
+                            "<span class='pa-finding-inst-desc'>" + this._renderText(inst.description) + "</span>" +
                             instDdlHtml +
                             "</div>";
                     }).join("") +
@@ -297,7 +297,7 @@ export class PlanAnalysisComponent {
                 "<div class='pa-finding-body'>" +
                 (cat ? "<div class='pa-warning-category " + this._esc(cat) + "' data-glossary='" + this._esc(g.type) + "'>" + this._esc(this._warnLabel(g.type)) + "</div>" : "") +
                 descHtml +
-                "<div class='pa-recommendation'>" + this._esc(g.recommendation) + "</div>" +
+                "<div class='pa-recommendation'>" + this._renderText(g.recommendation) + "</div>" +
                 sharedDdlHtml +
                 instancesHtml +
                 "</div>" +
@@ -648,6 +648,11 @@ export class PlanAnalysisComponent {
 
     private _escAttr(s: string): string {
         return this._esc(s).replace(/\n/g, "&#10;");
+    }
+
+    private _renderText(s: string): string {
+        var escaped = this._esc(s || "");
+        return escaped.replace(/`([^`]+)`/g, "<code class='pa-kw'>$1</code>");
     }
 
     private _formatQueryText(s: StatementResult): string {

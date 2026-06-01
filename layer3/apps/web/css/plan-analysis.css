@@ -461,6 +461,23 @@
     font-size: 11px;
     color: var(--color-muted);
 }
+
+code.pa-kw {
+    font-family: var(--font-code);
+    font-size: 11px;
+    background: var(--color-primary-soft);
+    color: var(--color-accent-strong);
+    border: 1px solid var(--color-accent-border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+}
+
+:root[data-theme="dark"] code.pa-kw {
+    background: var(--color-surface-soft);
+    color: var(--color-code-text);
+    border-color: var(--color-code-border);
+}
 .pa-finding-count { font-size: 11px; font-weight: 700; background: var(--color-border); color: var(--color-muted); border-radius: 10px; padding: 1px 8px; margin-left: auto; }
 .pa-finding-instances { border-top: 1px solid var(--color-border); margin-top: 8px; padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .pa-finding-inst { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
