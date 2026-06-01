@@ -347,6 +347,10 @@ function bindQueryActions(container: Element, handlers: QueryActionHandlers) {
         }
         let copyXmlBtn = target.closest(".qp-copy-plan-xml");
         if (copyXmlBtn != null) {
+            let btn = copyXmlBtn as HTMLButtonElement;
+            let prev = btn.textContent;
+            btn.textContent = "✓ Copied";
+            window.setTimeout(function () { btn.textContent = prev || "Copy Plan XML"; }, 900);
             if (handlers.onCopyPlanXml != null) handlers.onCopyPlanXml({ block: block, queryText: getActiveQueryText(block) });
             return;
         }
