@@ -1,143 +1,115 @@
-# Tổng quan dự án
+# Tong quan du an
 
-## Đây là gì?
+Du an `AI-Automation-MSSQL` hien tai la mot he thong 3 layer de giam sat, phat hien su co, phan tich AI va hien thi dashboard cho cum Microsoft SQL Server Always On Availability Groups.
 
-Hệ thống **tự động giám sát và phân tích sự cố** cho cụm cơ sở dữ liệu Microsoft SQL Server đang chạy trong môi trường sản xuất (production).
+Ba tai lieu kien truc goc:
 
-Thay vì DBA (Database Administrator) phải ngồi theo dõi màn hình 24/7 để phát hiện khi nào server chậm, khi nào có query bị chặn, khi nào ổ đĩa gần đầy — hệ thống này tự làm việc đó và gửi thông báo khi phát hiện vấn đề.
+- `ARCHITECTURE.md`: tong quan toan he thong
+- `layer1/ARCHITECTURE.md`: Layer 1 monitoring
+- `layer2/ARCHITECTURE.md`: Layer 2 AI analysis
+- `layer3/ARCHITECTURE.md`: Layer 3 web dashboard
 
----
+Tai lieu trong thu muc `docs/` nay da duoc dong bo lai theo ma nguon hien tai cua repo.
 
-## Bối cảnh: Cụm SQL Server là gì?
+## 1. Ba layer hien tai
 
-Hệ thống này giám sát một **cụm Always On Availability Groups (AG)** gồm 3 máy chủ:
+### Layer 1 - Python Monitoring Service
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    AG Cluster                        │
-│                                                      │
-│  ┌──────────────┐        ┌──────────────┐           │
-│  │  PRIMARY     │──sync──│  SECONDARY 1 │           │
-│  │  SQL-NODE-01 │        │  SQL-NODE-02 │           │
-│  │              │──sync──│  SECONDARY 3 │           │
-│  │  (đọc+ghi)   │        │  SQL-NODE-03 │           │
-│  └──────────────┘        │  (chỉ đọc)   │           │
-│                           └──────────────┘           │
-└─────────────────────────────────────────────────────┘
-```
+- Chay APScheduler de doc `monitor_topics` tu MongoDB
+- Query MSSQL theo node `primary`, `secondary`, `all` hoac host cu the
+- Chay detector de tao `findings`
+- Capture them diagnostics cho finding critical vao `finding_diagnostics`
+- Gui canh bao qua Teams, Telegram
+- Cung cap HTTP API nho o port `8001`
 
-**Primary node**: Nhận tất cả lệnh ghi (INSERT/UPDATE/DELETE). Đây là node quan trọng nhất.
+Entry points:
 
-**Secondary nodes**: Nhận bản sao dữ liệu từ Primary theo thời gian thực. Có thể dùng để đọc dữ liệu (giảm tải cho Primary).
+- `python -m layer1.scheduler`: scheduler service
+- `python -m layer1.main`: scheduler + HTTP API trong mot process
 
-**Failover**: Nếu Primary hỏng, hệ thống tự động "bầu" một Secondary lên làm Primary mới. **Đây là lý do hệ thống giám sát KHÔNG được hardcode (ghi cứng) tên máy nào là Primary** — vì nó có thể thay đổi bất kỳ lúc nào.
+### Layer 2 - FastAPI AI Analysis Agent
 
----
+- Phan tich on-demand cho finding qua `POST /api/v1/analyze`
+- Phan tich execution plan XML qua `POST /api/v1/plan/analyze`
+- Load skill YAML tu `layer2/skills/`
+- Dung MongoDB de luu `ai_analyses`, `issue_insights`, `analysis_sessions`, `db_context`
+- Co Telegram bot rieng cho phan hoi multi-turn
 
-## Vấn đề cần giải quyết
+Entry point:
 
-Trong môi trường production với SQL Server 2019 Enterprise, các vấn đề phổ biến là:
+- `python -m layer2.main`
 
-| Vấn đề | Triệu chứng | Tác động |
-|--------|-------------|----------|
-| **Slow query** | Query đột ngột chạy lâu hơn bình thường | Ứng dụng chậm, timeout |
-| **Blocking** | Query A đang chờ Query B giải phóng lock | Hàng nghìn user bị treo |
-| **AG lag** | Secondary bị tụt hậu, dữ liệu không đồng bộ | Đọc dữ liệu cũ từ Secondary |
-| **TempDB đầy** | Bộ nhớ tạm hết chỗ | Query thất bại hàng loạt |
-| **Index xấu** | Optimizer dùng sai chỉ mục | Tốn gấp 100× tài nguyên |
+### Layer 3 - Fastify API + Web UI
 
-Phát hiện những vấn đề này sớm (trong vài phút thay vì vài giờ) giúp ngăn ngừa sự cố lớn.
+- Fastify API doc MongoDB truc tiep cho dashboard
+- Proxy plan analysis sang Layer 2
+- Forward action kill-session sang Layer 1
+- Serve cac trang:
+  - `/dashboard`
+  - `/insights`
+  - `/query-plan`
+  - `/extract-query-plan`
 
----
+Entry points:
 
-## Giải pháp: Kiến trúc 2 lớp
+- `npm run dev` trong `layer3/`
+- `npm run build && npm run start` trong `layer3/`
 
-```
-MSSQL AG Cluster (3 nodes)
-        │
-        │  Thu thập dữ liệu mỗi 1-5 phút
-        ▼
-┌──────────────────────┐
-│  LAYER 1             │  ← Python service chạy liên tục
-│  Python Monitoring   │     Phát hiện vấn đề tự động
-│                      │     Lưu vào MongoDB
-│  Chạy 24/7           │     Gửi alert Teams/Slack
-└──────────┬───────────┘
-           │  Khi phát hiện vấn đề nghiêm trọng
-           ▼
-┌──────────────────────┐
-│  LAYER 2             │  ← AI Agent (FastAPI + Claude API) ✅
-│  Claude AI Agent     │     Phân tích nguyên nhân sâu
-│                      │     Đề xuất cách sửa
-│  Khi cần thiết       │     Admin xem xét và duyệt
-└──────────────────────┘
-```
+## 2. Luong chinh cua he thong
 
-### Layer 1 làm gì?
-- **Thu thập** dữ liệu từ SQL Server DMV (Dynamic Management Views — các view hệ thống cung cấp thông tin về hiệu suất)
-- **Phân tích** dữ liệu theo các ngưỡng (threshold) hoặc so với lịch sử (baseline)
-- **Lưu** kết quả vào MongoDB
-- **Gửi thông báo** qua Teams/Slack/Telegram khi phát hiện vấn đề
+### Monitoring flow
 
-### Layer 2 làm gì?
-- Nhận output từ Layer 1
-- Gọi Claude API để phân tích sâu hơn
-- Đề xuất cách sửa (index mới, rewrite query, update statistics...)
-- **Yêu cầu admin duyệt** trước khi thực thi bất kỳ thay đổi nào
+1. Layer 1 doc topic tu `monitor_topics`
+2. Resolve node roles bang `NodeRoleCache`
+3. Query MSSQL song song theo node
+4. Ghi `raw_metrics`
+5. Detector tao `findings`
+6. Neu finding critical va topic co `capture_tools` thi ghi `finding_diagnostics`
+7. Dedup alert
+8. Gui Telegram/Teams
 
----
+### AI analysis flow
 
-## Điểm đặc biệt: Config-driven
+1. User hoac Layer 1 goi `POST /api/v1/analyze`
+2. Layer 2 load finding va context
+3. Chon skill theo `issue_type`
+4. Chay agentic loop voi tool whitelist
+5. Luu `ai_analyses`
+6. Rut trich insight va upsert `issue_insights`
 
-**Vấn đề thông thường**: Mỗi lần muốn thêm một query giám sát mới hoặc thay đổi ngưỡng cảnh báo, phải sửa code Python → build lại → deploy lại → downtime.
+### Dashboard flow
 
-**Giải pháp**: Tất cả SQL queries, ngưỡng cảnh báo, và tần suất chạy được lưu trong **MongoDB** thay vì trong code.
+1. Browser goi Layer 3 API
+2. Layer 3 doc MongoDB cho findings, topics, analyses, jobs, insights
+3. Layer 3 proxy plan XML sang Layer 2
+4. Layer 3 goi Layer 1 khi can `kill-session`
 
-```
-Muốn thêm query mới?
-  → Thêm document vào MongoDB collection "monitor_topics"
-  → Lần chạy kế tiếp (sau vài phút) tự động pick up
-  → KHÔNG cần restart service
+## 3. Stack hien tai
 
-Muốn thay đổi ngưỡng cảnh báo?
-  → Sửa document trong MongoDB
-  → Có hiệu lực ngay lần chạy tiếp theo
-```
+| Thanh phan | Cong nghe |
+|---|---|
+| Layer 1 | Python 3, APScheduler, pyodbc, pymongo |
+| Layer 2 | Python 3, FastAPI, uvicorn, Anthropic SDK, pyodbc, pymongo |
+| Layer 3 API | Node.js, Fastify, MongoDB driver |
+| Layer 3 Web | TypeScript, webpack, vanilla TS |
+| Shared DB | MongoDB 7 |
+| Deployment | Docker Compose |
 
-Đây là lý do code Python chỉ là "generic executor" — nó không biết gì về business logic, chỉ đọc config từ MongoDB và thực thi.
+## 4. Nhung thay doi quan trong so voi tai lieu cu
 
----
+- He thong hien tai la 3 layer, khong con mo ta 2 layer
+- Layer 3 da tro thanh mot phan chinh thuc trong `docker-compose.yml`
+- Layer 1 co `finding_diagnostics`, `capture_tool_defs`, `seed_capture_tools.py`
+- Layer 2 co plan analysis engine doc lap, khong dung AI cho XML plan
+- Layer 3 API dung prefix `/api/*` cho cac route JSON
+- TTL collection thuc te da thay doi theo ma nguon, khong giong bo docs cu
 
-## Tính năng giám sát
+## 5. Thu muc nen doc tiep
 
-| Tên | Tần suất | Mục đích |
-|-----|----------|----------|
-| Slow Query / Baseline | 5 phút | Phát hiện query đột ngột chậm hơn bình thường |
-| Plan Regression | 5 phút | Phát hiện execution plan thay đổi xấu hơn |
-| Blocking & Deadlock | 1 phút | Phát hiện query bị chặn, deadlock |
-| TempDB & Memory | 5 phút | Giám sát áp lực bộ nhớ và TempDB |
-| Wait Statistics | 5 phút | Phân tích loại chờ đang tăng bất thường |
-| AG Health & CDC | 2 phút | Kiểm tra đồng bộ cluster và CDC |
-| Index Fragmentation | Hàng ngày 3AM | Phát hiện index phân mảnh |
-| Missing Index | 1 giờ | SQL Server gợi ý index còn thiếu |
-| Resource Governor | 5 phút | Giám sát resource pools |
-| SQL Agent Jobs | 10 phút | Phát hiện job thất bại, backup thiếu |
-
----
-
-## Stack công nghệ
-
-| Thành phần | Công nghệ | Lý do chọn |
-|-----------|-----------|------------|
-| Language | Python 3.11+ | Dễ đọc, ecosystem phong phú |
-| MSSQL driver | pyodbc | Kết nối SQL Server qua ODBC |
-| Scheduler | APScheduler | Chạy jobs theo interval, cron |
-| Config/Storage | MongoDB | Linh hoạt, không cần schema cứng |
-| Data models | Pydantic | Validate và serialize dữ liệu |
-| Plan XML parser | lxml | Parse execution plan XML từ SQL Server |
-| Notifications | pymsteams, slack-sdk | Gửi alert đa kênh |
-| AI (Layer 2) | Anthropic Claude API | Phân tích và đề xuất fix |
-
----
-
-**Author:** Long Do | Backend Engineering | longdt@softdreams.vn
+- `docs/02-architecture.md`: kien truc tong the chi tiet
+- `docs/03-project-structure.md`: cau truc repo hien tai
+- `docs/04-data-flow.md`: luong du lieu giua 3 layer
+- `docs/05-database.md`: collections va TTL thuc te
+- `docs/06-configuration.md`: bien moi truong va config MongoDB
+- `docs/07-deployment.md`: build va deploy
+- `docs/08-local-development.md`: chay local

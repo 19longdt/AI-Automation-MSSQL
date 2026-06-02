@@ -1,260 +1,209 @@
-# Kiến trúc hệ thống
+# Kien truc he thong
 
-## Sơ đồ tổng thể
+## 1. So do tong the
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        MSSQL AG Cluster                              │
-│                                                                      │
-│   SQL-NODE-01 (Primary)    SQL-NODE-02 (Secondary)                   │
-│   ┌─────────────────┐      ┌─────────────────┐                      │
-│   │ Query Store     │      │ Readable        │                      │
-│   │ CDC enabled     │◄────►│ Secondary       │                      │
-│   │ Resource Gov.   │      │                 │                      │
-│   │ Partition DB    │      └─────────────────┘                      │
-│   └─────────────────┘                                               │
-│                            SQL-NODE-03 (Secondary)                   │
-│                            ┌─────────────────┐                      │
-│                            │ Readable        │                      │
-│                            │ Secondary       │                      │
-│                            └─────────────────┘                      │
-└──────────────────┬──────────────────────────────────────────────────┘
-                   │ pyodbc queries (DMV, Query Store, sys.*)
-                   │ Mỗi 1-5 phút, chạy song song trên nhiều nodes
-                   ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    LAYER 1: Python Monitoring Service                 │
-│                    (chạy trên 1 máy chủ riêng, 24/7)                 │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  APScheduler — quản lý tất cả jobs                           │   │
-│  │                                                              │   │
-│  │  Job: ag_health (2 phút)    Job: blocking (1 phút)           │   │
-│  │  Job: slow_sessions (5 phút)   Job: tempdb (5 phút)             │   │
-│  │  Job: wait_stats (5 phút)   Job: index_frag (hàng ngày)      │   │
-│  │  ... (15+ topics)                                            │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                          │                                           │
-│                          ▼                                           │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  TopicRunner — trung tâm data flow                           │   │
-│  │                                                              │   │
-│  │  1. Đọc config từ MongoDB (reload mỗi lần chạy)             │   │
-│  │  2. Xác định node cần query (Primary/Secondary/All)          │   │
-│  │  3. Chạy SQL queries song song trên từng node                │   │
-│  │  4. Lưu raw_metrics vào MongoDB                              │   │
-│  │  5. Chạy detector phân tích                                  │   │
-│  │  6. Lưu findings, check dedup, gửi alert                    │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                          │                                           │
-│           ┌──────────────┼──────────────┐                           │
-│           ▼              ▼              ▼                           │
-│  ┌──────────────┐ ┌──────────┐ ┌─────────────────┐                 │
-│  │  MongoDB     │ │ Detectors│ │  Notifications  │                 │
-│  │  (local)     │ │          │ │                 │                 │
-│  │  raw_metrics │ │threshold │ │  Teams webhook  │                 │
-│  │  findings    │ │baseline  │ │  Slack          │                 │
-│  │  baselines   │ │plan XML  │ │  Telegram       │                 │
-│  │  dedup_cache │ │blocking  │ │                 │                 │
-│  └──────────────┘ └──────────┘ └─────────────────┘                 │
-└─────────────────────────────────────────────────────────────────────┘
-                          │ Khi phát hiện issue nghiêm trọng
-                          │ (chưa implement)
-                          ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    LAYER 2: AI Agent                                  │
-│                                                                      │
-│  Claude API ──► Phân tích root cause ──► Đề xuất action             │
-│                                                                      │
-│  SELECT queries     Non-SELECT (DDL/DML)                             │
-│  ┌──────────┐       ┌──────────────────────┐                       │
-│  │ Auto     │       │ Gửi approval request  │                       │
-│  │ execute  │       │ đến admin             │                       │
-│  └──────────┘       │ Admin APPROVE/REJECT  │                       │
-│                     └──────────────────────┘                       │
-└─────────────────────────────────────────────────────────────────────┘
+```text
+MSSQL AG Cluster
+    |
+    | pyodbc
+    v
+Layer 1 (Python Monitoring, port 8001)
+    |-- doc monitor_topics, capture_tool_defs
+    |-- ghi raw_metrics, findings, finding_diagnostics, baselines, dedup_cache, job_executions
+    |
+    v
+MongoDB
+    ^
+    |
+Layer 2 (FastAPI AI Agent, port 8000)
+    |-- doc findings, finding_diagnostics, db_context
+    |-- ghi ai_analyses, issue_insights, analysis_sessions
+    |
+    v
+Layer 3 (Fastify + Web UI, port 3000)
+    |-- doc MongoDB truc tiep cho dashboard
+    |-- proxy plan analysis sang Layer 2
+    |-- forward kill-session sang Layer 1
+    v
+Browser
 ```
 
----
+## 2. Layer 1
 
-## Config-driven: Tại sao quan trọng?
+### Trach nhiem
 
-Hầu hết các hệ thống monitoring viết query và threshold trực tiếp trong code:
+- Chay scheduler va cac monitoring topic
+- Tu dong resolve Primary/Secondary
+- Tao `findings` tu raw query results
+- Capture snapshot diagnostics cho cac su co critical
+- Gui canh bao operational
 
-```python
-# Cách thông thường — BAD
-if ple_value < 300:
-    alert("PLE thấp!")
+### Thanh phan chinh
 
-slow_sessions_sql = "SELECT TOP 100 query_hash, avg_duration FROM sys.query_store..."
-```
+- `layer1/scheduler.py`: orchestration chinh
+- `layer1/main.py`: runtime gom scheduler thread va HTTP server
+- `layer1/executor/topic_runner.py`: chay 1 topic
+- `layer1/executor/node_role_cache.py`: cache role cua cluster
+- `layer1/detectors/`: `threshold`, `baseline`, `plan`, `blocking`
+- `layer1/capture/`: full diagnostics capture 4 phase
+- `layer1/notifications/`: Teams, Telegram notifier va bot
+- `layer1/api/`: route `/health`, `/kill-session`
 
-Vấn đề: Mỗi lần muốn thay đổi phải **sửa code → commit → deploy → restart**.
+### Startup thuc te
 
-Hệ thống này lưu mọi thứ trong MongoDB:
+1. Load env tu `layer1/config.py`
+2. Khoi tao MongoDB
+3. Tao indexes
+4. Load `capture_tool_defs`
+5. Khoi tao `NodeRoleCache`
+6. Tao repositories, detectors, dispatcher
+7. Dang ky jobs tu `monitor_topics`
+8. Start APScheduler
+
+### API thuc te
+
+- `GET /health`
+- `POST /kill-session`
+
+`POST /kill-session` hien tai yeu cau:
 
 ```json
-// MongoDB collection: monitor_topics
 {
-  "topic_id": "tempdb_pressure",
-  "schedule_sec": 300,
-  "nodes": ["primary"],
-  "queries": [
-    {
-      "query_id": "tempdb_usage",
-      "sql": "SELECT usage_pct FROM sys.dm_db_file_space_usage..."
-    }
-  ],
-  "detector_type": "threshold",
-  "thresholds": {
-    "usage_pct": { "warning": 70, "critical": 85 }
-  }
+  "session_id": 123,
+  "node": "SQL-NODE-01"
 }
 ```
 
-**Kết quả**: Thêm query mới, đổi ngưỡng → chỉ cần update MongoDB → có hiệu lực ngay lần chạy tiếp theo.
+Luu y quan trong:
 
----
+- API nay chi co khi chay `python -m layer1.main`
+- Stack Docker Compose mac dinh dang chay `python -m layer1.scheduler`, nen Layer 1 API khong tu expose trong runtime mac dinh
 
-## Node Role Cache: Tại sao cần thiết?
+## 3. Layer 2
 
-Trong AG cluster, **Primary có thể thay đổi bất kỳ lúc nào** (failover). Nếu hardcode:
+### Trach nhiem
 
-```python
-# KHÔNG BAO GIỜ làm thế này!
-PRIMARY_HOST = "SQL-NODE-01"  # Sẽ sai sau failover
-```
+- Phan tich AI on-demand cho finding
+- Luu ket qua AI va structured insights
+- Quan ly Telegram follow-up session
+- Phan tich execution plan XML cho Layer 1 va Layer 3
 
-Hệ thống dùng `NodeRoleCache`:
+### Startup thuc te
 
-```
-Startup:
-  → Query DMV trên node đầu tiên reachable:
-    SELECT replica_server_name, role_desc
-    FROM sys.dm_hadr_availability_replica_states
-  → Cache: { "SQL-NODE-01": "primary", "SQL-NODE-02": "secondary", ... }
+1. `_setup_logging()` - basicLog + optional Logstash handler
+2. `MongoConnection.initialize()` + `create_all_indexes()`
+3. `SkillLoader.load_all(skills_dir)` - eager load YAML, fail fast neu `_base.yaml` thieu
+4. `NodeRoleCache.initialize()` - detect AG roles, fail fast neu cluster unreachable
+5. Khoi tao agent components: `ContextBuilder`, `ToolExecutor`, `AgentOrchestrator`
+6. Khoi tao plan engine: `PlanAnalysisService.create()` + `PipelineRegistry.register(PlanAnalysisPipeline)`
+7. `TelegramBot.start()` daemon thread (neu L2_TELEGRAM_BOT_TOKEN set)
+8. `asyncio.create_task(_node_role_refresh_loop(nrc))` - background refresh moi NODE_ROLE_REFRESH_SEC
+9. `uvicorn.run(app)` serving
 
-Mỗi giờ:
-  → Refresh cache
-  → Nếu Primary thay đổi → log WARNING "AG FAILOVER DETECTED"
+### Thanh phan chinh
 
-Khi topic chạy:
-  → nodes: ["primary"] → resolve → ["SQL-NODE-01"] (hostname thực tế)
-  → nodes: ["all"]     → resolve → ["SQL-NODE-01", "SQL-NODE-02", "SQL-NODE-03"]
-```
+- `layer2/main.py`: FastAPI app + lifespan
+- `layer2/agent/`: skill loader, orchestrator, context builder, tool executor
+- `layer2/plan/`: parser va analyzers cho execution plan (pure Python, khong AI)
+- `layer2/analysis/plan/pipeline.py`: PlanAnalysisPipeline, PipelineRegistry
+- `layer2/api/routes/`: health, analysis, insights, skills, admin, plan
+- `layer2/storage/`: MongoDB repos va indexes
 
----
+### API thuc te
 
-## Detector Types: 4 cách phân tích
+Prefix chinh:
 
-Mỗi topic config chỉ định `detector_type` để xác định cách phân tích kết quả:
+- `/api/v1`
 
-### 1. Threshold Detector
-So sánh giá trị với ngưỡng warning/critical cố định.
+Routes:
 
-```
-Ví dụ: TempDB usage
-  row["usage_pct"] = 87%
-  threshold.critical = 85%
-  → 87 > 85 → Tạo CRITICAL finding
-```
+- `POST /api/v1/analyze`
+- `GET /api/v1/analyses`
+- `GET /api/v1/analyses/{analysis_id}`
+- `GET /api/v1/insights`
+- `GET /api/v1/insights/summary`
+- `GET /api/v1/skills`
+- `GET /api/v1/skills/mapping`
+- `POST /api/v1/plan/analyze`
+- `GET /health`
+- `POST /admin/refresh-db-context`
+- `GET /admin/db-context`
 
-**Dùng cho**: PLE, TempDB%, AG lag, backup gap, Resource Governor.
+### Dac diem quan trong
 
-### 2. Baseline Detector
-So sánh với lịch sử **cùng ngày trong tuần + cùng giờ**.
+- Tool execution duoc whitelist, Claude khong tu viet SQL tuy y
+- Plan analysis engine la pure Python, khong can AI
+- `source="layer1"` tra ve `ToolSnapshot`
+- `source="ui"` hoac `source="layer3"` tra ve full output cho giao dien
 
-```
-Ví dụ: Slow query check chạy lúc Thứ Tư 10:05
-  → Baseline = avg của các Thứ Tư 10:00-11:00 trong 4 tuần qua
-  → avg_duration hiện tại tăng > 50% so với baseline → WARNING
-```
+## 4. Layer 3
 
-**Tại sao không dùng rolling 7-day average?**
-Workload Thứ Hai (peak) rất khác Chủ Nhật (thấp). Nếu dùng rolling average, Thứ Hai sẽ luôn bị coi là "bất thường" mặc dù đó là pattern bình thường.
+### Trach nhiem
 
-**Dùng cho**: Slow query, wait stats anomaly, blocked query trend.
+- Serve dashboard va query plan UI
+- Cung cap API read-only cho dashboard
+- Proxy cac thao tac lien layer
 
-### 3. Plan Detector
-Parse XML execution plan từ SQL Server, tìm các pattern xấu.
+### Thanh phan chinh
 
-```
-Pattern phát hiện được:
-  - "Index Scan" trên bảng lớn (thay vì Index Seek) → scan toàn bảng
-  - "Key Lookup" → cần covering index
-  - "Hash Match" → join không dùng index
-  - "Implicit conversion" → type mismatch, index bị bỏ qua
-  - Partition elimination failure → scan toàn bộ partitions
-```
+- `layer3/apps/api/src/main.ts`: startup Fastify
+- `layer3/apps/api/src/server.ts`: route va static assets
+- `layer3/apps/api/src/routes/`: API routes
+- `layer3/apps/web/`: HTML, CSS, TypeScript dashboard
+- `layer3/packages/core/`: shared types va parser utilities
 
-**Dùng cho**: Plan regression, non-optimal index, partition failure.
+### Pages thuc te
 
-### 4. Blocking Chain Detector
-Xây dựng đồ thị blocking chain từ session data.
+- `/`
+- `/history`
+- `/dashboard`
+- `/insights`
+- `/query-plan`
+- `/extract-query-plan`
 
-```
-Session 55 bị block bởi Session 42
-Session 67 bị block bởi Session 42
-Session 89 bị block bởi Session 55
-→ Chain depth = 3, head blocker = Session 42
-→ 3 > threshold.chain_depth (2) → CRITICAL finding
-```
+### API thuc te
 
-**Dùng cho**: Blocking chain, deadlock.
+- `GET /health`
+- `GET /api/findings`
+- `GET /api/findings/:id`
+- `GET /api/findings/:id/diagnostics`
+- `GET /api/analyses`
+- `GET /api/analyses/:id`
+- `GET /api/insights`
+- `GET /api/insights/summary`
+- `GET /api/topics`
+- `GET /api/jobs/health`
+- `POST /api/actions/kill-session`
+- `POST /api/plan/analyze`
 
----
+Luu y:
 
-## Deduplication: Tránh spam alert
+- Route `POST /api/actions/kill-session` ton tai trong code
+- Route nay chi hoat dong khi Layer 3 duoc cau hinh `L1_API_URL` tro toi mot Layer 1 dang chay `layer1.main`
 
-Nếu TempDB đầy và giữ đầy trong 1 giờ, hệ thống sẽ phát hiện 12 lần (mỗi 5 phút). Không nên gửi 12 thông báo.
+## 5. Docker Compose hien tai
 
-**Dedup logic**:
-```
-Mỗi finding có finding_hash = MD5(topic_id + ":" + issue_type + ":" + node + ":" + query_hash)
+`docker-compose.yml` dang co 4 services:
 
-topic_id được include để tránh collision khi 2 topic khác nhau cùng node
-sinh ra cùng issue_type (ví dụ: ag_health và slow_sessions cùng dùng WAIT_ANOMALY).
+- `layer1`
+- `layer2`
+- `layer3`
+- `mongodb`
 
-Khi muốn gửi alert:
-  → Check dedup_cache: hash này đã alert trong 30 phút qua chưa?
-  → Nếu đã alert → suppress (log INFO "Dedup suppressed")
-  → Nếu chưa alert → gửi + ghi vào dedup_cache
-```
+Ports public:
 
-`dedup_cache` có TTL 7 ngày → tự động dọn sạch.
+- `8000`: Layer 2
+- `3000`: Layer 3
+- `27017`: MongoDB
 
----
+Layer 1 khong expose port trong compose, nhung HTTP API van chay ben trong network noi bo o `8001`.
 
-## Telegram Bot: Operational Interface
+## 6. Nguyen tac thiet ke
 
-Ngoài alert tự động, service cung cấp Telegram bot để DBA tương tác on-demand:
-
-```
-Alert finding → Telegram message (kèm Finding ID 8 ký tự)
-
-DBA reply /analyze  ─────────────────────────────────────────┐
-  hoặc /analyze <id>                                          │
-                                                              ▼
-                                          TelegramBot (daemon thread)
-                                              │
-                                              ├── FindingsRepo.find_by_id_prefix()
-                                              ├── TopicRepo.find_by_id() → analysis_config
-                                              └── PlanAnalyzer.analyze()
-                                                    │
-                                                    ▼
-                                              Claude API (claude-sonnet-4-6)
-                                              Build prompt từ:
-                                                - analysis_config.context
-                                                - analysis_config.focus_metrics
-                                                - analysis_config.include_fields
-                                                  (sql_text, xml_query_plan...)
-                                                    │
-                                                    ▼
-                                              Phân tích → reply Telegram
-```
-
-**Config-driven analysis:** Mỗi topic tự định nghĩa cách phân tích trong `analysis_config` — Python không hardcode logic phân tích nào.
-
----
-
-**Author:** Long Do | Backend Engineering | longdt@softdreams.vn
+- Config-driven: topic monitoring nam trong MongoDB
+- Separation of concerns: detect, analyze, visualize tach rieng
+- Fail-fast cho startup quan trong
+- Stateless theo topic run: moi lan chay deu reload config
+- Node role auto-detect de chiu duoc AG failover
+- AI on-demand: khong auto-analyze tat ca findings
+- UI read MongoDB qua Layer 3 thay vi truc tiep tu browser

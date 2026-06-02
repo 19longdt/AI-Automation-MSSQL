@@ -172,7 +172,7 @@ Layer 1 expose một HTTP server nhỏ (stdlib `http.server`, không dùng frame
 | Method | Path | Body | Mô tả |
 |---|---|---|---|
 | `GET` | `/health` | — | Service status + scheduler alive check |
-| `POST` | `/kill-session` | `{ "session_id": <int> }` | Execute `KILL <session_id>` trên MSSQL |
+| `POST` | `/kill-session` | `{ "session_id": <int>, "node": "<host>" }` | Execute `KILL <session_id>` trên node chỉ định — `node` là bắt buộc |
 
 ### Rule — Thêm API mới
 
@@ -371,16 +371,13 @@ MongoDB `baselines` document:
 |---|---|---|---|
 | `monitor_topics` | — | upsert per topic | unique `(topic_id)` |
 | `node_roles` | — | upsert per host | unique `(host)` |
-| `raw_metrics` | 30d | `insert_many` per job run | `(topic_id, query_id, collected_at)` |
-| `findings` | 90d | `insert_one` per finding | `(topic_id, detected_at)`, `(issue_type, detected_at)`, `(finding_hash, detected_at)` |
+| `raw_metrics` | **3d** | `insert_many` per job run | `(topic_id, query_id, collected_at)` |
+| `findings` | **9d** | `insert_one` per finding | `(topic_id, detected_at)`, `(issue_type, detected_at)`, `(finding_hash, detected_at)` |
 | `baselines` | — | `update_one` upsert | `(metric_type, day_of_week, hour, node)` |
 | `dedup_cache` | 7d | `findOne` + `updateOne(upsert)` | unique `(finding_hash)` |
-| `job_executions` | 30d | `insert_one` + `update_one` | `(job_name, started_at)` |
-| `finding_diagnostics` | 90d | `insert_one` per CRITICAL finding | unique `(finding_id)`, `(topic_id, captured_at DESC)` |
+| `job_executions` | **3d** | `insert_one` + `update_one` | `(job_name, started_at)` |
+| `finding_diagnostics` | **9d** | `insert_one` per CRITICAL finding | unique `(finding_id)`, `(topic_id, captured_at DESC)` |
 | `capture_tool_defs` | — | seed only (upsert) | unique `(tool_id)`, `(enabled)`, `(phase)` |
-| `ai_analysis` | 90d | (Layer 2) | — |
-| `approval_queue` | — | (Layer 2) | — |
-| `audit_log` | — | (Layer 2) | — |
 
 ---
 

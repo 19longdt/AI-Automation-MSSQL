@@ -67,12 +67,19 @@ Xem `layer1/CLAUDE.md` cho chi tiết đầy đủ từng module, code rules, co
 layer2/
 ├── main.py                    ← FastAPI app entry point
 ├── config.py                  ← Layer2Settings (env vars)
+├── plan/                      ← Execution plan analysis engine (pure Python, no AI)
+│   ├── service.py             ← PlanAnalysisService: parse XML + run all analyzers
+│   ├── models/result.py       ← Finding, FindingInstance, FindingGroup, StatementResult, ...
+│   ├── parser/                ← plan_parser, statement_parser, operator_parser, index_parser
+│   └── analyzers/             ← 10 analyzers: operator, index, memory, wait, stats, ...
+├── analysis/                  ← Pipeline abstraction (AnalysisPipeline, ToolSnapshot, registry)
+│   └── plan/pipeline.py       ← PlanAnalysisPipeline → PlanAnalysisOutput (Layer 3) + ToolSnapshot (Layer 1)
 ├── agent/                     ← AgentOrchestrator, SkillLoader, ContextBuilder, ToolRegistry, ToolExecutor
 ├── executor/                  ← DiagnosticExecutor, plan_analyzer, query_analyzer, node_role_cache
 ├── models/                    ← AnalysisRequest/Result, InsightData, AnalysisSkill
 ├── storage/                   ← MongoDB repositories (ai_analyses, issue_insights, db_context, sessions)
 ├── notifications/             ← TelegramBot (/analyze + multi-turn reply + send_analysis_result)
-├── api/routes/                ← analysis, insights, skills, admin, health
+├── api/routes/                ← analysis, plan (/api/v1/plan/analyze), insights, skills, admin, health
 ├── skills/                    ← 14 YAML skill files (_base + 13 issue-specific)
 ├── utils/                     ← time_utils, peak_hours, cost_calculator
 └── db_business_context.yaml   ← DBA-written schema/pattern context
@@ -87,13 +94,15 @@ Xem `layer2/CLAUDE.md` và `layer2/AGENT_MECHANISM.md` cho chi tiết đầy đ�
 ```
 layer3/
 ├── apps/api/                  ← Express.js backend (proxy + data aggregation)
+│   └── src/                   ← routes (findings, analyses, insights, plan, topics, jobs), services
 ├── apps/web/                  ← Frontend: dashboard.html, insights.html, query-plan.html
-│   ├── css/                   ← base.css, dashboard.css, query-plan.css, stats-cards.css
-│   └── dashboard/             ← TypeScript: dashboard.ts, insights.ts, loading, modal
-├── src/                       ← Query plan visualization library (XSLT + TypeScript)
-│   └── qp.xslt                ← XSLT transform SQL Server XML plan → HTML
-└── assets/                    ← SSMS-style icons cho query plan operators
+│   ├── css/                   ← base.css (+CSS vars), dashboard.css, plan-analysis.css, ...
+│   └── dashboard/             ← TypeScript: dashboard.ts, plan-analysis-component.ts,
+│                                 glossary.ts (70+ entries), glossary-tooltip.ts, modal, loading
+└── packages/core/src/types/   ← Shared TypeScript types (plan-analysis.ts mirrors Python models)
 ```
+
+Xem `layer3/CLAUDE.md` cho chi tiết đầy đủ component, CSS architecture, design decisions.
 
 ## Deployment
 

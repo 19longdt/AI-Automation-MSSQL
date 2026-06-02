@@ -54,10 +54,60 @@ layer2/
 ├── main.py                    ← FastAPI app + uvicorn entry
 ├── config.py                  ← Layer2Settings (env vars)
 │
+├── plan/                      ← Execution plan analysis engine (pure Python, no AI)
+│   ├── service.py             ← PlanAnalysisService.analyze(plan_xml) → PlanAnalysisResult
+│   │                             _build_finding_groups(): gom Finding[] → FindingGroup[], sort critical→warning→info
+│   │                             _build_wait_summary(): categorize wait types → WaitStatSummary[]
+│   ├── models/
+│   │   ├── parsed_plan.py     ← PlanContext, ParsedStatement, WaitStat, MemoryGrant, ParameterSensitivity
+│   │   └── result.py          ← Finding, FindingInstance, FindingGroup, StatementResult,
+│   │                             PlanAnalysisResult, OperatorSummary, IndexSuggestion, CompilationInfo,
+│   │                             MemoryGrantSummary, ParameterInfo, WaitStatSummary, IOStatSummary
+│   ├── parser/
+│   │   ├── plan_parser.py     ← Parse ShowPlanXML root → list[ParsedStatement]
+│   │   ├── statement_parser.py ← Parse 1 statement node; detect statement_text_truncated (len≥3990)
+│   │   ├── operator_parser.py ← Recursive parse operator tree → OperatorNode[]
+│   │   └── index_parser.py    ← Parse MissingIndexes → IndexSuggestion[]
+│   └── analyzers/             ← Mỗi file = 1 analyzer, trả list[Finding]; service gọi tất cả
+│       ├── base.py            ← AbstractAnalyzer[T] — _is_applicable() + _collect_findings()
+│       ├── registry.py        ← AnalyzerRegistry — register + run_all(context)
+│       ├── operator_analyzer.py  ← scan/lookup/parallelism/row_underestimate/row_overestimate
+│       │                           row_underestimate (ratio≥10) / row_overestimate (ratio≤0.1)
+│       │                           description bao gồm op_label + NodeId
+│       ├── index_analyzer.py     ← missing_index, index_fragmentation
+│       ├── memory_analyzer.py    ← memory_grant_spill, grant_inefficiency
+│       ├── wait_analyzer.py      ← 14 wait type handlers:
+│       │                           LCK_M_* (blocking), PAGEIOLATCH (disk IO),
+│       │                           CXPACKET/CXCONSUMER (parallelism), RESOURCE_SEMAPHORE (memory),
+│       │                           MEMORY_ALLOCATION_EXT/RESERVED_MEMORY_ALLOCATION_EXT (memory_alloc),
+│       │                           SOS_SCHEDULER_YIELD (cpu), THREADPOOL (cpu/critical),
+│       │                           WRITELOG (log_io/critical), LOGBUFFER/LOG_RATE_GOVERNOR (log_io),
+│       │                           ASYNC_NETWORK_IO (network), IO_COMPLETION/ASYNC_IO_COMPLETION,
+│       │                           HADR_SYNC_COMMIT/HADR_WORK_QUEUE (hadr), PAGELATCH_* (pagelatch),
+│       │                           LATCH_* (latch), EXECSYNC (parallelism/info)
+│       ├── statistics_analyzer.py ← stale_stats, missing_stats
+│       ├── compilation_analyzer.py ← ce_version_downgrade, early_abort, compile_heavy
+│       ├── parallelism_analyzer.py ← forced_serial, dop_mismatch
+│       ├── parameter_analyzer.py  ← parameter_sniffing, unparameterized
+│       └── code_pattern_analyzer.py ← implicit_conversion, spool
+│
+├── analysis/                  ← Pipeline abstraction (kết nối plan engine với API)
+│   ├── types.py               ← AnalysisType enum (PLAN_XML, ...)
+│   ├── registry.py            ← PipelineRegistry — register + run(type, input)
+│   ├── base.py                ← AnalysisPipeline ABC, AnalysisOutput, ToolSnapshot
+│   │                             ToolSnapshot.findings: list[FindingGroup]  ← AI-ready digest
+│   │                             AnalysisOutput: tool_snapshot + analyzed_at + duration_ms
+│   └── plan/
+│       └── pipeline.py        ← PlanAnalysisPipeline(AnalysisPipeline[str])
+│                                 run() → PlanAnalysisOutput (kế thừa AnalysisOutput)
+│                                 PlanAnalysisOutput thêm: statements[], total_findings, critical_count
+│                                 _build_tool_snapshot(): tạo AI digest từ PlanAnalysisResult
+│                                 _extract_signals(): key metrics dạng số cho AI pattern-matching
+│
 ├── skills/                    ← YAML files — version-controlled, KHÔNG dùng MongoDB
 │   ├── _base.yaml             ← Base system prompt DÙNG CHUNG — phải là phần đầu tiên
 │   │                             của system prompt để enable prompt cache hit
-│   ├── slow_sessions.yaml        ← slow_sessions, high_variation_query
+│   ├── slow_query.yaml            ← slow_sessions, high_variation_query
 │   ├── plan_xml.yaml          ← plan_regression, plan_instability, non_optimal_index,
 │   │                             partition_elimination_failure
 │   ├── index.yaml             ← missing_index, index_fragmentation
@@ -104,11 +154,18 @@ layer2/
 │                                 + send_analysis_result() public method (for API-triggered sends)
 │                                 Reply handler: nếu không tìm thấy session → fallback parse
 │                                 finding_id từ Layer 1 alert format → trigger new analysis
+│                                 409 Conflict: 30s backoff (duplicate process), 5s cho lỗi khác
 │
 ├── api/
 │   └── routes/
 │       ├── analysis.py        ← POST /analyze (+ call bot.send_analysis_result if telegram_chat_id),
 │       │                         GET /analyses/{id}
+│       ├── plan.py            ← POST /api/v1/plan/analyze — parse XML plan → PlanAnalysisOutput
+│       │                         source="ui"     → PlanAnalysisOutput (full, Layer 3 renders)
+│       │                         source="layer1" → ToolSnapshot (compact, AI-ready, Layer 1 stores)
+│       │                         _enrich_truncated_texts(): fetch full SQL từ DB nếu statement bị cắt (len≥3990)
+│       │                         _fetch_full_text(host, query_hash): Query Store trước, fallback plan cache
+│       │                         Timeout 5s, silent fail — giữ text cũ nếu DB không accessible
 │       ├── insights.py        ← GET /insights, GET /insights/summary
 │       ├── skills.py          ← GET /skills
 │       ├── admin.py           ← POST /admin/refresh-db-context (Phase 6)
@@ -260,6 +317,61 @@ Tóm tắt nhanh:
 
 ---
 
+## Plan Analysis — Thiết kế Data Model
+
+### Tại sao `FindingGroup` thay vì `Finding[]`
+
+Nhiều operator cùng loại vấn đề (e.g., 5 bảng đều `row_underestimate`) → grouping để:
+- Recommendation hiển thị 1 lần (không lặp 5 lần giống nhau)
+- Count badge cho thấy scope của vấn đề
+- Instance list chi tiết từng operator
+
+```
+FindingGroup {
+  severity, category, type        ← group key = type (không dùng recommendation vì hay chứa tên bảng)
+  recommendation                  ← chung cho cả group
+  shared_action                   ← None nếu instances có action khác nhau
+  instances: [FindingInstance]    ← mỗi operator/bảng là 1 instance
+  count                           ← = len(instances), escalate severity nếu instances nhiều
+}
+```
+
+`_build_finding_groups()` trong `service.py`:
+1. Group `Finding[]` by `type`
+2. Sort: critical → warning → info, rồi count desc
+3. `shared_action` = None nếu không phải tất cả instances cùng action
+
+### `statements` vs `tool_snapshot` — Sự khác biệt
+
+| | `statements` | `tool_snapshot` |
+|---|---|---|
+| **Mục đích** | Full data cho Layer 3 UI | AI digest cho Layer 1 / Claude Agent |
+| **Lưu MongoDB** | Không — transient, chỉ trong response | Có — Layer 1 stores trong `finding_diagnostics` |
+| **Size** | Full (operators, IO stats, params...) | Compact (signals dict, recommendations[]) |
+| **Consumer** | Layer 3 TypeScript component | Claude AI agentic loop |
+
+### statement_text Truncation Fix
+
+SQL Server giới hạn `StatementText` attribute trong XML plan = **~4000 ký tự**.
+
+**Detection:** `statement_parser.py` set `statement_text_truncated = True` nếu `len(text) >= 3990`.
+
+**Fix tại `api/routes/plan.py`:**
+```
+After pipeline.run()
+    ↓
+_enrich_truncated_texts(output, node_role_cache)
+    ↓ tìm statements có truncated=True và query_hash
+_fetch_full_text(primary_host, query_hash)
+    ├── Query Store: sys.query_store_query + query_store_query_text  ← không bị 4000 char limit
+    └── Plan cache: sys.dm_exec_query_stats + dm_exec_sql_text với statement_start/end_offset
+    ↓ nếu full text dài hơn → update statement_text + truncated=False
+```
+
+Silent fail: nếu DB không accessible hoặc query hash không tìm thấy → giữ text cũ.
+
+---
+
 **Author:** Long Do | Backend Engineering | longdt@softdreams.vn
 
-**Status:** ✅ Fully Implemented (FastAPI + Telegram bot + Claude API)
+**Status:** ✅ Fully Implemented (FastAPI + Telegram bot + Claude API + Plan Analysis Engine)

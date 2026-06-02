@@ -36,7 +36,10 @@
       "Bash(curl -s \"http://localhost:3000/api/findings?finding_id=80bc08c8-b8d0-4c0c-a031-8b933be63473\")",
       "Bash(curl -s \"http://localhost:3000/api/findings?finding_id=80bc08c8-b8d0-4c0c-a031-8b933be63473&limit=15&page=0\")",
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\(f'Count: {len\\(data\\)}'\\); [print\\(d.get\\('finding_id','?'\\)[:36]\\) for d in data[:5]]\")",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(Select-Object FullName, Length)",
+      "Bash(Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem C:\\\\GIT\\\\AI-Automation-MSSQL -Filter \"ARCHITECTURE.md\" -Recurse | Select-Object FullName, @{N=\"KB\";E={[math]::Round\\($_.Length/1KB,1\\)}})"
     ]
   }
 }

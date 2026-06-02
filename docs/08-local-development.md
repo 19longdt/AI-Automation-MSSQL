@@ -1,170 +1,210 @@
-# Chạy project ở local
+# Local Development
 
----
+Tai lieu nay mo ta cach chay local theo repo hien tai cho ca 3 layer.
 
-## Yêu cầu
+## 1. Yeu cau
 
-| Thành phần | Yêu cầu |
-|---|---|
-| **Python** | 3.11+ |
-| **MongoDB** | Đang chạy ở `localhost:27017` |
-| **ODBC Driver 17** | Microsoft ODBC Driver 17 for SQL Server |
-| **Network** | Kết nối đến SQL Server nodes trên port 1433 |
+### Python
 
----
+- Python 3.x
+- ODBC Driver 17 for SQL Server
+- MongoDB local hoac remote
 
-## Bước 1: Cài ODBC Driver 17
+### Node.js
 
-### Windows
+- Node.js >= 18 cho `layer3/`
+- npm workspace support
 
-Tải và cài **ODBC Driver 17 for SQL Server** từ Microsoft, chọn đúng kiến trúc (x64).
+## 2. Chuan bi `.env`
 
-Kiểm tra sau khi cài:
-```cmd
-odbcad32.exe
-# Tab "System DSN" → "Drivers" → thấy "ODBC Driver 17 for SQL Server"
-```
-
-### Linux (Ubuntu/Debian)
-
-```bash
-curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-curl https://packages.microsoft.com/config/debian/11/prod.list \
-  | sudo tee /etc/apt/sources.list.d/mssql-release.list
-
-sudo apt-get update
-sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
-```
-
----
-
-## Bước 2: Tạo virtual environment và cài dependencies
-
-```bash
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# Linux / macOS
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
----
-
-## Bước 3: Tạo file `.env`
+Bat dau tu:
 
 ```bash
 cp .env.example .env
 ```
 
-Chỉnh sửa `.env` cho môi trường local:
+Toi thieu can sua:
 
 ```env
 MSSQL_NODES=SQL-NODE-01,SQL-NODE-02,SQL-NODE-03
 MSSQL_DATABASE=YourDatabase
 MSSQL_USERNAME=sa_monitor
-MSSQL_PASSWORD=your_password
-
-# MongoDB local — dùng localhost
+MSSQL_PASSWORD=change_me
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB=db_monitor
-
-NODE_ROLE_REFRESH_SEC=3600
-
-TEAMS_WEBHOOK_URL=
+LAYER2_URL=http://127.0.0.1:8000
 ```
 
----
+Neu chay Layer 3 local:
 
-## Bước 4: Seed monitor_topics vào MongoDB
+```env
+L2_API_URL=http://127.0.0.1:8000
+L1_API_URL=http://127.0.0.1:8001
+API_PORT=3000
+```
+
+## 3. Cai Python dependencies
+
+Lenh hien co trong repo:
 
 ```bash
+pip install -r requirements.txt
+pip install -r layer2/requirements.txt
+```
+
+Neu dang dung virtualenv:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -r layer2/requirements.txt
+```
+
+## 4. Chuan bi MongoDB
+
+Can MongoDB truoc khi chay Layer 1 va Layer 2.
+
+### Seed du lieu can thiet
+
+```bash
+python -m layer1.seed.seed_capture_tools
 python -m layer1.seed.seed_topics
 ```
 
-Hoặc insert thủ công qua `mongosh`:
+## 5. Chay Layer 1
 
-```javascript
-use db_monitor
-
-db.monitor_topics.insertOne({
-  topic_id: "test_connectivity",
-  display_name: "Connectivity Test",
-  enabled: true,
-  schedule_sec: 300,
-  nodes: ["primary"],
-  queries: [{
-    query_id: "server_version",
-    sql: "SELECT TOP 1 @@VERSION AS version, GETUTCDATE() AS server_time",
-    timeout_sec: 10
-  }],
-  detector_type: null
-})
-```
-
----
-
-## Bước 5: Chạy service
+### Scheduler only
 
 ```bash
 python -m layer1.scheduler
 ```
 
-Output mong đợi:
-
-```
-2026-04-19T10:00:00 INFO  layer1.scheduler — Layer 1 Monitoring Service starting (config-driven)...
-2026-04-19T10:00:00 INFO  layer1.scheduler — Connecting to MongoDB: mongodb://localhost:27017
-2026-04-19T10:00:01 INFO  layer1.executor.node_role_cache — Node roles initialized: primary=SQL-NODE-01 secondaries=['SQL-NODE-02', 'SQL-NODE-03']
-2026-04-19T10:00:01 INFO  layer1.scheduler — Registered 1 topic jobs + 2 system jobs.
-2026-04-19T10:00:01 INFO  layer1.scheduler — Layer 1 Monitoring Service started — scheduler running.
-```
-
-Dừng service: `Ctrl+C`
-
----
-
-## Kiểm tra nhanh
+### Scheduler + HTTP API
 
 ```bash
-# Node roles detect đúng chưa
-mongosh db_monitor --eval "db.node_roles.find().pretty()"
-
-# Raw metrics sau vài phút
-mongosh db_monitor --eval "db.raw_metrics.find().sort({collected_at:-1}).limit(3).pretty()"
-
-# Job executions
-mongosh db_monitor --eval "db.job_executions.find().sort({started_at:-1}).limit(5).pretty()"
+python -m layer1.main
 ```
 
----
+Mac dinh HTTP API:
 
-## Lỗi thường gặp
+- host `0.0.0.0`
+- port `8001`
 
-**`No module named 'layer1'`**
+Co the override:
+
+```env
+L1_API_HOST=127.0.0.1
+L1_API_PORT=8001
+```
+
+## 6. Chay Layer 2
+
 ```bash
-# Phải chạy từ thư mục gốc của project, không phải trong layer1/
-cd AI-Automation-MSSQL
-python -m layer1.scheduler
+python -m layer2.main
 ```
 
-**`pyodbc.Error: ('01000', "...ODBC Driver 17...")`**
-→ ODBC Driver 17 chưa cài hoặc tên driver không đúng. Kiểm tra:
-```python
-import pyodbc
-print(pyodbc.drivers())
-# Phải có 'ODBC Driver 17 for SQL Server' trong list
+API local:
+
+- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/api/v1/skills`
+
+## 7. Chay Layer 3
+
+Trong thu muc `layer3/`:
+
+```bash
+npm install
+npm run build
+npm run start
 ```
 
-**`ConnectionError: MongoConnection chưa được initialize`**
-→ MongoDB chưa chạy. Kiểm tra: `mongosh --eval "db.adminCommand('ping')"`
+Hoac dev mode:
 
-**`RuntimeError: Không thể detect AG node roles`**
-→ Không kết nối được SQL Server. Kiểm tra `MSSQL_NODES` và port 1433.
+```bash
+npm install
+npm run dev
+```
 
----
+Scripts workspace:
 
-**Author:** Long Do | Backend Engineering | longdt@softdreams.vn
+- `npm run build`
+- `npm run start`
+- `npm run dev`
+
+## 8. Thu tu chay local de test end-to-end
+
+1. MongoDB
+2. Layer 1
+3. Layer 2
+4. Layer 3
+
+## 9. Kiem tra nhanh
+
+### Layer 1
+
+```bash
+curl http://127.0.0.1:8001/health
+```
+
+Luu y:
+
+- Lenh tren chi hop le neu ban dang chay `python -m layer1.main`
+- Neu chi chay `python -m layer1.scheduler` thi se khong co HTTP API
+
+### Layer 2
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/api/v1/skills
+```
+
+### Layer 3
+
+```bash
+curl http://127.0.0.1:3000/health
+```
+
+Trang giao dien:
+
+- `http://127.0.0.1:3000/dashboard`
+- `http://127.0.0.1:3000/insights`
+- `http://127.0.0.1:3000/query-plan`
+
+## 10. Cac van de thuong gap
+
+### Layer 1 khong start
+
+Nguyen nhan thuong gap:
+
+- thieu `MSSQL_NODES`
+- MongoDB chua chay
+- chua seed `capture_tool_defs`
+
+### Layer 2 khong start
+
+Nguyen nhan thuong gap:
+
+- thieu `CLAUDE_API_KEY`
+- khong ket noi duoc cum MSSQL de khoi tao `NodeRoleCache`
+- YAML trong `layer2/skills/` loi
+
+### Layer 3 start o degraded mode
+
+Nguyen nhan thuong gap:
+
+- `MONGODB_URI` hoac `MONGODB_DB` sai
+- Layer 2 chua chay nen health tra `l2=false`
+
+## 11. Ghi chu cho frontend
+
+Layer 3 build output duoc serve tu:
+
+- `layer3/dist/`
+
+Static assets va pages duoc serve tu:
+
+- `layer3/apps/web/pages`
+- `layer3/apps/web/css`
+- `layer3/assets`
+- `layer3/images`
