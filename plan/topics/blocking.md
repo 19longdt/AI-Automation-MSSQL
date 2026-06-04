@@ -1,11 +1,222 @@
-# Monitor Topics — Query Blocking
+# Monitor Topic — Query Blocking (Master Plan)
 
-Ngày: 2026-04-24
-Tác giả: Long Do + Claude Sonnet 4.6
+Ngày tạo: 2026-04-24 | Cập nhật: 2026-06-04
+Tác giả: Long Do + Claude
+
+> **Trạng thái tài liệu**: Plan tổng quát (Phần A) đã chốt. Thiết kế chi tiết
+> (Phần B) là tham chiếu — sẽ review lại từng phần khi bàn thực thi per-layer.
+>
+> **Tiến độ triển khai (2026-06-04)**:
+> - ✅ Phase 1 — Detector core: `chain_analysis.py` + `BlockingChainDetector` + registry + 34 unit tests pass
+> - ✅ Phase 2 — Seed: `_blocking()` 3 queries head-blocker + `_deadlock()` topic riêng + `_blocked_query()` disabled
+> - ✅ Phase 3 — Skills: `blocking.yaml` specialization đầy đủ; `deadlock.yaml` fix required_tools (dedup-hash note)
+> - ⏳ Phase 4 — Verify offline ✅ (pytest + SkillLoader + E2E smoke); **còn lại**: re-seed + verify trên môi trường có MSSQL thật
+>
+> **Quyết định thực thi bổ sung**: bỏ victim plan XML khỏi `blocking_sessions`
+> (head-blocker-centric — chỉ giữ `blocker_plan_xml` trong `head_blocker_sessions`,
+> giảm size raw_metrics); deadlock chỉ tạo finding cho event trong lookback window
+> (2×schedule_sec, floor 10 phút) — tránh re-insert findings từ 24h window mỗi run.
 
 ---
 
-## 1. Định Nghĩa và Cơ Chế
+# PHẦN A — PLAN TỔNG QUÁT
+
+## A0. Scope (chốt 2026-06-04)
+
+**Giai đoạn này chỉ làm topic `blocking` với 2 issue types, tập trung vào SESSION GÂY RA (head blocker):**
+
+| Issue Type | In scope? | Ghi chú |
+|---|---|---|
+| `blocking_chain` | ✅ | Topic `blocking` (60s) — trọng tâm = **head blocker**: session nào gây block, đang giữ lock gì, active hay idle (forgotten transaction) |
+| `deadlock` | ✅ | Topic `deadlock` **riêng** (300s) — từ System Health XEvent. Tách khỏi `blocking` vì là data lịch sử + XML parse nặng (quyết định 2026-06-04) |
+| `blocked_query_snapshot` | ⏸️ Defer | Victim-centric — làm sau; topic `blocked_query` hiện có sẽ **disable** để tránh chạy nửa vời |
+| `blocked_query_trend` | ⏸️ Defer | Structural contention — làm sau khi blocking core ổn định |
+
+> Lý do tập trung head blocker: victim chỉ là triệu chứng. Muốn xử lý incident
+> (kill session, fix app) thì thông tin quyết định là **ai đang giữ lock và tại sao**.
+
+## A1. Mục Tiêu
+
+### Mục tiêu nghiệp vụ
+
+| # | Mục tiêu | Đo lường |
+|---|---|---|
+| G1 | **Phát hiện blocking incident real-time** — chain depth, head blocker, victims — trong vòng 1 chu kỳ check (60s) | Finding `blocking_chain` có đủ `chain_depth`, `head_blocker_session_id`, `blocked_session_count` |
+| G2 | **Phát hiện forgotten transaction** (idle session giữ lock — nguyên nhân phổ biến nhất) | Finding phân biệt được active blocker vs idle blocker (`blocker_idle_sec`, `open_transaction_count`) |
+| G3 | ~~Phát hiện pattern lặp lại~~ → **DEFER** (xem A0) | — |
+| G4 | **Phát hiện deadlock** từ System Health XEvent | Finding `deadlock` với victim query + resources |
+| G5 | **AI phân tích được root cause** khi DBA gõ `/analyze` — đủ context trong finding, không cần query thêm nhiều | Analysis có head blocker, lock type, recommendation cụ thể |
+| G6 | **Actionable từ Telegram**: alert có đủ info để DBA quyết định `/kill-session` head blocker | Alert hiển thị head_blocker_session_id + login + idle/active + query — pattern `/kill-blocking` đã có sẵn ở topic `slow_sessions` |
+
+### Mục tiêu kỹ thuật (clean code / kiến trúc)
+
+- **Tuân thủ pattern hiện có**: detector qua registry, config-driven (SQL/thresholds trong MongoDB), Pydantic models, không crash scheduler
+- **Detector là pure logic**: nhận `list[QueryResult]` + `MonitorTopic` → trả `list[Finding]`. Không I/O, không side-effect → unit test được không cần MSSQL
+- **Tách concerns trong detector**: chain analysis / deadlock parsing là 2 trách nhiệm khác nhau — tách module để tái sử dụng và test độc lập
+- **Mở rộng không sửa code cũ**: thêm issue type blocking mới = thêm query trong MongoDB + 1 handler nhỏ, không đụng detector core
+
+---
+
+## A2. Phân Tích Hiện Trạng (2026-06-04)
+
+### Đã có ✅
+
+| Thành phần | File | Trạng thái |
+|---|---|---|
+| `IssueType` enum đủ 4 types | `layer1/models/common.py:61-64` | `BLOCKING_CHAIN`, `DEADLOCK`, `BLOCKED_QUERY_SNAPSHOT`, `BLOCKED_QUERY_TREND` |
+| Topic `blocking` (seed) | `layer1/seed/seed_topics.py` `_blocking()` | 2 queries: `blocking_sessions`, `deadlock_events` — **bản cũ, thiếu head blocker** |
+| Topic `blocked_query` (seed) | `layer1/seed/seed_topics.py` `_blocked_query()` | 1 query `blocked_snapshot` — **bản cũ, thiếu plan XML + idle blocker detection đầy đủ** |
+| Skill `blocking.yaml` Layer 2 | `layer2/skills/blocking.yaml` | Tồn tại, cover 3 issue types — **specialization chỉ 1 dòng placeholder** |
+| Skill `deadlock.yaml` Layer 2 | `layer2/skills/deadlock.yaml` | File riêng cho `deadlock` (quyết định đã chốt: KHÔNG gộp vào blocking) |
+| Tool `get_blocking_chain` Layer 2 | `layer2/agent/tool_registry.py`, `diagnostic_executor.py` | Hoạt động — agent query được chain hiện tại |
+| Capture tool `get_blocking_chain` | `layer1/seed/seed_capture_tools.py:129` | Def đã seed — sẵn sàng cho DiagnosticCapture |
+| Detector stub | `layer1/detectors/blocking_detector.py` | Skeleton + docstring đúng hướng |
+
+### Còn thiếu / Gap ❌
+
+| # | Gap | Mức độ | Chi tiết |
+|---|---|---|---|
+| GAP-1 | **`BlockingChainDetector` chưa implement** — 4 methods đều là `...` | 🔴 Blocker | `detect()`, `_build_chain()`, `_calculate_chain_depth()`, `_parse_deadlock_graph()` |
+| GAP-2 | **`blocking_chain` chưa được register** trong `DetectorRegistry.build_default()` | 🔴 Blocker | `registry.py:52` chỉ có `threshold` + `baseline` → 2 topics blocking đang chạy queries nhưng **không tạo finding nào** (silent — chỉ log warning) |
+| GAP-3 | Seed queries bản cũ: thiếu `head_blocker_sessions`, `head_blocker_locks`, thiếu `query_hash` + plan XML trong `blocking_sessions` | 🟡 Cao | Không identify được idle blocker (forgotten transaction) — case phổ biến nhất |
+| GAP-4 | Thresholds cũ: `wait > 5s` (noise), `chain_depth` warning=2 (depth 2 là bình thường), thiếu `blocked_session_count` | 🟡 Cao | Sẽ spam alert khi detector hoạt động |
+| GAP-5 | ~~Topic `blocked_query_trend` chưa tồn tại~~ | ⏸️ Defer | Ngoài scope (A0) |
+| GAP-6 | `blocking.yaml` specialization trống — agent không có hướng dẫn phân tích blocking | 🟡 Trung | Phân tích sẽ generic, không tận dụng context AG/CDC/RG |
+| GAP-7 | Topic `blocking` chưa khai báo `capture_tools` + `analysis_config` | 🟢 Thấp | CRITICAL finding không trigger DiagnosticCapture; `/quick` không hoạt động |
+| GAP-8 | Layer 3 chưa có visualization riêng cho blocking chain | ⏸️ Defer | Ngoài scope (A0) |
+| GAP-9 | Topic `blocked_query` đang `enabled=true` với detector chưa tồn tại | 🟡 Trung | Khi register detector mà không handle `blocked_snapshot` → behavior nửa vời. **Quyết định: disable topic này trong seed** (giữ config để bật lại sau) |
+
+### Insight quan trọng từ phân tích
+
+**Hệ thống hiện tại đang "monitoring mù" với blocking**: 2 topics chạy mỗi 60s trên cả 3 nodes,
+tốn DMV queries, lưu `raw_metrics`, nhưng vì GAP-1 + GAP-2 nên **không một finding nào được tạo**.
+Đây là silent failure đúng kiểu mà design "detector exception → return []" che giấu.
+→ Ưu tiên cao nhất là Phase 1 (detector core), không phải thêm topic mới.
+
+---
+
+## A3. Kiến Trúc & Nguyên Tắc Thiết Kế
+
+### Vị trí trong kiến trúc 3 layer (không đổi — tuân thủ flow hiện có)
+
+```
+MongoDB monitor_topics (2 topics: blocking 60s, deadlock 300s)
+    │ config-driven: SQL + thresholds
+    ▼
+Layer 1: topic_runner → query 3 nodes parallel → BlockingChainDetector / ThresholdDetector
+    │ findings (chain_depth, head_blocker, ...) → dedup → Telegram alert
+    │ CRITICAL → DiagnosticCapture (capture_tools)
+    ▼
+Layer 2: /analyze → skill blocking.yaml / deadlock.yaml → agentic loop
+    │ tools: get_blocking_chain, get_wait_stats, get_query_stats, ...
+    ▼
+Layer 3: dashboard hiển thị findings + insights (generic — phase sau mới custom)
+```
+
+### Quyết định thiết kế cho detector (mới)
+
+| Quyết định | Lý do |
+|---|---|
+| **Tách `chain_analysis.py`** (pure functions: build graph, depth, head blockers) khỏi `blocking_detector.py` | SRP — graph logic test độc lập; tái sử dụng được trong capture handlers; detector chỉ còn orchestration + threshold mapping |
+| **Tách topic `deadlock` riêng khỏi `blocking`** | 3 queries blocking phải cùng snapshot (correlate session_id giữa victim ↔ head blocker ↔ locks — `execute_batch` chạy liền nhau trên 1 connection); còn `deadlock_events` là data lịch sử 24h + parse XML ring_buffer (~4MB) nặng → 300s là đủ, không cần 60s. Đồng thời align với skill `deadlock.yaml` riêng ở Layer 2 |
+| **Route theo `query_id`** trong detector: `blocking_sessions` + `head_blocker_sessions` + `head_blocker_locks` → chain analysis (join theo session_id); `deadlock_events` → deadlock parsing. Query_id lạ → log warning + skip | 1 detector dùng chung cho cả 2 topics, nhiều row shapes — explicit routing thay vì đoán theo column; mở rộng sau (blocked_snapshot, trend) chỉ là thêm route |
+| **Finding xoay quanh head blocker**: 1 Finding per head blocker (không per victim) | Scope A0 — session gây ra là trung tâm; victims là detail (`blocked_sessions[]` trong metrics). Tránh 50 findings cho 1 incident → dedup + alert sạch |
+| **Deadlock parse bằng stdlib `xml.etree`** (pattern giống `capture/plan_analyzer.py`) | Không thêm dependency; XEvent XML đơn giản |
+| **Deadlock dedup theo `deadlock_time`** (nằm trong finding_hash input) | Query lấy 24h window → cùng deadlock xuất hiện trong nhiều lần check; không dedup đúng sẽ spam |
+| **Detector không bao giờ raise** — lỗi parse 1 row/1 XML → log + skip row | Tuân thủ R4: 1 topic fail không được dừng scheduler |
+
+### Nguyên tắc clean code áp dụng
+
+1. **Full type hints + Pydantic** (R1, R2) — metrics dict của Finding có schema document rõ trong docstring
+2. **Comments giải thích WHY** (R6) — ví dụ: tại sao chain_depth warning=3 không phải 2
+3. **Không hardcode SQL trong Python** — mọi query nằm trong seed → MongoDB
+4. **Mọi SQL có TOP N** (R7)
+5. **Test trước khi tích hợp**: unit tests cho chain builder (cycle, multi-chain, orphan blocker), deadlock parser (malformed XML), detector (threshold mapping) — đây là logic thuần, phải có coverage
+
+---
+
+## A4. Roadmap — 5 Phases
+
+> Thứ tự tối ưu theo dependency + giá trị: detector trước (hệ thống đang mù),
+> config sau (cần detector để thresholds có nghĩa), AI skill sau cùng (cần findings thật để tune).
+
+### Phase 1 — Layer 1: Detector Core 🔴 (ưu tiên cao nhất)
+
+**Giải quyết**: GAP-1, GAP-2, GAP-9 — hệ thống bắt đầu tạo findings từ topic `blocking`.
+
+| Việc | File |
+|---|---|
+| Tạo `chain_analysis.py` — pure functions: build graph, max depth, **find head blockers**, group victims per head | `layer1/detectors/chain_analysis.py` (mới) |
+| Implement `BlockingChainDetector` — route by query_id (`blocking_sessions`, `head_blocker_sessions`, `head_blocker_locks`, `deadlock_events`), build Finding head-blocker-centric, map thresholds | `layer1/detectors/blocking_detector.py` |
+| Register `"blocking_chain"` vào `build_default()` | `layer1/detectors/registry.py` |
+| Disable topic `blocked_query` (`enabled=False` — giữ config, bật lại khi làm phase defer) | `layer1/seed/seed_topics.py` |
+| Unit tests: chain graph (depth, cycle, multi-head), deadlock XML parse, detector end-to-end với fake QueryResult | `tests/` |
+
+**Output Phase 1**: Detector hoạt động — topic `blocking` hiện tại (seed cũ, còn chứa `deadlock_events`) tạo findings `blocking_chain` + `deadlock` được ngay. Việc tách topic diễn ra ở Phase 2 — detector route theo `query_id` nên không phụ thuộc topic nào chứa query nào.
+
+### Phase 2 — Layer 1: Config & Seed 🟡
+
+**Giải quyết**: GAP-3, GAP-4, GAP-7 + tách topic `deadlock`.
+
+| Việc | File |
+|---|---|
+| Update `_blocking()`: **bỏ query `deadlock_events`**, thêm queries `head_blocker_sessions` + `head_blocker_locks`, thêm `query_hash`/plan XML vào `blocking_sessions`, nâng wait filter 5s→10s | `layer1/seed/seed_topics.py` |
+| Thêm `_deadlock()` — topic mới: `topic_id="deadlock"`, query `deadlock_events`, `schedule_sec=300`, nodes `["all"]`, `detector_type="blocking_chain"` (detector route theo query_id) | nt |
+| Update thresholds `blocking`: `chain_depth` 3/5, `wait_sec` 30/120, thêm `blocked_session_count` 5/20 | nt |
+| Khai báo `capture_tools` + `analysis_config` cho 2 topics | nt |
+| Cân nhắc topic action `/kill-blocking` cho alert blocking (pattern đã có ở `slow_sessions` — `services/topic_action_service.py`) | quyết định khi thực thi |
+| Re-seed + xóa dedup cache cũ | runbook |
+
+**Output Phase 2**: 2 topics tách bạch — `blocking` (60s, snapshot correlate được session_id) + `deadlock` (300s, XML parse nhẹ tải); context head blocker đầy đủ (session, locks, plan, idle/active), noise giảm.
+
+### Phase 3 — Layer 2: AI Skill 🟡
+
+**Giải quyết**: GAP-6.
+
+| Việc | File |
+|---|---|
+| Viết `specialization` đầy đủ cho `blocking.yaml` — head-blocker-centric; bỏ `blocked_query_trend` khỏi issue_types (defer) | `layer2/skills/blocking.yaml` |
+| Review `deadlock.yaml` cho consistency với data mới từ detector | `layer2/skills/deadlock.yaml` |
+| Nâng `max_tokens` 2000→3000 (blocking reasoning dài hơn) | `layer2/skills/blocking.yaml` |
+
+### Phase 4 — Verification E2E 🟡
+
+| Check | Cách |
+|---|---|
+| Detector tạo finding đúng | Simulate blocking trên môi trường test (`BEGIN TRAN` + UPDATE không commit, session 2 SELECT) → finding có `chain_depth`, `head_blocker_session_id` |
+| Idle blocker detect được | Simulate forgotten transaction → `blocker_idle_sec` + `open_transaction_count` trong metrics |
+| Deadlock detect + dedup | Simulate deadlock 2 sessions → finding `deadlock` 1 lần duy nhất dù query 24h window mỗi 60s |
+| Alert + dedup | Telegram alert 1 lần, không spam khi blocking kéo dài |
+| `/analyze` end-to-end | Reply alert → Layer 2 analysis có head blocker + recommendation |
+| `/quick` | Haiku trả phân tích nhanh từ `analysis_config` |
+
+### Deferred (ngoài scope đợt này) ⏸️
+
+- Topic `blocked_query` (victim snapshot chi tiết) — bật lại + queries mới khi cần
+- Topic `blocked_query_trend` (structural contention) — thêm khi blocking core ổn định
+- Layer 3 visualization (chain tree view, trend chart, glossary lock modes)
+
+---
+
+## A5. Rủi Ro & Lưu Ý
+
+| Rủi ro | Mitigation |
+|---|---|
+| Sau khi detector hoạt động → **alert storm** từ blocking tồn đọng | Phase 1 deploy kèm Phase 2 thresholds (hoặc deploy ngoài giờ peak + theo dõi); dedup 30 phút đã có sẵn |
+| `dedup_cache` cũ chứa hash từ format finding cũ | Xóa dedup cache sau re-seed (đã có precedent trong Known Bugs) |
+| Query `head_blocker_locks` trên `sys.dm_tran_locks` có thể nặng khi lock count lớn | `TOP 50` + filter `request_status='GRANT'` + bỏ DATABASE/METADATA locks |
+| Plan XML trong query results làm `raw_metrics` phình to (NVARCHAR(MAX)) | TTL 3 ngày đã có; cân nhắc chỉ lấy plan khi wait_sec lớn — quyết định khi bàn thực thi Phase 2 |
+| Deadlock từ ring_buffer chỉ giữ ~4MB → có thể miss deadlock cũ | Chấp nhận — 24h window + check mỗi 60s là đủ; XEvent file target là cải tiến tương lai |
+| Blocking trên Readable Secondary do redo thread (HADR) là expected behavior | Skill specialization phải dạy agent phân biệt → không khuyến nghị can thiệp app |
+
+---
+
+# PHẦN B — THIẾT KẾ CHI TIẾT (THAM CHIẾU)
+
+> Phần này là thiết kế chi tiết đã soạn trước (2026-04-24), giữ làm tham chiếu
+> cho khi thực thi từng phase. Sẽ review/điều chỉnh từng mục khi bàn thực thi.
+
+## B1. Định Nghĩa và Cơ Chế
 
 Query Blocking xảy ra khi Session A giữ **lock** trên một resource (row, page,
 table, key range), và Session B cần lock **không tương thích** trên cùng resource
@@ -32,9 +243,7 @@ Session C: UPDATE Orders WHERE id=1        → bị BLOCK bởi A
 `LCK_M_S`, `LCK_M_X`, `LCK_M_U`, `LCK_M_IS`, `LCK_M_IX`,
 `LCK_M_SCH_S`, `LCK_M_SCH_M`
 
----
-
-## 2. Ảnh Hưởng Lên Hệ Thống
+## B2. Ảnh Hưởng Lên Hệ Thống
 
 | Tầng | Ảnh hưởng | Severity |
 |---|---|---|
@@ -54,9 +263,7 @@ Session C: UPDATE Orders WHERE id=1        → bị BLOCK bởi A
 - **Resource Governor**: head blocker có thể từ workload group khác với victim,
   nhưng blocking xuyên pool vẫn xảy ra
 
----
-
-## 3. Taxonomy — 4 Issue Types (Category C: Session/Lock)
+## B3. Taxonomy — 4 Issue Types (Category C: Session/Lock)
 
 Tất cả thuộc **Category C: Session/Lock** theo `layer2/FRAMEWORK_monitoring_analysis.md`.
 
@@ -64,19 +271,17 @@ Tất cả thuộc **Category C: Session/Lock** theo `layer2/FRAMEWORK_monitorin
 |---|---|---|---|
 | `blocking_chain` | Chain depth ≥ 3, head blocker giữ lock > 30s | `blocking_chain` | `blocking` |
 | `blocked_query_snapshot` | Query cụ thể bị block lâu tại thời điểm check | `blocking_chain` | `blocked_query` |
-| `blocked_query_trend` | Blocking lặp lại > 3 lần trong 5 phút — dấu hiệu vấn đề thiết kế | `threshold` | `blocked_query_trend` (**mới**) |
-| `deadlock` | Deadlock graph xuất hiện trong System Health XEvent | `blocking_chain` | `blocking` |
+| `blocked_query_trend` | Blocking lặp lại > 3 lần trong 5 phút — dấu hiệu vấn đề thiết kế | `threshold` | `blocked_query_trend` (⏸️ defer) |
+| `deadlock` | Deadlock graph xuất hiện trong System Health XEvent | `blocking_chain` | `deadlock` (**tách riêng**) |
 
-**Lý do cần 3 topics riêng biệt** (không gộp):
-- `blocking` phát hiện incident **đang xảy ra** ngay tại thời điểm check (real-time)
-- `blocked_query` track query cụ thể + blocker context cho từng incident
-- `blocked_query_trend` phát hiện **pattern lặp lại** → vấn đề thiết kế cần fix dài hạn
+**Lý do tách topics** (không gộp):
+- `blocking` (60s): incident **đang xảy ra** real-time — 3 queries phải cùng 1 job để snapshot cùng thời điểm (correlate session_id)
+- `deadlock` (300s): data **lịch sử 24h** từ XEvent — không cần real-time; parse XML ring_buffer nặng, giảm tần suất tiết kiệm tải
+- `blocked_query` / `blocked_query_trend`: defer (xem A0)
 
----
+## B4. Monitor Topics — Thiết Kế Chi Tiết
 
-## 4. Monitor Topics — Thiết Kế Chi Tiết
-
-### 4.1 Topic `blocking` — Blocking Chain & Deadlock (hiện có)
+### B4.1 Topic `blocking` — Blocking Chain (head-blocker-centric)
 
 ```
 topic_id:      blocking
@@ -84,6 +289,11 @@ schedule_sec:  60
 nodes:         ["all"]
 detector_type: blocking_chain
 ```
+
+> **3 queries dưới đây BẮT BUỘC cùng 1 topic/job**: detector correlate theo
+> `session_id` giữa victim ↔ head blocker ↔ locks — chỉ có nghĩa khi cả 3 result
+> sets là cùng 1 snapshot (`execute_batch` chạy liền nhau trên 1 connection).
+> `deadlock_events` đã tách sang topic `deadlock` riêng (B4.1b).
 
 **Query `blocking_sessions`** — active blocking sessions với chain info:
 
@@ -219,6 +429,34 @@ ORDER BY tl.request_session_id, tl.resource_type
 > `head_blocker_sessions` (blocker context) + `head_blocker_locks` (lock details)
 > → Layer 2 có đủ thông tin để kết luận root cause mà không cần query thêm nhiều.
 
+**Thresholds:**
+
+| Metric | Warning | Critical | Lý do |
+|---|---|---|---|
+| `wait_sec` | 30 | 120 | 30s: DBA chú ý; 120s = 2 phút = SLA violation rõ ràng |
+| `chain_depth` | 3 | 5 | Depth 2 là bình thường; depth 3+ mới là dấu hiệu vấn đề |
+| `blocked_session_count` | 5 | 20 | 20+ sessions = cascading nguy hiểm, cần can thiệp ngay |
+
+> **Tại sao `chain_depth` warning=3 (không phải 2)?** Depth 2 (A block B) rất phổ biến
+> và thường tự resolve dưới 30s. Depth 3+ là dấu hiệu long transaction hoặc deadlock-prone code.
+
+### B4.1b Topic `deadlock` — Deadlock Events (**TÁCH RIÊNG**)
+
+```
+topic_id:      deadlock
+display_name:  Deadlock Monitor (System Health XEvent)
+schedule_sec:  300
+nodes:         ["all"]
+detector_type: blocking_chain   (detector route theo query_id → deadlock parsing)
+```
+
+> **Lý do tách khỏi `blocking`**: data lịch sử 24h (không cần check 60s);
+> `CAST(target_data AS XML)` + XQuery trên ring_buffer ~4MB là query nặng nhất nhóm;
+> align với skill `deadlock.yaml` riêng ở Layer 2.
+
+> **Dedup**: cùng deadlock xuất hiện trong nhiều lần check (24h window) →
+> `deadlock_time` phải nằm trong finding_hash input.
+
 **Query `deadlock_events`** — deadlock graph từ System Health XEvent (24h gần nhất):
 
 ```sql
@@ -241,20 +479,10 @@ WHERE xdr.value('@timestamp', 'datetime2') > DATEADD(HOUR, -24, GETUTCDATE())
 ORDER BY deadlock_time DESC
 ```
 
-**Thresholds:**
+**Thresholds**: không cần — mỗi deadlock event là 1 finding `severity=CRITICAL` trực tiếp
+(deadlock đã xảy ra rồi, không có ngưỡng warning).
 
-| Metric | Warning | Critical | Lý do |
-|---|---|---|---|
-| `wait_sec` | 30 | 120 | 30s: DBA chú ý; 120s = 2 phút = SLA violation rõ ràng |
-| `chain_depth` | 3 | 5 | Depth 2 là bình thường; depth 3+ mới là dấu hiệu vấn đề |
-| `blocked_session_count` | 5 | 20 | 20+ sessions = cascading nguy hiểm, cần can thiệp ngay |
-
-> **Tại sao `chain_depth` warning=3 (không phải 2)?** Depth 2 (A block B) rất phổ biến
-> và thường tự resolve dưới 30s. Depth 3+ là dấu hiệu long transaction hoặc deadlock-prone code.
-
----
-
-### 4.2 Topic `blocked_query` — Blocked Query Snapshot (hiện có)
+### B4.2 Topic `blocked_query` — Blocked Query Snapshot ⏸️ DEFERRED (xem A0)
 
 ```
 topic_id:      blocked_query
@@ -342,9 +570,7 @@ ORDER BY r.wait_time DESC
 |---|---|---|---|
 | `wait_duration_sec` | 30 | 120 | Tăng từ 10/60 — align với `blocking` topic |
 
----
-
-### 4.3 Topic `blocked_query_trend` — Recurring Lock Contention (**MỚI**)
+### B4.3 Topic `blocked_query_trend` — Recurring Lock Contention ⏸️ DEFERRED (xem A0)
 
 ```
 topic_id:      blocked_query_trend
@@ -388,9 +614,34 @@ ORDER BY block_event_count DESC
 | `block_event_count` | 3 | 10 | 3 lần trong 5 phút = cùng query bị block lặp lại |
 | `avg_wait_sec` | 30 | 90 | Pattern avg cao → không phải noise, cần fix |
 
----
+## B5. Detector — Finding Metrics Contract
 
-## 5. Layer 2 Skill — `blocking.yaml`
+**1 Finding per chain** — metrics dict chuẩn (input contract cho Layer 2 skill + Telegram alert):
+
+```python
+{
+    "chain_depth": int,
+    "blocked_session_count": int,
+    "head_blocker_session_id": int,
+    "head_blocker_login": str,
+    "head_blocker_query": str,
+    "max_wait_sec": float,
+    "wait_type": str,   # wait type của blocked sessions (LCK_M_X, ...)
+    "blocked_sessions": [
+        {"session_id": int, "wait_sec": float, "query_text": str, ...}
+    ]
+}
+```
+
+Module split (Phase 1):
+
+| Module | Trách nhiệm |
+|---|---|
+| `detectors/chain_analysis.py` | Pure functions: `build_chain(rows)`, `max_chain_depth(chain)`, `find_head_blockers(chain)`, `group_victims(chain)` |
+| `detectors/blocking_detector.py` | Orchestration: route query_id → analysis → Finding + severity mapping từ topic.thresholds |
+| Deadlock parsing | `_parse_deadlock_graph()` trong detector (stdlib `xml.etree`) — extract victim, processes, resources |
+
+## B6. Layer 2 Skill — `blocking.yaml`
 
 Thuộc **Category C: Session/Lock** theo Framework:
 - Model: `claude-sonnet-4-6` (blocking chain reasoning phức tạp)
@@ -403,10 +654,10 @@ Thuộc **Category C: Session/Lock** theo Framework:
 ```yaml
 issue_types:
   - blocking_chain
-  - blocked_query_snapshot
-  - blocked_query_trend
-  - deadlock
+  # Defer (A0): blocked_query_snapshot, blocked_query_trend — thêm lại khi bật các topic tương ứng
 ```
+
+> `deadlock` đã có skill riêng `deadlock.yaml` — giữ nguyên tách biệt.
 
 ### Specialization
 
@@ -443,8 +694,8 @@ Phân loại tình huống và hướng xử lý:
 - LCK_M_X + long transaction → COMMIT sớm hơn, chia nhỏ batch DML
 - LCK_M_S + index scan full table → index covering, READ_COMMITTED_SNAPSHOT (RCSI)
 - LCK_M_SCH_M → DDL conflict với CDC/read → schedule DDL ngoài giờ peak
-- Deadlock (issue_type=deadlock) → phân tích victim query, resource,
-  đề xuất consistent access order hoặc thêm index
+- blocker idle (sleeping + open_transaction_count > 0) → forgotten transaction:
+  trace app qua program_name/host_name, đề xuất fix connection handling
 - blocked_query_trend + recurring → vấn đề thiết kế: index, isolation level RCSI,
   hoặc query redesign để giảm lock duration
 
@@ -453,6 +704,7 @@ Lưu ý hệ thống:
 - CDC enabled: scan thread có thể là nguồn contention trên log/version store
 - Readable Secondary: blocking giữa redo thread và read query → không cần can thiệp app,
   chỉ cần thông báo "expected behavior" nếu HADR wait types chiếm đa số
+- KHÔNG gợi ý OPTION(OPTIMIZE FOR UNKNOWN)
 ```
 
 ### Required / Optional Tools
@@ -470,92 +722,7 @@ optional_tools:
   - get_analysis_history
 ```
 
----
-
-## 6. Plan Triển Khai
-
-### Thứ tự thực hiện
-
-```
-Step 1 → Update blocking.yaml         (Layer 2 — không cần redeploy Layer 1)
-Step 2 → Add blocked_query_trend topic (Layer 1 seed)
-Step 3 → Update blocking/blocked_query thresholds (Layer 1 seed)
-Step 4 → Implement BlockingChainDetector stubs
-Step 5 → Test end-to-end
-```
-
----
-
-### Step 1 — `layer2/skills/blocking.yaml`
-
-**File**: `layer2/skills/blocking.yaml`
-
-Thay đổi:
-- Điền `specialization` đầy đủ (hiện đang trống — chỉ có "Focus: blocking chain...")
-- Thêm `blocked_query_trend` vào `issue_types` list
-- Giữ nguyên `required_tools`, `optional_tools`, model config
-
----
-
-### Step 2+3 — `layer1/seed/seed_topics.py`
-
-**File**: `layer1/seed/seed_topics.py`
-
-Thay đổi:
-1. Thêm hàm `_blocked_query_trend()` — topic mới với SQL và thresholds theo mục 4.3
-2. Thêm `_blocked_query_trend()` vào `_all_topics()` list
-3. Update `_blocking()`: `chain_depth` warning→3 (từ 2), thêm `blocked_session_count`
-4. Update `_blocked_query()`: `wait_duration_sec` warning→30 (từ 10), critical→120 (từ 60)
-
----
-
-### Step 4 — `layer1/detectors/blocking_detector.py`
-
-**File**: `layer1/detectors/blocking_detector.py`
-
-Implement các stubs hiện đang `...`:
-
-| Method | Logic |
-|---|---|
-| `detect()` | build chain → tính depth → tạo Finding với metrics: `chain_depth`, `blocked_session_count`, `head_blocker_session_id`, `wait_type` |
-| `_build_chain(rows)` | Build dict `{blocked_spid: blocking_spid}` từ rows |
-| `_calculate_chain_depth(chain)` | DFS/BFS từ mỗi node → tìm max path length |
-| `_parse_deadlock_graph(xml)` | Parse XEvent XML: extract victim process, resources, lock modes |
-
-**Finding metrics cần ghi vào `metrics` dict:**
-
-```python
-{
-    "chain_depth": int,
-    "blocked_session_count": int,
-    "head_blocker_session_id": int,
-    "head_blocker_login": str,
-    "head_blocker_query": str,
-    "max_wait_sec": float,
-    "wait_type": str,   # wait type của blocked sessions (LCK_M_X, ...)
-    "blocked_sessions": [
-        {"session_id": int, "wait_sec": float, "query_text": str, ...}
-    ]
-}
-```
-
----
-
-### Step 5 — Verification
-
-| Check | Method |
-|---|---|
-| IssueType enum | `python -c "from layer1.models.common import IssueType; print(IssueType.BLOCKED_QUERY_TREND)"` |
-| Seed dry-run | `python -m layer1.seed.seed_topics --dry-run` → thấy `blocked_query_trend` |
-| Topic seeded | `db.monitor_topics.findOne({topic_id: "blocked_query_trend"})` |
-| Skill load OK | Layer 2 startup log: "Loaded skill blocking_v1" với 4 issue types |
-| Detector không crash | Trigger job thủ công, không có exception |
-| Finding tạo đúng | `db.findings.findOne({issue_type: "blocking_chain"})` → có `chain_depth`, `blocked_session_count` |
-| `/analyze` hoạt động | `POST /api/v1/analyze` với blocking finding_id → analysis có root cause + recommendation |
-
----
-
-## 7. Cost Profile
+## B7. Cost Profile
 
 Theo Category C (Session/Lock):
 
@@ -563,9 +730,7 @@ Theo Category C (Session/Lock):
 |---|---|---|---|
 | claude-sonnet-4-6 | 3–4 | ~8K | $0.05–0.10 |
 
----
-
-## 8. Liên Kết Tài Liệu
+## B8. Liên Kết Tài Liệu
 
 | Tài liệu | Nội dung |
 |---|---|
@@ -573,5 +738,7 @@ Theo Category C (Session/Lock):
 | `layer2/CLAUDE.md` | Kiến trúc Layer 2, skill system, tool safety |
 | `layer1/CLAUDE.md` | Detector registry, MongoDB schema, code rules |
 | `layer2/skills/blocking.yaml` | Skill YAML thực tế |
+| `layer2/skills/deadlock.yaml` | Skill deadlock riêng |
 | `layer1/seed/seed_topics.py` | MongoDB topic config thực tế |
 | `layer1/detectors/blocking_detector.py` | Detector implementation |
+| `layer1/detectors/registry.py` | Detector registry — nơi register `blocking_chain` |

@@ -9,8 +9,9 @@ Cách chạy:
 
 Topics được seed:
     1.  ag_health          — AG Health & CDC (2 phút)
-    2.  blocking           — Blocking & Deadlock (1 phút)
-    3.  blocked_query      — Blocked Query Snapshot (1 phút)
+    2.  blocking           — Blocking Chain, head-blocker-centric (1 phút)
+    2b. deadlock           — Deadlock từ System Health XEvent (5 phút)
+    3.  blocked_query      — Blocked Query Snapshot (DISABLED — defer)
     4.  slow_sessions         — Slow Query / Baseline (5 phút)
     5.  plan_regression    — Plan Regression (5 phút)
     6.  plan_instability   — Plan Instability (5 phút)
@@ -34,6 +35,7 @@ from ..models.topic_constants import (
     TOPIC_AGENT_MAINTENANCE,
     TOPIC_BLOCKED_QUERY,
     TOPIC_BLOCKING,
+    TOPIC_DEADLOCK,
     TOPIC_HIGH_VARIATION,
     TOPIC_INDEX_FRAGMENTATION,
     TOPIC_INDEX_USAGE,
@@ -47,7 +49,13 @@ from ..models.topic_constants import (
 )
 from ..storage.mongo_client import MongoConnection
 from ..storage.repositories.topic_repo import TopicRepo
-from ..models.topic import MonitorTopic, QueryConfig, ThresholdConfig, BaselineConfig
+from ..models.topic import (
+    AnalysisConfig,
+    BaselineConfig,
+    MonitorTopic,
+    QueryConfig,
+    ThresholdConfig,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +73,7 @@ def _all_topics() -> list[MonitorTopic]:
     return [
         _ag_health(),
         _blocking(),
+        _deadlock(),
         _blocked_query(),
         _slow_sessions(),
         _plan_regression(),
@@ -143,41 +152,173 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
     )
 
 
-# ── 2. Blocking & Deadlock ───────────────────────────────────────────────────
+# ── 2. Blocking Chain (head-blocker-centric) ─────────────────────────────────
+# 3 queries BẮT BUỘC cùng 1 topic: detector correlate session_id giữa
+# victim ↔ head blocker ↔ locks — chỉ có nghĩa khi cùng 1 snapshot
+# (execute_batch chạy liền nhau trên 1 connection).
+# Deadlock đã tách sang topic riêng `deadlock` (data lịch sử, XML parse nặng).
 
 def _blocking() -> MonitorTopic:
     return MonitorTopic(
         topic_id=TOPIC_BLOCKING,
-        display_name="Blocking Chain & Deadlock Monitor",
+        display_name="Blocking Chain Monitor (Head Blocker)",
         enabled=True,
         schedule_sec=60,
         nodes=["all"],
         queries=[
             QueryConfig(
                 query_id="blocking_sessions",
-                description="Active blocking sessions với chain info",
+                description="Victims — sessions đang bị block, có chain info",
                 sql="""
 SELECT TOP 100
     r.session_id,
     r.blocking_session_id,
     r.wait_type,
     r.wait_time / 1000          AS wait_sec,
+    r.wait_resource,
     r.command,
     r.status,
     DB_NAME(r.database_id)      AS database_name,
     s.login_name,
     s.host_name,
     s.program_name,
+    CONVERT(VARCHAR(64), HASHBYTES('MD5', qt.text), 2) AS query_hash,
     SUBSTRING(qt.text, 1, 500)  AS query_text
 FROM sys.dm_exec_requests r
 JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
 CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt
 WHERE r.blocking_session_id > 0
-  AND r.wait_time > 5000
+  AND r.wait_time > 10000          -- >= 10s: blocking ngắn hơn thường tự resolve (noise)
 ORDER BY r.wait_time DESC
 """,
                 timeout_sec=15,
             ),
+            QueryConfig(
+                query_id="head_blocker_sessions",
+                description="Head blockers — sessions GIỮ lock gây block, kể cả idle transaction",
+                sql="""
+-- Head blocker hay là session idle với open transaction (forgotten transaction):
+-- không có active request nên không xuất hiện trong blocking_sessions,
+-- nhưng vẫn giữ X lock và block mọi session đụng vào cùng rows.
+SELECT TOP 20
+    s.session_id,
+    s.login_name,
+    s.host_name,
+    s.program_name,
+    s.open_transaction_count,
+    s.status                                            AS session_status,
+    DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) AS idle_sec,
+    SUBSTRING(ISNULL(qt.text, ''), 1, 500)              AS last_query_text,
+    r.command,
+    r.cpu_time / 1000                                   AS cpu_sec,
+    r.reads,
+    -- Plan của blocker: active → từ request plan_handle;
+    -- idle → bridge qua dm_exec_query_stats (DMV duy nhất có cả sql_handle + plan_handle)
+    CONVERT(NVARCHAR(MAX), COALESCE(
+        active_plan.query_plan,
+        cached_plan.query_plan
+    )) AS blocker_plan_xml
+FROM sys.dm_exec_sessions s
+LEFT JOIN sys.dm_exec_requests r       ON s.session_id = r.session_id
+LEFT JOIN sys.dm_exec_connections c    ON s.session_id = c.session_id
+OUTER APPLY sys.dm_exec_sql_text(c.most_recent_sql_handle) qt
+OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) active_plan
+OUTER APPLY (
+    SELECT TOP 1 qp2.query_plan
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp2
+    WHERE qs.sql_handle = c.most_recent_sql_handle
+      AND r.plan_handle IS NULL       -- chỉ tìm plan cache khi không có active request
+) cached_plan(query_plan)
+WHERE s.session_id IN (
+    SELECT DISTINCT blocking_session_id
+    FROM sys.dm_exec_requests
+    WHERE blocking_session_id > 0
+)
+ORDER BY s.open_transaction_count DESC, idle_sec DESC
+""",
+                timeout_sec=15,
+            ),
+            QueryConfig(
+                query_id="head_blocker_locks",
+                description="Locks đang GIỮ (GRANT) bởi head blockers",
+                sql="""
+SELECT TOP 50
+    tl.request_session_id                               AS session_id,
+    tl.resource_type,
+    DB_NAME(tl.resource_database_id)                    AS database_name,
+    -- OBJECT_NAME chỉ hợp lệ với resource_type='OBJECT';
+    -- KEY/PAGE/RID: resource_associated_entity_id là hash, cast int sẽ overflow
+    CASE WHEN tl.resource_type = 'OBJECT'
+         THEN OBJECT_NAME(
+                  TRY_CAST(tl.resource_associated_entity_id AS INT),
+                  tl.resource_database_id
+              )
+         ELSE NULL
+    END                                                 AS object_name,
+    tl.request_mode,
+    tl.request_type,
+    tl.resource_description
+FROM sys.dm_tran_locks tl
+WHERE tl.request_session_id IN (
+    SELECT DISTINCT blocking_session_id
+    FROM sys.dm_exec_requests
+    WHERE blocking_session_id > 0
+)
+  AND tl.request_status = 'GRANT'
+  AND tl.resource_type NOT IN ('DATABASE', 'METADATA')  -- bỏ noise system locks
+ORDER BY tl.request_session_id, tl.resource_type
+""",
+                timeout_sec=15,
+            ),
+        ],
+        detector_type="blocking_chain",
+        thresholds={
+            # wait_sec so với max_wait_sec của chain (alias trong detector)
+            "wait_sec": ThresholdConfig(warning=30, critical=120),
+            # Depth 2 (A block B) phổ biến và tự resolve — depth 3+ mới là vấn đề
+            "chain_depth": ThresholdConfig(warning=3, critical=5),
+            # 20+ sessions chờ = cascading nguy hiểm, cần can thiệp ngay
+            "blocked_session_count": ThresholdConfig(warning=5, critical=20),
+        },
+        capture_tools=[
+            "get_blocking_chain",
+            "get_wait_stats",
+            "get_recent_findings",
+            "get_analysis_history",
+        ],
+        analysis_config=AnalysisConfig(
+            context=(
+                "Blocking chain — head blocker (session gây block) là trọng tâm. "
+                "head_blocker_is_idle=true + open_txn_count>0 = forgotten transaction "
+                "(app quên COMMIT) — cần kill session hoặc fix app, khác với active lock."
+            ),
+            focus_metrics=[
+                "head_blocker_session_id",
+                "head_blocker_is_idle",
+                "head_blocker_idle_sec",
+                "head_blocker_open_txn_count",
+                "chain_depth",
+                "blocked_session_count",
+                "max_wait_sec",
+                "wait_type",
+            ],
+        ),
+    )
+
+
+# ── 2b. Deadlock (tách riêng khỏi blocking) ──────────────────────────────────
+# Data lịch sử 24h từ XEvent — không cần real-time 60s;
+# CAST ring_buffer (~4MB) AS XML + XQuery là query nặng → 5 phút là đủ.
+
+def _deadlock() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id=TOPIC_DEADLOCK,
+        display_name="Deadlock Monitor (System Health XEvent)",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["all"],
+        queries=[
             QueryConfig(
                 query_id="deadlock_events",
                 description="Deadlock events từ System Health XEvent (24h gần nhất)",
@@ -203,21 +344,32 @@ ORDER BY deadlock_time DESC
                 timeout_sec=30,
             ),
         ],
-        detector_type="blocking_chain",
-        thresholds={
-            "wait_sec": ThresholdConfig(warning=30, critical=120),
-            "chain_depth": ThresholdConfig(warning=2, critical=3),
-        },
+        detector_type="blocking_chain",  # detector route theo query_id → deadlock parsing
+        # Không thresholds: deadlock đã xảy ra → detector luôn tạo CRITICAL per event mới
+        capture_tools=[
+            "get_recent_findings",
+            "get_analysis_history",
+        ],
+        analysis_config=AnalysisConfig(
+            context=(
+                "Deadlock từ System Health XEvent — transaction victim đã bị rollback. "
+                "Phân tích victim query + resource để đề xuất consistent access order hoặc index."
+            ),
+            focus_metrics=["deadlock_time", "victim_id"],
+        ),
     )
 
 
 # ── 3. Blocked Query Snapshot ────────────────────────────────────────────────
+# DISABLED (plan/topics/blocking.md A0): victim-centric — defer.
+# Scope hiện tại tập trung head blocker (topic `blocking`).
+# Giữ config để bật lại khi làm phase blocked_query_snapshot.
 
 def _blocked_query() -> MonitorTopic:
     return MonitorTopic(
         topic_id=TOPIC_BLOCKED_QUERY,
         display_name="Blocked Query Snapshot & Trend",
-        enabled=True,
+        enabled=False,
         schedule_sec=60,
         nodes=["all"],
         queries=[

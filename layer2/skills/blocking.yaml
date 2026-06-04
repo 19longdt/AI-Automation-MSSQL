@@ -1,12 +1,58 @@
 skill_id: blocking_v1
 
+# Scope (plan/topics/blocking.md A0): head-blocker-centric.
+# blocked_query_snapshot / blocked_query_trend defer — them lai khi bat topic tuong ung.
 issue_types:
   - blocking_chain
-  - blocked_query_snapshot
-  - blocked_query_trend
 
 specialization: |
-  Focus: blocking chain, head blocker, long transaction, va recurrence.
+  Focus: HEAD BLOCKER (session gay block) — xac dinh ai dang giu lock, tai sao,
+  va de xuat action cu the. Victim chi la trieu chung.
+
+  Metrics trong finding (tu Layer 1 detector):
+  - head_blocker_session_id, head_blocker_login, head_blocker_host, head_blocker_program
+  - head_blocker_is_idle + head_blocker_open_txn_count + head_blocker_idle_sec
+    -> is_idle=true + open_txn>0 = FORGOTTEN TRANSACTION (app quen COMMIT)
+  - head_blocker_query: cau query cuoi cung cua blocker (cau da acquire lock)
+  - chain_depth, blocked_session_count, max_wait_sec -> danh gia severity/scope
+  - wait_type pho bien cua victims (LCK_M_X, LCK_M_S, LCK_M_SCH_M...) -> loai contention
+  - blocked_sessions[]: top victims theo wait_sec
+  - held_locks[]: resource_type + request_mode + object_name cua locks dang GIU
+
+  Phan tich theo thu tu:
+
+  1. Doc metrics finding truoc — thuong da du de ket luan head blocker la ai va loai van de.
+
+  2. get_blocking_chain (node tu finding):
+     - Blocking con dang dien ra khong? Head blocker hien tai co trung voi finding khong?
+     - Neu chain da resolve (finding cu) -> ghi nhan, chuyen sang phan tich pattern.
+
+  3. get_wait_stats (node):
+     - LCK_M_* chiem ty trong cao -> xac nhan lock contention la van de chinh
+     - PAGEIOLATCH_* kem theo -> blocker cham do I/O -> huong xu ly khac
+     - HADR_* -> lien quan replication, xem luu y Readable Secondary ben duoi
+
+  4. get_query_stats (query_hash cua victim trong blocked_sessions neu co):
+     - Execution history: query nay co thuong chay lau khong? avg_logical_reads cao -> scan?
+
+  5. get_analysis_history (issue_type, node):
+     - Recurring? Cung head_blocker_program/login lap lai -> van de app code, can fix goc.
+
+  Phan loai tinh huong va huong xu ly:
+  - head_blocker_is_idle=true + open_txn>0 (forgotten transaction):
+    -> KILL session la giai phap ngan (DBA co the dung /kill-session tu alert);
+    -> goc re: trace app qua program_name/host_name, fix connection/transaction handling.
+  - Active blocker + LCK_M_X + transaction dai: COMMIT som hon, chia nho batch DML.
+  - LCK_M_S + scan full table: index covering, can nhac READ_COMMITTED_SNAPSHOT (RCSI).
+  - LCK_M_SCH_M: DDL conflict voi CDC scan/read -> schedule DDL ngoai gio peak.
+  - held_locks nhieu KEY/PAGE lock cung object: hot spot 1 bang -> xem index/partition.
+
+  Luu y he thong:
+  - Peak hours 8:00-18:00 VN: blocking trong peak = escalate nhanh hon.
+  - CDC enabled: scan thread giu SCH-S -> co the la nguon contention voi DDL.
+  - Readable Secondary: blocking giua redo thread va read query (HADR wait types)
+    la expected behavior -> thong bao ro, khong can can thiep app.
+  - KHONG goi y OPTION(OPTIMIZE FOR UNKNOWN).
 
 user_prompt_template: |
   Phan tich blocking finding sau:
@@ -22,11 +68,12 @@ required_tools:
 optional_tools:
   - get_query_stats
   - get_query_store_history
+  - get_table_context
   - get_recent_findings
   - get_analysis_history
 
 model: claude-sonnet-4-6
 max_tool_rounds: 4
-max_tokens: 2000
+max_tokens: 3000
 max_cost_usd: 0.10
 include_fields: []

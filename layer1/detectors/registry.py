@@ -52,14 +52,17 @@ class DetectorRegistry:
     def build_default(cls) -> DetectorRegistry:
         """
         Tạo registry với tất cả built-in detectors:
-          "threshold" → ThresholdDetector
-          "baseline"  → BaselineDetector
+          "threshold"      → ThresholdDetector
+          "baseline"       → BaselineDetector
+          "blocking_chain" → BlockingChainDetector
         """
         from .threshold_detector import ThresholdDetector
         from .baseline_detector import BaselineDetector
+        from .blocking_detector import BlockingChainDetector
         from ..storage.repositories.baseline_repo import BaselineRepo
 
         registry = cls()
         registry.register("threshold", ThresholdDetector())
         registry.register("baseline", BaselineDetector(BaselineRepo()))
+        registry.register("blocking_chain", BlockingChainDetector())
         return registry

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 TOPIC_AG_HEALTH = "ag_health"
 TOPIC_BLOCKING = "blocking"
+TOPIC_DEADLOCK = "deadlock"
 TOPIC_BLOCKED_QUERY = "blocked_query"
 TOPIC_slow_sessions = "slow_sessions"
 TOPIC_SLOW_SESSIONS = "slow_sessions"

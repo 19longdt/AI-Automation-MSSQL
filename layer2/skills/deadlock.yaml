@@ -6,6 +6,11 @@ issue_types:
 specialization: |
   Focus: deadlock graph, victim/survivor, lock ordering, va action ngan tai phat.
 
+  Metrics trong finding (tu Layer 1 detector): deadlock_time, victim_id, victim_query.
+  LUU Y: query_hash cua deadlock finding la DEDUP HASH (md5 cua time|query),
+  KHONG phai query_hash tu plan cache -> khong dung lam param cho get_query_stats;
+  thay vao do dung victim_query text voi get_query_structure.
+
   Neu finding co query text/plan, dung:
   - get_query_structure(finding_id) de xac dinh bang va join pattern
   - get_plan_analysis(finding_id) neu co query_plan_xml
@@ -28,12 +33,14 @@ user_prompt_template: |
   Metrics:
   {metrics_json}
 
+# get_query_stats/get_index_usage chuyen sang optional: deadlock finding khong co
+# query_hash that (chi co dedup hash) — bat buoc se gay tool error moi fresh analysis
 required_tools:
   - get_query_structure
-  - get_query_stats
-  - get_index_usage
 
 optional_tools:
+  - get_query_stats
+  - get_index_usage
   - get_plan_analysis
   - get_table_context
   - get_blocking_chain
