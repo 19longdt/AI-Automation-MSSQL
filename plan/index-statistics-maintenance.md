@@ -1,5 +1,10 @@
 # Plan — Maintenance Module: Index Reorganize/Rebuild + Update Statistics (`layer1/maintenance/`)
 
+> Plan chi tiết theo layer:
+> - [maintenance-layer1-detail.md](./maintenance-layer1-detail.md) — Core runner: models, repos, scan, T-SQL, Telegram approval, execute loop, SIGTERM, tests
+> - [maintenance-layer2-detail.md](./maintenance-layer2-detail.md) — AI context: tools `get_maintenance_history`/`get_maintenance_queue_status`, ContextBuilder, skill YAML
+> - [maintenance-layer3-detail.md](./maintenance-layer3-detail.md) — Web UI: API routes, trang /maintenance, approve/kill-switch trên web
+
 ## Context
 
 Các SQL Agent job cũ (kiểm tra fragmentation, statistics) đã bị **tắt** vì chạy trên index/table lớn gây quá tải CPU, ảnh hưởng người dùng. Để lâu không xử lý → query performance không ổn định (I/O tăng, buffer pool lãng phí, estimate sai). Cần một service đặt lịch kiểm tra và thực hiện REORGANIZE / REBUILD / UPDATE STATISTICS theo ngưỡng, có kiểm soát tải.
