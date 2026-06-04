@@ -5,17 +5,6 @@ Tác giả: Long Do + Claude
 
 > **Trạng thái tài liệu**: Plan tổng quát (Phần A) đã chốt. Thiết kế chi tiết
 > (Phần B) là tham chiếu — sẽ review lại từng phần khi bàn thực thi per-layer.
->
-> **Tiến độ triển khai (2026-06-04)**:
-> - ✅ Phase 1 — Detector core: `chain_analysis.py` + `BlockingChainDetector` + registry + 34 unit tests pass
-> - ✅ Phase 2 — Seed: `_blocking()` 3 queries head-blocker + `_deadlock()` topic riêng + `_blocked_query()` disabled
-> - ✅ Phase 3 — Skills: `blocking.yaml` specialization đầy đủ; `deadlock.yaml` fix required_tools (dedup-hash note)
-> - ⏳ Phase 4 — Verify offline ✅ (pytest + SkillLoader + E2E smoke); **còn lại**: re-seed + verify trên môi trường có MSSQL thật
->
-> **Quyết định thực thi bổ sung**: bỏ victim plan XML khỏi `blocking_sessions`
-> (head-blocker-centric — chỉ giữ `blocker_plan_xml` trong `head_blocker_sessions`,
-> giảm size raw_metrics); deadlock chỉ tạo finding cho event trong lookback window
-> (2×schedule_sec, floor 10 phút) — tránh re-insert findings từ 24h window mỗi run.
 
 ---
 

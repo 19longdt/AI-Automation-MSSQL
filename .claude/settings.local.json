@@ -43,12 +43,7 @@
       "PowerShell(claude mcp *)",
       "PowerShell(serena *)",
       "PowerShell(uv tool *)",
-      "PowerShell(claude *)",
-      "Bash(pip list *)",
-      "Bash(/c/GIT/AI-Automation-MSSQL/.venv/Scripts/python.exe *)",
-      "Bash(where.exe python *)",
-      "Bash(.venv/Scripts/python.exe *)",
-      "Bash(MSSQL_NODES='[\"1.1.1.1\"]' MSSQL_DATABASE=x MSSQL_USERNAME=x MSSQL_PASSWORD=x MONGODB_URI=mongodb://localhost:27017 .venv/Scripts/python.exe *)"
+      "PowerShell(claude *)"
     ]
   }
 }
