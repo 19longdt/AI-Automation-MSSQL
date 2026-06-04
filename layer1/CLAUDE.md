@@ -157,6 +157,13 @@ layer1/
 │   └── seed_capture_tools.py  ← Seed 18 capture tool defs vào capture_tool_defs (chạy trước khi start)
 │                                 Entry: python -m layer1.seed.seed_capture_tools
 │
+├── maintenance/               ← Index/Stats Maintenance Runner — PROCESS RIÊNG (xem CLAUDE.md root)
+│                                 Entry: python -m layer1.maintenance.runner
+│                                 Seed:  python -m layer1.maintenance.seed.seed_maintenance
+│                                 KHÔNG poll Telegram getUpdates (monitoring process độc quyền);
+│                                 approval callback mntb/mnti xử lý qua MaintenanceApprovalAdapter
+│                                 inject vào TelegramBot (scheduler.py)
+│
 └── utils/
     └── time_utils.py          ← now_vn() (UTC+7 naive, cho MongoDB), utc_now() (cho APScheduler)
 ```

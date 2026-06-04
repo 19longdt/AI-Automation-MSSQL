@@ -31,6 +31,7 @@ from ..services.topic_action_service import topic_action_registry
 
 if TYPE_CHECKING:
     from ..ai.plan_analyzer import PlanAnalyzer
+    from ..maintenance.notify.approval_adapter import MaintenanceApprovalAdapter
     from ..storage.repositories.findings_repo import FindingsRepo
     from ..storage.repositories.topic_repo import TopicRepo
 
@@ -56,11 +57,15 @@ class TelegramBot:
         topic_repo: TopicRepo,
         analyzer: PlanAnalyzer | None,  # None nếu không có claude_api_key
         action_bot_token: str = "",
+        maintenance_approval: MaintenanceApprovalAdapter | None = None,
     ) -> None:
         self._chat_id = chat_id
         self._findings_repo = findings_repo
         self._topic_repo = topic_repo
         self._analyzer = analyzer
+        # Approval adapter cho maintenance module (pure Mongo writes) —
+        # None = maintenance chưa bật, callback mnt* trả lời thông báo.
+        self._maintenance_approval = maintenance_approval
         self._api_base = f"https://api.telegram.org/bot{bot_token}"
         self._action_api_base = (
             f"https://api.telegram.org/bot{action_bot_token}"
@@ -143,6 +148,14 @@ class TelegramBot:
             return
 
         action = parts[1]
+
+        # Maintenance approval callbacks — parts[2] là batch_id/short_id,
+        # KHÔNG phải finding_id. Xử lý trước nhánh finding bên dưới.
+        if action in ("mntb", "mnti"):
+            self._answer_callback_query(callback_id, "Đang xử lý...")
+            self._handle_maintenance_callback(chat_id, action, parts, sender)
+            return
+
         finding_id = parts[2].strip()
         if not finding_id:
             self._answer_callback_query(callback_id, "Thiếu finding_id.")
@@ -165,6 +178,16 @@ class TelegramBot:
             return
 
         self._send(chat_id, f"⚠️ Callback action không hỗ trợ: <code>{html.escape(action)}</code>")
+
+    def _handle_maintenance_callback(
+        self, chat_id: int | str, action: str, parts: list[str], sender: str
+    ) -> None:
+        """Approve/Reject maintenance batch/item — chỉ ghi MongoDB qua adapter."""
+        if self._maintenance_approval is None:
+            self._send(chat_id, "⚠️ Maintenance module chưa được bật trên hệ thống này.")
+            return
+        result = self._maintenance_approval.handle(action, parts, sender)
+        self._send(chat_id, result.message)
 
     def _handle_reply_to_alert(self, chat_id: int | str, text: str, message: dict, sender: str) -> None:
         """Reply vào Layer 1 alert → /quick hoặc forward to Layer 2."""

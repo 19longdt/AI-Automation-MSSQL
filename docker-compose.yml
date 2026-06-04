@@ -47,6 +47,42 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ── Maintenance: Index/Statistics Maintenance Runner ────────────────────────
+  # PROCESS RIÊNG cùng image với layer1 — entry point khác.
+  # Stop độc lập khi cần: docker compose stop maintenance (monitoring không ảnh hưởng).
+  # SIGTERM → PAUSE resumable rebuild đang chạy trước khi exit.
+  #
+  # Trước lần chạy đầu: seed config
+  #   docker compose run --rm maintenance python -m layer1.maintenance.seed.seed_maintenance
+  #
+  # MAINT_DRY_RUN=true (default) — chỉ log statement. Set false trong .env khi go-live.
+  maintenance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${LAYER1_IMAGE:-19longdt/ai-automation-mssql-layer1:latest}
+    container_name: layer1-maintenance
+    restart: unless-stopped
+    command: ["python", "-m", "layer1.maintenance.runner"]
+
+    env_file: .env
+
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+
+    # Grace period đủ để PAUSE resumable rebuild khi stop
+    stop_grace_period: 30s
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   # ── Layer 2: AI Analysis Agent ───────────────────────────────────────────────
   # Chạy FastAPI + Telegram bot phân tích on-demand.
   # Dùng Telegram bot token RIÊNG (L2_TELEGRAM_BOT_TOKEN) để tránh polling conflict

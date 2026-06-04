@@ -139,6 +139,17 @@ class Layer1Service:
                 from .ai.plan_analyzer import PlanAnalyzer
                 # Haiku cho /quick — nhanh, rẻ, không cần tools
                 analyzer = PlanAnalyzer(settings.claude_api_key, settings.haiku_model)
+
+            # Maintenance approval adapter (pure Mongo writes) — bot này là
+            # poller duy nhất của token nên callback approve/reject từ
+            # maintenance batch phải xử lý ở đây. Guarded: lỗi không chặn monitoring.
+            maintenance_approval = None
+            try:
+                from .maintenance.notify.approval_adapter import MaintenanceApprovalAdapter
+                maintenance_approval = MaintenanceApprovalAdapter()
+            except Exception as exc:
+                logger.warning("Maintenance approval adapter unavailable: %s", exc)
+
             TelegramBot(
                 bot_token=settings.telegram_bot_token,
                 chat_id=settings.telegram_chat_id,
@@ -146,6 +157,7 @@ class Layer1Service:
                 topic_repo=self._topic_repo,
                 analyzer=analyzer,
                 action_bot_token=settings.action_bot_token,
+                maintenance_approval=maintenance_approval,
             ).start()
 
         # 7. TopicRunner

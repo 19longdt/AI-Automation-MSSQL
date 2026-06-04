@@ -13,6 +13,7 @@ Kiến trúc 3 layer:
 - **Layer 1** (`layer1/`): Python monitoring service — config-driven, generic executor ✅ Implemented
 - **Layer 2** (`layer2/`): FastAPI + Claude AI + Telegram bot — on-demand analysis khi user yêu cầu `/analyze` ✅ Implemented
 - **Layer 3** (`layer3/`): Web UI — dashboard, insights, query plan visualization (Node.js/TypeScript + nginx) ✅ Implemented
+- **Maintenance** (`layer1/maintenance/`): Index/statistics maintenance runner — PROCESS RIÊNG cùng image layer1 ✅ Implemented (xem `plan/index-statistics-maintenance.md`)
 
 ---
 
@@ -58,6 +59,33 @@ layer1/
 ```
 
 Xem `layer1/CLAUDE.md` cho chi tiết đầy đủ từng module, code rules, constraints.
+
+### Maintenance Runner (`layer1/maintenance/` — process riêng)
+
+```
+layer1/maintenance/
+├── runner.py                  ← Entry: python -m layer1.maintenance.runner
+├── config.py                  ← MAINT_* env vars (cron, tick, DRY_RUN, max attempts)
+├── connection.py              ← maint_connection: autocommit, KHÔNG statement timeout
+├── models/                    ← policy, work_item (queue lifecycle), window, history, approval
+├── scan/                      ← Scan frag/stats/heap → enqueue work items → batch approval
+├── policy/                    ← PolicyResolver: merge default ← table ← index (field-level)
+├── window/                    ← WindowService: window VN-time + budget, hỗ trợ qua đêm
+├── safety/                    ← Gates: CPU, active load, AG redo/send queue — fail = không chạy
+├── execute/                   ← statement_builder (T-SQL), execute_service (tick loop),
+│                                 duration_estimator (admission control)
+├── notify/                    ← MaintenanceNotifier (Telegram SEND-ONLY — KHÔNG poll getUpdates),
+│                                 MaintenanceApprovalAdapter (chạy trong process monitoring)
+├── repositories/              ← maintenance_policies/_window/_queue/_batches/_history
+└── seed/seed_maintenance.py   ← Seed default policy + window (chạy trước lần đầu)
+```
+
+**Flow:** scan (cron tối) → Telegram batch approval (DBA bấm ✅/⛔) → execute tick (60s)
+trong window đêm: gates → claim theo priority → REORGANIZE/REBUILD ONLINE RESUMABLE/
+UPDATE STATS → `maintenance_history` (AI context). SIGTERM → PAUSE resumable rebuild.
+
+**Quan trọng:** 2 process KHÔNG cùng poll 1 Telegram token — approval callback
+(`l1|mntb|...`, `l1|mnti|...`) do bot của process monitoring xử lý, ghi MongoDB.
 
 ---
 

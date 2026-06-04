@@ -32,6 +32,12 @@ TTL_AI_ANALYSIS_SEC = 9 * 24 * 3600
 TTL_DEDUP_CACHE_SEC = 7 * 24 * 3600
 TTL_JOB_EXECUTIONS_SEC = 3 * 24 * 3600
 
+# Maintenance module — queue/batch TTL ngắn (chỉ dọn item terminal),
+# history TTL DÀI vì là AI context cho Layer 2 ("lần rebuild trước có giúp không?")
+TTL_MAINT_QUEUE_TERMINAL_SEC = 14 * 24 * 3600
+TTL_MAINT_BATCHES_SEC = 14 * 24 * 3600
+TTL_MAINT_HISTORY_SEC = 90 * 24 * 3600
+
 # Giữ alias ngày để backward compat với các module khác import constants này
 TTL_RAW_METRICS_DAYS = 3
 TTL_FINDINGS_DAYS = 9
@@ -54,6 +60,11 @@ def create_all_indexes(db: Database) -> None:
     _create_node_roles_indexes(db)
     _create_finding_diagnostics_indexes(db)
     _create_capture_tool_defs_indexes(db)
+    _create_maintenance_policies_indexes(db)
+    _create_maintenance_window_indexes(db)
+    _create_maintenance_queue_indexes(db)
+    _create_maintenance_batches_indexes(db)
+    _create_maintenance_history_indexes(db)
     logger.info("MongoDB indexes created/verified for all collections.")
 
 
@@ -225,6 +236,112 @@ def _create_capture_tool_defs_indexes(db: Database) -> None:
             name="phase",
         ),
     ])
+
+
+def _create_maintenance_policies_indexes(db: Database) -> None:
+    """unique (policy_id), (scope), object lookup."""
+    col = db["maintenance_policies"]
+    col.create_indexes([
+        IndexModel(
+            [("policy_id", ASCENDING)],
+            unique=True,
+            name="unique_policy_id",
+        ),
+        IndexModel(
+            [("scope", ASCENDING)],
+            name="scope",
+        ),
+        # Lookup override theo object khi resolve policy
+        IndexModel(
+            [("schema_name", ASCENDING), ("table_name", ASCENDING), ("index_name", ASCENDING)],
+            name="object_lookup",
+            sparse=True,
+        ),
+    ])
+
+
+def _create_maintenance_window_indexes(db: Database) -> None:
+    """unique (window_id) — collection 1 document."""
+    col = db["maintenance_window"]
+    col.create_indexes([
+        IndexModel(
+            [("window_id", ASCENDING)],
+            unique=True,
+            name="unique_window_id",
+        ),
+    ])
+
+
+def _create_maintenance_queue_indexes(db: Database) -> None:
+    """Claim ordering, batch lookup, dedupe lookup, TTL CHỈ trên terminal_at.
+
+    Item active không có terminal_at → không bị TTL xoá (multi-day backlog).
+    """
+    col = db["maintenance_queue"]
+    col.create_indexes([
+        IndexModel(
+            [("status", ASCENDING), ("priority", DESCENDING), ("created_at", ASCENDING)],
+            name="claim_order",
+        ),
+        IndexModel(
+            [("batch_id", ASCENDING)],
+            name="batch_id",
+        ),
+        IndexModel(
+            [("short_id", ASCENDING)],
+            name="short_id",
+        ),
+        # Dedupe: tìm item open trùng object khi scan
+        IndexModel(
+            [
+                ("schema_name", ASCENDING),
+                ("table_name", ASCENDING),
+                ("index_name", ASCENDING),
+                ("partition_number", ASCENDING),
+                ("status", ASCENDING),
+            ],
+            name="dedupe_lookup",
+        ),
+    ])
+    _ensure_ttl_index(col, [("terminal_at", ASCENDING)], "ttl_terminal_at", TTL_MAINT_QUEUE_TERMINAL_SEC)
+
+
+def _create_maintenance_batches_indexes(db: Database) -> None:
+    """unique (batch_id), (status, created_at), TTL on created_at."""
+    col = db["maintenance_batches"]
+    col.create_indexes([
+        IndexModel(
+            [("batch_id", ASCENDING)],
+            unique=True,
+            name="unique_batch_id",
+        ),
+        IndexModel(
+            [("status", ASCENDING), ("created_at", DESCENDING)],
+            name="status_time",
+        ),
+    ])
+    _ensure_ttl_index(col, [("created_at", ASCENDING)], "ttl_created_at", TTL_MAINT_BATCHES_SEC)
+
+
+def _create_maintenance_history_indexes(db: Database) -> None:
+    """Lookup theo table/action/item, TTL DÀI 90d (AI context Layer 2)."""
+    col = db["maintenance_history"]
+    col.create_indexes([
+        IndexModel(
+            [("table_name", ASCENDING), ("created_at", DESCENDING)],
+            name="table_time",
+        ),
+        IndexModel(
+            [("action_type", ASCENDING), ("created_at", DESCENDING)],
+            name="action_time",
+        ),
+        IndexModel(
+            [("item_id", ASCENDING)],
+            name="item_id",
+        ),
+        # Sort theo created_at dùng luôn TTL index bên dưới — không tạo index trùng key.
+    ])
+    _ensure_ttl_index(col, [("created_at", ASCENDING)], "ttl_created_at", TTL_MAINT_HISTORY_SEC)
 
 
 def _ensure_ttl_index(col, keys, name: str, ttl_seconds: int) -> None:
