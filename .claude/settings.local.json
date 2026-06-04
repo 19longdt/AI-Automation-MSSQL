@@ -39,7 +39,11 @@
       "Bash(python3 *)",
       "Bash(Select-Object FullName, Length)",
       "Bash(Format-Table -AutoSize)",
-      "PowerShell(Get-ChildItem C:\\\\GIT\\\\AI-Automation-MSSQL -Filter \"ARCHITECTURE.md\" -Recurse | Select-Object FullName, @{N=\"KB\";E={[math]::Round\\($_.Length/1KB,1\\)}})"
+      "PowerShell(Get-ChildItem C:\\\\GIT\\\\AI-Automation-MSSQL -Filter \"ARCHITECTURE.md\" -Recurse | Select-Object FullName, @{N=\"KB\";E={[math]::Round\\($_.Length/1KB,1\\)}})",
+      "PowerShell(claude mcp *)",
+      "PowerShell(serena *)",
+      "PowerShell(uv tool *)",
+      "PowerShell(claude *)"
     ]
   }
 }
