@@ -124,16 +124,29 @@ _execute(request, result):
 │       │      Tích lũy token usage (in, out, cache_r, cache_w) │
 │       │                                                         │
 │       │      if stop_reason == "max_tokens":                   │
-│       │          result.status = TRUNCATED; break              │
-│       │      if stop_reason == "end_turn": break               │
+│       │          result.analysis_text = extract text blocks    │
+│       │          result.status = COMPLETED  ← text bị cắt     │
+│       │          return  ← bước ⑥ retry insight               │
 │       │                                                         │
-│       │      Extract tool_use blocks:                          │
+│       │      if stop_reason != "tool_use":  (end_turn)         │
+│       │          if NOT is_follow_up:                          │
+│       │              missing = required_tools - called_ok      │
+│       │              if missing + rounds > 0 + tools_allowed:  │
+│       │                  inject user reminder → remaining=1    │
+│       │                  continue  ← 1 round nữa              │
+│       │          result.analysis_text = extract text blocks    │
+│       │          result.status = COMPLETED                     │
+│       │          return                                        │
+│       │                                                         │
+│       │      # stop_reason == "tool_use"                       │
+│       │      remaining_rounds -= 1                             │
+│       │      if cost > max_cost_usd (first time):             │
+│       │          budget_exceeded = True                        │
+│       │          grace_tool_rounds = 1  ← 1 round ân hạn      │
 │       │      for tool_call in response.content:                │
 │       │          tool_result = tool_executor.execute(tool_call) │
-│       │              ← xem Tool Safety section                 │
 │       │          Append tool_result vào messages               │
 │       │          Log ToolCallRecord                            │
-│       │      round += 1                                        │
 │       └─────────────────────────────────────────────────────────┘
 │
 ├── ⑥ Parse insight
@@ -146,9 +159,9 @@ _execute(request, result):
 │
 ├── ⑦ Persist
 │       InsightRepo.upsert(analysis_id, finding_id, issue_type, insight)
-│           → Nếu insight đã tồn tại (cùng issue_type + node):
-│               update recurrence_count++, last_seen, latest_actions
-│           → Nếu chưa: insert mới
+│           Key: (root_cause_category, sorted(affected_tables))
+│           → Cùng pattern đã tồn tại: recurrence_count++, merge actions mới
+│           → Chưa tồn tại: insert mới, recurrence_count=1
 │
 │       result.cost_usd = calculate_cost(model, tokens)
 │       analysis_repo.update_completed(result)
@@ -169,13 +182,29 @@ _execute(request, result):
 Claude không gửi SQL — chỉ gửi tên tool + params. ToolExecutor dispatch sang pre-written SQL templates.
 
 ```
-Tool whitelist (tool_registry.py):
-    get_session_details, get_wait_stats, get_blocking_chain,
-    get_query_plan, get_index_usage, get_statistics_info,
-    get_missing_indexes, get_memory_info, get_ag_status,
-    get_tempdb_usage, get_resource_governor, get_job_history,
-    get_table_info, get_query_history, get_deadlock_info
-    (15 tools tổng)
+Tool whitelist (tool_registry.py) — 19 tools:
+    # MongoDB/static tools (không query MSSQL):
+    get_plan_analysis       ← parse query_plan_xml của finding → structured summary
+    get_query_structure     ← parse query_text → tables/joins/predicates
+    get_table_context       ← lookup db_context MongoDB theo table_name
+    get_analysis_history    ← issue_insights + ai_analyses gần đây cho finding
+
+    # DMV tools (query MSSQL trực tiếp):
+    get_query_stats         ← dm_exec_query_stats theo query_hash (plan_predates_finding flag)
+    get_query_store_history ← Query Store: plan regression timeline
+    get_statistics_info     ← statistics freshness cho 1 bảng
+    get_memory_grant        ← active memory grants (requested vs granted vs used)
+    get_blocking_chain      ← dm_exec_requests blocking chain
+    get_wait_stats          ← top wait types (lọc idle waits)
+    get_index_usage         ← index usage stats cho 1 bảng
+    get_missing_indexes     ← DMV missing index recommendations
+    get_tempdb_usage        ← TempDB space per session
+    get_ag_status           ← AG replica synchronization health
+    get_memory_pressure     ← PLE, Target/Total memory, top clerks
+    get_resource_governor_stats ← CPU/memory per Resource Governor pool
+    get_cdc_status          ← CDC log scan sessions, lag
+    get_recent_findings     ← findings gần đây từ MongoDB (không query MSSQL)
+    get_index_fragmentation ← dm_db_index_physical_stats SAMPLED (block_in_peak_hours=True)
 
 ToolExecutor.execute(tool_call):
     1. Kiểm tra tool_name trong whitelist → error nếu không có
@@ -343,12 +372,15 @@ DBA nhận Layer 2 analysis document
     └── TelegramBot.send_analysis_result(result, chat_id):
             Gửi .txt document → Telegram API
             sent_msg_id = response.message_id
-            SessionRepo.upsert({
-                session_id: chat_id + ":" + sent_msg_id,
-                finding_id: result.finding_id,
-                turns: [{ role:"assistant", text: result.analysis_text }],
-                created_at, expires_at: now+8h
-            })
+            SessionRepo.create(
+                finding_id = result.finding_id,
+                channel = "telegram",
+                first_turn_text = result.analysis_text,
+                analysis_id = result.analysis_id,
+                telegram_message_id = sent_msg_id,  ← key để lookup khi DBA reply
+            )
+            → session_id = UUID (nội bộ)
+            → TTL 8h trên last_activity_at
 
 DBA reply vào document:
     TelegramBot._handle_reply(update):
@@ -443,7 +475,7 @@ Kết quả thực tế:
 | Tình huống | Xử lý |
 |---|---|
 | Tool call exception | Return `{"error": "..."}` → agent tiếp tục (không crash) |
-| Claude max_tokens | `result.status = TRUNCATED` — insight mất → retry JSON-only |
+| Claude max_tokens | `result.status = COMPLETED` (text bị cắt) — insight mất → retry JSON-only |
 | PlanParseError | source=ui: HTTP 422; source=layer1: ToolSnapshot.from_error() |
 | DB truncated text không enrich được | Silent fail — giữ text cũ, truncated=True |
 | TelegramBot 409 Conflict | 30s backoff + log (duplicate process); 5s cho lỗi khác |

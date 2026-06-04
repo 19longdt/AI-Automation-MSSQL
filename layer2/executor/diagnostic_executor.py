@@ -38,8 +38,11 @@ def _hex_to_bytes(query_hash: str) -> bytes:
 class DiagnosticExecutor:
     """Execute deterministic diagnostic tools for Layer 2."""
 
+    def __init__(self) -> None:
+        self._plan_pipeline = None  # lazy-init PlanAnalysisPipeline on first use
+
     def get_plan_analysis(self, finding_id: str) -> dict[str, Any]:
-        from .plan_analyzer import analyze_plan
+        from ..analysis.plan.pipeline import PlanAnalysisPipeline
 
         finding = self._get_finding(finding_id, {"query_plan_xml": 1, "metrics.query_plan_xml": 1})
         if not finding:
@@ -50,7 +53,11 @@ class DiagnosticExecutor:
         if not plan_xml:
             return {"error": "Finding khong co query_plan_xml"}
 
-        result = analyze_plan(plan_xml)
+        if self._plan_pipeline is None:
+            self._plan_pipeline = PlanAnalysisPipeline.create()
+
+        output = self._plan_pipeline.run(plan_xml)
+        result = output.tool_snapshot.model_dump()
         result["finding_id"] = finding_id
         return result
 

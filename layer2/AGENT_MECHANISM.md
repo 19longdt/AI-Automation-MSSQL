@@ -66,13 +66,22 @@ system = [
         "cache_control": {"type": "ephemeral"}   # ← Anthropic cache
     },
 
-    # Block 2 — VARIABLE: thay đổi theo skill + db_context
+    # Block 2 — VARIABLE: thay đổi theo skill
     {
         "type": "text",
-        "text": "<specialization>\n\n---\n\n<db_context từ MongoDB>"
+        "text": "<specialization>\n\n---\n\n<compact_infrastructure_note>"
+        # compact_infrastructure_note là hardcoded static string:
+        #   "AG running in 3-node topology..."
+        #   "Resource Governor pools are enforced..."
+        #   "CDC is enabled..."
+        #   + tool hints: get_table_context, get_plan_analysis, get_analysis_history
     }
 ]
 ```
+
+**Quan trọng:** `db_context` từ MongoDB **KHÔNG** được inject vào system prompt.
+Claude đọc schema/context cụ thể khi cần qua `get_table_context(table_name)` (on-demand tool).
+Lý do: db_context toàn bộ (~3-10KB) sẽ lãng phí token khi nhiều thông tin không liên quan.
 
 **Tại sao Block 1 phải là phần lớn nhất và tĩnh nhất?**
 
@@ -152,34 +161,52 @@ CALL 3 — Claude có đủ data, tổng hợp phân tích
   → stop_reason="end_turn" → THOÁT LOOP
 ```
 
-### Cơ chế max_tool_rounds
+### Cơ chế max_tool_rounds + budget
 
 ```
 remaining_rounds = skill.max_tool_rounds  # ví dụ: 6
+budget_exceeded = False
+grace_tool_rounds = 0
 
-Mỗi vòng lặp:
+Mỗi vòng lặp (while True):
   if elapsed > agent_timeout_sec → TIMEOUT
 
-  if remaining_rounds > 0 AND budget OK:
-      call Claude WITH tools
-  else:
-      call Claude WITHOUT tools  ← Claude không có tool → buộc end_turn
+  tools_allowed = (
+      remaining_rounds > 0
+      AND skill_tools NOT empty
+      AND (NOT budget_exceeded OR grace_tool_rounds > 0)
+  )
+  call Claude WITH tools nếu tools_allowed, ngược lại WITHOUT tools
+  (không có tools → Claude không thể gọi tool → buộc end_turn)
+
+  tích lũy token usage → tính current_cost
+  if current_cost > max_cost_usd AND NOT budget_exceeded:
+      budget_exceeded = True
+      grace_tool_rounds = 1   ← cho phép thêm 1 round tool cuối
+      log WARNING "Cost budget exceeded, allowing one final tool round"
 
   if stop_reason == "max_tokens":
-      lấy analysis_text (bị cắt) → THOÁT
-      ⚠ insight likely missing → insight retry sẽ xử lý
+      result.status = COMPLETED (text bị cắt)
+      THOÁT → _extract_insight() + retry sẽ xử lý
 
-  if stop_reason == "end_turn":
+  if stop_reason != "tool_use":  (end_turn)
       if NOT is_follow_up:
-          check required_tools đã gọi chưa
-          nếu missing + còn rounds: inject reminder → 1 round nữa
-      lấy analysis_text → THOÁT
+          missing = required_tools - called_successfully
+          if missing AND remaining_rounds > 0 AND tools_allowed:
+              inject user reminder: "Ban chua goi: tool_a, tool_b..."
+              remaining_rounds = 1
+              continue  ← 1 round bắt buộc nữa
+          if missing AND budget_exceeded:
+              log WARNING (không thể enforce, budget hết)
+      result.status = COMPLETED
+      THOÁT
 
-  if stop_reason == "tool_use":
-      execute tools
-      remaining_rounds -= 1
-      check budget → nếu vượt: cho 1 grace round
-      loop tiếp
+  # stop_reason == "tool_use"
+  remaining_rounds -= 1
+  if budget_exceeded AND grace_tool_rounds > 0:
+      grace_tool_rounds -= 1
+  execute tools → append tool_results
+  loop tiếp
 ```
 
 **is_follow_up mode**: Khi DBA reply vào analysis cũ, `is_follow_up=True`.
@@ -276,6 +303,7 @@ Bảng giá trong `utils/cost_calculator.py` — sửa 1 chỗ khi Anthropic upd
 **Ai quản lý session**: `TelegramBot.send_analysis_result()` — KHÔNG phải orchestrator.
 Lý do: chỉ bot biết `sent_msg_id` (message_id của document đã gửi) — đây là key để
 `find_by_telegram_message_id()` tìm lại session khi DBA reply.
+
 
 ```
 Lần 1 — fresh analysis (follow_up_text = None):

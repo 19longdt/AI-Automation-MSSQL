@@ -125,7 +125,7 @@ layer2/
 ├── agent/
 │   ├── skill_loader.py        ← Eager load + validate YAMLs, build issue_type → skill map
 │   ├── context_builder.py     ← base_prompt + specialization + db_context → system prompt
-│   ├── tool_registry.py       ← Whitelist 15 tools + Claude tool definitions (Phase 4)
+│   ├── tool_registry.py       ← Whitelist 19 tools + Claude tool definitions (Phase 4)
 │   ├── tool_executor.py       ← Dispatch Claude tool calls → DiagnosticExecutor (Phase 4)
 │   └── orchestrator.py        ← Agentic loop chính + multi-turn (Phase 5)
 │
@@ -215,12 +215,16 @@ result.cost_usd = calculate_cost(
 
 Skills là **code artifact**, lưu trong git. Thay đổi prompt → sửa YAML → commit → deploy.
 
-**3-part system prompt** (ContextBuilder kết hợp):
+**2-block system prompt** (ContextBuilder kết hợp):
 ```
 [1] _base.yaml → base_system_prompt    ← STATIC, dùng chung → prompt cache hit
-[2] skill.yaml → specialization        ← nhỏ, per issue_type
-[3] MongoDB db_context                 ← schema, AG config, Resource Governor
+                  cache_control: ephemeral
+[2] skill.yaml → specialization        ← per issue_type
+    + compact infrastructure note      ← hardcoded: AG topology, RG, CDC, tool hints
 ```
+
+**Lưu ý:** `db_context` từ MongoDB **KHÔNG** được inject vào system prompt.
+Claude đọc db_context khi cần qua tool `get_table_context(table_name)` (on-demand).
 
 **`_base.yaml`** chứa:
 - Instruction output plain text (KHÔNG markdown): `Định dạng output: plain text, KHÔNG dùng markdown`
@@ -274,7 +278,8 @@ docker compose up -d layer2
 3. create_all_indexes()
 4. SkillLoader.load_all(skills_dir)     ← fail fast nếu _base.yaml missing
 5. NodeRoleCache.initialize()           ← fail fast nếu cluster unreachable
-6. TelegramBot.start() (daemon thread) + send_startup() notification
+6. TelegramBot.start() (daemon thread)
+   ← send_startup() notification hiện đang bị comment out trong main.py
 7. asyncio background task: NodeRoleCache.refresh() mỗi node_role_refresh_sec
 8. uvicorn.run(app)
 ```

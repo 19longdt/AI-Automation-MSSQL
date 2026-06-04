@@ -66,6 +66,6 @@ base_system_prompt: |
         "effort": "low | medium | high"
       }
     ],
-    "systemic": true
+    "systemic": false
   }
   </insight>

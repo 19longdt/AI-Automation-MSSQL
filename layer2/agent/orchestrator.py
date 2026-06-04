@@ -24,6 +24,7 @@ from ..models.skill import AnalysisSkill
 from ..storage.mongo_client import MongoConnection
 from ..storage.repositories.analysis_repo import AnalysisRepo
 from ..storage.repositories.insight_repo import InsightRepo
+from ..storage.repositories.session_repo import SessionRepo
 from ..utils.cost_calculator import calculate_cost
 from ..utils.time_utils import now_vn
 from .context_builder import ContextBuilder
@@ -59,6 +60,7 @@ class AgentOrchestrator:
         self._tool_executor = tool_executor
         self._analysis_repo = AnalysisRepo()
         self._insight_repo = InsightRepo()
+        self._session_repo = SessionRepo()
         self._client = anthropic.Anthropic(api_key=settings.claude_api_key)
 
     def run(self, request: AnalysisRequest) -> AnalysisResult:
