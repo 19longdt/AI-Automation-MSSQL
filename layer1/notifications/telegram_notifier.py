@@ -160,6 +160,8 @@ class TelegramNotifier(BaseNotifier):
                     label = "🛑 Kill Session"
                 elif cmd == "/kill-blocking":
                     label = "⛔ Kill Blocking"
+                elif cmd == "/kill-head-blocker":
+                    label = "⛔ Kill Head Blocker"
                 action_row.append({
                     "text": label,
                     "callback_data": f"l1|act|{finding.finding_id}|{cmd}",

@@ -208,7 +208,7 @@ function esc(s: string): string {
 var DIAG_PHASE_GROUPS: Array<{ label: string; tools: string[] }> = [
   {
     label: "Phase 1 - DMV Snapshot",
-    tools: ["get_blocking_chain", "get_wait_stats", "get_memory_grant", "get_tempdb_usage",
+    tools: ["get_blocking_chain", "get_blocked_victims_snapshot", "get_wait_stats", "get_memory_grant", "get_tempdb_usage",
       "get_ag_status", "get_memory_pressure", "get_resource_governor_stats",
       "get_cdc_status", "get_missing_indexes", "get_query_stats", "get_query_store_history"]
   },

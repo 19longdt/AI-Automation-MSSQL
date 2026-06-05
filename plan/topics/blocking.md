@@ -181,7 +181,13 @@ Layer 3: dashboard hiển thị findings + insights (generic — phase sau mới
 
 ### Deferred (ngoài scope đợt này) ⏸️
 
-- Topic `blocked_query` (victim snapshot chi tiết) — bật lại + queries mới khi cần
+- ~~Topic `blocked_query`~~ → ✅ **Giải quyết bằng capture tool, KHÔNG bật lại job riêng** (2026-06-05):
+  capture tool `get_blocked_victims_snapshot` (per-victim full text + wait_resource + host + victim plan XML)
+  chạy tự động khi blocking CRITICAL → `finding_diagnostics` → tab Diagnostics trên UI + AI context.
+  Lý do bỏ job riêng: job 60s tốn DMV khi không có blocking, snapshot lệch thời điểm với topic `blocking`
+  (không correlate session_id được), và data chỉ có nghĩa tại T+0 của incident.
+  Đồng thời bỏ `get_blocking_chain` (trùng subset metrics) + `get_wait_stats`
+  (dm_os_wait_stats cumulative từ restart — vô nghĩa cho incident) khỏi capture_tools của blocking.
 - Topic `blocked_query_trend` (structural contention) — thêm khi blocking core ổn định
 - ~~Layer 3 visualization~~ → ✅ Done 2026-06-04 (layout `blocking` + chain tree modal; còn lại: trend chart cho blocked_query_trend khi bật topic, glossary lock modes — dashboard chưa dùng glossary nên skip)
 

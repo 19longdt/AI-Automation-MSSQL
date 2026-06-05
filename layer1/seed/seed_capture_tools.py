@@ -149,6 +149,47 @@ ORDER BY r.wait_time DESC
     )
 
 
+def _get_blocked_victims_snapshot() -> dict[str, Any]:
+    """Forensic per-victim tại T+0 cho blocking CRITICAL — những field cố tình
+    KHÔNG đưa vào finding.metrics (×N victims sẽ phình finding/Telegram):
+    full query text, wait_resource, host/program, victim plan XML.
+    Blocking tự resolve nhanh → đây là bằng chứng duy nhất còn lại khi DBA/AI phân tích sau."""
+    sql = """
+SELECT TOP 30
+    r.session_id,
+    r.blocking_session_id,
+    r.wait_type,
+    r.wait_time / 1000.0            AS wait_sec,
+    r.wait_resource,
+    r.command,
+    DB_NAME(r.database_id)          AS database_name,
+    s.login_name,
+    s.host_name,
+    s.program_name,
+    CONVERT(NVARCHAR(18), r.query_hash, 1) AS query_hash,
+    qt.text                         AS query_text,
+    qp.query_plan                   AS victim_plan_xml
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt
+OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) qp
+WHERE r.blocking_session_id > 0
+ORDER BY r.wait_time DESC
+"""
+    return _sql_tool(
+        "get_blocked_victims_snapshot",
+        "Blocked Victims Snapshot",
+        "Per-victim forensic at T+0: full query text, wait_resource, host, victim plan XML",
+        sql,
+        1,
+        timeout_sec=15,
+        ai_hints=_base_ai_hints(
+            ["session_id", "blocking_session_id", "wait_resource", "wait_sec", "query_text"],
+            "Victims at T+0 with full text + wait_resource; victim_plan_xml shows what victim was executing (scan/seek) when blocked.",
+        ),
+    )
+
+
 def _get_wait_stats() -> dict[str, Any]:
     """Capture top wait categories to describe global pressure source."""
     sql = """
@@ -496,9 +537,10 @@ def _get_analysis_history() -> dict[str, Any]:
 
 
 def _all_tools() -> list[dict[str, Any]]:
-    """Return all 18 capture tool definitions in deterministic order."""
+    """Return all 19 capture tool definitions in deterministic order."""
     return [
         _get_blocking_chain(),
+        _get_blocked_victims_snapshot(),
         _get_wait_stats(),
         _get_memory_grant(),
         _get_tempdb_usage(),

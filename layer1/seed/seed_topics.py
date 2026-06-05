@@ -286,11 +286,12 @@ ORDER BY tl.request_session_id, tl.resource_type
             # 20+ sessions chờ = cascading nguy hiểm, cần can thiệp ngay
             "blocked_session_count": ThresholdConfig(warning=5, critical=20),
         },
+        # Capture = bằng chứng T+0 mà metrics KHÔNG có (blocking tự resolve nhanh).
+        # Không dùng get_blocking_chain (trùng subset của metrics) và get_wait_stats
+        # (dm_os_wait_stats cumulative từ restart — không phản ánh incident hiện tại).
         capture_tools=[
-            "get_blocking_chain",
-            "get_wait_stats",
-            "get_recent_findings",
-            "get_analysis_history",
+            "get_blocked_victims_snapshot",   # per-victim: full text, wait_resource, victim plan
+            "get_analysis_history",           # AI recurrence context (mongo, rẻ)
         ],
         analysis_config=AnalysisConfig(
             context=(
