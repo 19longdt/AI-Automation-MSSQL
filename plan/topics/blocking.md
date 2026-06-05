@@ -72,7 +72,7 @@ Tác giả: Long Do + Claude
 | GAP-5 | ~~Topic `blocked_query_trend` chưa tồn tại~~ | ⏸️ Defer | Ngoài scope (A0) |
 | GAP-6 | `blocking.yaml` specialization trống — agent không có hướng dẫn phân tích blocking | 🟡 Trung | Phân tích sẽ generic, không tận dụng context AG/CDC/RG |
 | GAP-7 | Topic `blocking` chưa khai báo `capture_tools` + `analysis_config` | 🟢 Thấp | CRITICAL finding không trigger DiagnosticCapture; `/quick` không hoạt động |
-| GAP-8 | Layer 3 chưa có visualization riêng cho blocking chain | ⏸️ Defer | Ngoài scope (A0) |
+| GAP-8 | Layer 3 chưa có visualization riêng cho blocking chain | ✅ Done 2026-06-04 | Layout `blocking` 13 cột (head blocker, IDLE TXN badge, kill head blocker) + chain tree modal. Wire `layout-registry.ts` vào `dashboard.ts` (xóa inline duplicate); module mới `topics/blocking-detail.ts` |
 | GAP-9 | Topic `blocked_query` đang `enabled=true` với detector chưa tồn tại | 🟡 Trung | Khi register detector mà không handle `blocked_snapshot` → behavior nửa vời. **Quyết định: disable topic này trong seed** (giữ config để bật lại sau) |
 
 ### Insight quan trọng từ phân tích
@@ -183,7 +183,7 @@ Layer 3: dashboard hiển thị findings + insights (generic — phase sau mới
 
 - Topic `blocked_query` (victim snapshot chi tiết) — bật lại + queries mới khi cần
 - Topic `blocked_query_trend` (structural contention) — thêm khi blocking core ổn định
-- Layer 3 visualization (chain tree view, trend chart, glossary lock modes)
+- ~~Layer 3 visualization~~ → ✅ Done 2026-06-04 (layout `blocking` + chain tree modal; còn lại: trend chart cho blocked_query_trend khi bật topic, glossary lock modes — dashboard chưa dùng glossary nên skip)
 
 ---
 
