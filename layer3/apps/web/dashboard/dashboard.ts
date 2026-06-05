@@ -3,6 +3,8 @@ import { withButtonLoading, withGlobalLoading } from "./loading-overlay";
 import { bindModalEvents, openActionConfirmModal, openModal } from "./modal";
 import { PlanAnalysisResult } from "@layer3/core";
 import { PlanAnalysisComponent } from "./plan-analysis-component";
+import { createTopicLayoutHandlers, TopicLayoutKey } from "./topics/layout-registry";
+import { renderBlockingChainModal } from "./topics/blocking-detail";
 declare const QP: any;
 declare const window: any;
 
@@ -47,8 +49,17 @@ function isSlowSessionTopic(): boolean {
   return id === "slow_sessions";
 }
 
-function isSlowSessionFinding(finding: any): boolean {
-  return String((finding && finding.topic_id) || "").toLowerCase() === "slow_sessions";
+// Topic → layout key: thêm topic layout mới = thêm 1 case + 1 handler trong layout-registry.ts
+function layoutKeyForTopic(topicLikeId: any): TopicLayoutKey {
+  var id = String(topicLikeId || "").toLowerCase();
+  if (id === "slow_sessions") return "slow_sessions";
+  if (id === "blocking") return "blocking";
+  return "default";
+}
+
+function activeLayoutKey(): TopicLayoutKey {
+  var t = getActiveTopic();
+  return layoutKeyForTopic((t && t.topic_id) || activeTopicId);
 }
 
 function severityBadge(sev: string): string {
@@ -95,6 +106,33 @@ function sessionIdBadge(metrics: any): string {
   return '<span class="blocking-badge session-id-badge session-kill-btn" title="session_id ' + esc(String(sessionId)) + ' (click for KILL option)">#' + esc(String(sessionId)) + '</span>';
 }
 
+// Topic `blocking` — head blocker cell: #sid + login, host/program trong title attr
+function headBlockerCell(metrics: any): string {
+  var sid = metrics && metrics.head_blocker_session_id;
+  if (sid === undefined || sid === null || sid === "") {
+    return '<span class="blocking-badge blocking-no">None</span>';
+  }
+  var titleParts: string[] = [];
+  if (metrics.head_blocker_host) titleParts.push("host: " + String(metrics.head_blocker_host));
+  if (metrics.head_blocker_program) titleParts.push("program: " + String(metrics.head_blocker_program));
+  var title = esc(titleParts.join(" | "));
+  var login = metrics.head_blocker_login ? " <span class='hb-login'>" + esc(String(metrics.head_blocker_login)) + "</span>" : "";
+  return "<span class='blocking-badge blocking-yes' title='" + title + "'>#" + esc(String(sid)) + "</span>" + login;
+}
+
+// Topic `blocking` — state: IDLE TXN (forgotten transaction, kill an toàn) vs ACTIVE
+function blockingStateBadge(metrics: any): string {
+  var idle = !!(metrics && metrics.head_blocker_is_idle);
+  var openTxn = Number(metrics && metrics.head_blocker_open_txn_count) || 0;
+  if (idle && openTxn > 0) {
+    var sec = (metrics.head_blocker_idle_sec === undefined || metrics.head_blocker_idle_sec === null)
+      ? "" : " " + String(metrics.head_blocker_idle_sec) + "s";
+    return "<span class='state-badge state-idle-txn' title='Idle session holding " + esc(String(openTxn)) +
+      " open transaction(s) - forgotten transaction'>IDLE TXN ⚠" + esc(sec) + "</span>";
+  }
+  return "<span class='state-badge state-active'>ACTIVE</span>";
+}
+
 function truncateForPreview(text: string, maxLen: number): string {
   if (!text) return "";
   if (text.length <= maxLen) return text;
@@ -112,7 +150,9 @@ function renderSqlPreviewBlock(title: string, value: any): string {
 
 async function requestKillSession(sessionId: number, sourceLabel: string, metrics: any, node: string) {
   var m = metrics || {};
-  var killButtonLabel = sourceLabel === "blocking_session_id" ? "KILL Blocking" : "KILL Session";
+  var killButtonLabel = sourceLabel === "blocking_session_id" ? "KILL Blocking"
+    : sourceLabel === "head_blocker_session_id" ? "KILL Head Blocker"
+    : "KILL Session";
   var confirmed = await openActionConfirmModal(
     "Confirm KILL Session",
     "<div class='kill-confirm'>" +
@@ -1002,20 +1042,45 @@ function renderTopicTabs() {
   });
 }
 
-function renderFindingsHeader(useSlowSessionLayout?: boolean) {
+// Layout handlers từ registry — render logic per-topic nằm trong topics/layout-registry.ts.
+// Function declarations hoisted → khởi tạo module-scope an toàn dù helpers định nghĩa phía dưới.
+var layoutHandlers = createTopicLayoutHandlers({
+  getPage: function () { return page; },
+  getLimit: function () { return limit; },
+  esc: esc,
+  formatDetectedAtForUi: formatDetectedAtForUi,
+  roleNodeCell: roleNodeCell,
+  severityBadge: severityBadge,
+  alertStatusBadge: alertStatusBadge,
+  sessionIdBadge: sessionIdBadge,
+  blockingBadge: blockingBadge,
+  copyTextToClipboardWithFallback: copyTextToClipboardWithFallback,
+  requestKillSession: requestKillSession,
+  withGlobalLoading: withGlobalLoading,
+  withButtonLoading: withButtonLoading,
+  apiGet: apiGet,
+  openModal: openModal,
+  renderTabbedMetricsModal: renderTabbedMetricsModal,
+  bindSlowSessionMetricActions: bindSlowSessionMetricActions,
+  bindFindingModalTabs: bindFindingModalTabs,
+  renderAiAnalysisTable: renderAiAnalysisTable,
+  bindAiAnalysisFieldButtons: bindAiAnalysisFieldButtons,
+  renderTabbedFindingModal: renderTabbedFindingModal,
+  bindJsonTreeToolbar: bindJsonTreeToolbar,
+  headBlockerCell: headBlockerCell,
+  blockingStateBadge: blockingStateBadge,
+  renderBlockingChainModal: renderBlockingChainModal
+});
+
+function renderFindingsHeader(forcedKey?: TopicLayoutKey) {
   var row = document.getElementById("findingsHeadRow");
   if (!row) return;
+  var handler = layoutHandlers[forcedKey || activeLayoutKey()];
+  row.innerHTML = handler.headerHtml;
+
   var blockingFilter = document.getElementById("blockingStatusFilter") as HTMLSelectElement | null;
-  var slowLayout = useSlowSessionLayout === undefined ? isSlowSessionTopic() : useSlowSessionLayout;
-
-  if (slowLayout) {
-    row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Session Id</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
-  } else {
-    row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th><th></th>";
-  }
-
   if (blockingFilter) {
-    if (isSlowSessionTopic()) {
+    if (handler.showBlockingFilter) {
       blockingFilter.classList.remove("hidden");
       blockingFilter.disabled = false;
     } else {
@@ -1114,118 +1179,17 @@ async function loadFindings() {
 
       body.innerHTML = "";
       var c = 0, w = 0, i = 0;
-      var useSlowSessionLayout = isSlowSessionTopic();
-      if (findingId && data.length === 1) useSlowSessionLayout = isSlowSessionFinding(data[0]);
-      renderFindingsHeader(useSlowSessionLayout);
+      // Layout theo topic đang chọn; nếu filter theo finding_id cụ thể → theo topic của finding
+      var layoutKey = activeLayoutKey();
+      if (findingId && data.length === 1) layoutKey = layoutKeyForTopic(data[0].topic_id);
+      renderFindingsHeader(layoutKey);
+      var handler = layoutHandlers[layoutKey];
 
       data.forEach(function (x: any, idx: number) {
         if (x.severity === "CRITICAL") c++; else if (x.severity === "WARNING") w++; else i++;
         var tr = document.createElement("tr");
         tr.className = "clickable-finding-row";
-        var noCell = "<td class='no-cell'>" + String(page * limit + idx + 1) + "</td>";
-        if (useSlowSessionLayout) {
-          var metrics = x.metrics || {};
-          var aiDone = !!x.ai_analyzed;
-          var aiIcon = aiDone
-            ? "<span class='badge badge-success' title='Da phan tich'>Done</span>"
-            : "<span class='badge badge-warning' title='Chua phan tich'>Pending</span>";
-          var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
-          tr.innerHTML =
-            noCell +
-            "<td><span class='finding-id-copy' title='Click to copy ID'>" + esc(x.finding_id || "") + "</span></td>" +
-            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-            "<td>" + roleNodeCell(x.role, x.node) + "</td>" +
-            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-            "<td>" + esc(metrics.elapsed_seconds === undefined || metrics.elapsed_seconds === null ? "" : String(metrics.elapsed_seconds)) + "</td>" +
-            "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
-            "<td>" + esc(metrics.login_name || "") + "</td>" +
-            "<td>" + esc(metrics.host_name || "") + "</td>" +
-            "<td>" + sessionIdBadge(metrics) + "</td>" +
-            "<td>" + blockingBadge(metrics) + "</td>" +
-            "<td>" + aiIcon + "</td>" +
-            "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
-        } else {
-          tr.innerHTML = noCell +
-            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-            "<td>" + esc(x.issue_type || "") + "</td>" +
-            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-            "<td>" + esc(x.node || "") + "</td>" +
-            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-            "<td>" + (x.has_diagnostics ? "<span class='diag-badge-indicator' title='Diagnostics captured'>D</span>" : "") + "</td>";
-        }
-        if (useSlowSessionLayout) {
-          var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
-          var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
-          var idCopyEl = tr.querySelector(".finding-id-copy") as HTMLElement | null;
-          var blockingKillEl = tr.querySelector(".blocking-kill-btn") as HTMLElement | null;
-          var sessionKillEl = tr.querySelector(".session-kill-btn") as HTMLElement | null;
-
-          if (idCopyEl) {
-            idCopyEl.addEventListener("click", function (ev) {
-              ev.stopPropagation();
-              copyTextToClipboardWithFallback(String(x.finding_id || ""));
-            });
-          }
-
-          if (blockingKillEl) {
-            blockingKillEl.addEventListener("click", async function (ev) {
-              ev.stopPropagation();
-              var sessionId = Number(metrics && metrics.blocking_session_id);
-              if (!isFinite(sessionId) || sessionId <= 0) return;
-            await requestKillSession(sessionId, "blocking_session_id", metrics, String(x.node || ""));
-            });
-          }
-
-          if (sessionKillEl) {
-            sessionKillEl.addEventListener("click", async function (ev) {
-              ev.stopPropagation();
-              var sessionId = Number(metrics && metrics.session_id);
-              if (!isFinite(sessionId) || sessionId <= 0) return;
-            await requestKillSession(sessionId, "session_id", metrics, String(x.node || ""));
-            });
-          }
-
-          tr.addEventListener("click", async function () {
-            await withGlobalLoading(async function () {
-              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              var metrics = (d && d.metrics) || {};
-              var hasDiag = !!(d && d.has_diagnostics);
-              openModal("Finding Metrics", renderTabbedMetricsModal(metrics, hasDiag));
-              bindSlowSessionMetricActions(metrics);
-              if (hasDiag) bindFindingModalTabs(x.finding_id);
-            });
-          });
-
-          if (rowActionCell) {
-            rowActionCell.addEventListener("click", function (ev) {
-              ev.stopPropagation();
-            });
-          }
-          aiBtn.addEventListener("click", async function () {
-            if (aiBtn.disabled) return;
-            await withButtonLoading(aiBtn, async function () {
-              var ai = x.ai_analysis;
-              if (!ai) {
-                await withGlobalLoading(async function () {
-                  var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-                  ai = d && d.ai_analysis ? d.ai_analysis : null;
-                });
-              }
-              openModal("AI Analysis", renderAiAnalysisTable(ai));
-              bindAiAnalysisFieldButtons();
-            }, "Loading...");
-          });
-        } else {
-          tr.addEventListener("click", async function () {
-            await withGlobalLoading(async function () {
-              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              openModal("Finding Detail", renderTabbedFindingModal(d));
-              bindJsonTreeToolbar();
-              if (d && d.has_diagnostics) bindFindingModalTabs(x.finding_id);
-            });
-          });
-        }
+        handler.renderRow(tr, x, idx);
         body.appendChild(tr);
       });
 

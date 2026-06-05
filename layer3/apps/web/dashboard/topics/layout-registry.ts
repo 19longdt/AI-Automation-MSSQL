@@ -1,4 +1,4 @@
-export type TopicLayoutKey = "slow_sessions" | "default";
+export type TopicLayoutKey = "slow_sessions" | "blocking" | "default";
 
 export interface TopicLayoutHandler {
   key: TopicLayoutKey;
@@ -30,6 +30,10 @@ interface TopicLayoutDeps {
   bindAiAnalysisFieldButtons: () => void;
   renderTabbedFindingModal: (finding: any) => string;
   bindJsonTreeToolbar: () => void;
+  // Topic `blocking` (head-blocker-centric)
+  headBlockerCell: (metrics: any) => string;
+  blockingStateBadge: (metrics: any) => string;
+  renderBlockingChainModal: (finding: any) => string;
 }
 
 export function createTopicLayoutHandlers(deps: TopicLayoutDeps): Record<TopicLayoutKey, TopicLayoutHandler> {
@@ -120,6 +124,88 @@ export function createTopicLayoutHandlers(deps: TopicLayoutDeps): Record<TopicLa
     });
   }
 
+  function renderBlockingFindingRow(tr: HTMLTableRowElement, x: any, idx: number) {
+    var metrics = x.metrics || {};
+    var aiDone = !!x.ai_analyzed;
+    var aiIcon = aiDone
+      ? "<span class='badge badge-success' title='Da phan tich'>Done</span>"
+      : "<span class='badge badge-warning' title='Chua phan tich'>Pending</span>";
+    var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
+    var headSid = Number(metrics.head_blocker_session_id);
+    var killAttrs = (isFinite(headSid) && headSid > 0) ? "" : " disabled title='No head blocker session'";
+    var noCell = "<td class='no-cell'>" + String(deps.getPage() * deps.getLimit() + idx + 1) + "</td>";
+    tr.innerHTML =
+      noCell +
+      "<td><span class='finding-id-copy' title='Click to copy ID'>" + deps.esc(x.finding_id || "") + "</span></td>" +
+      "<td>" + deps.esc(deps.formatDetectedAtForUi(x.detected_at)) + "</td>" +
+      "<td>" + deps.roleNodeCell(x.role, x.node) + "</td>" +
+      "<td>" + deps.severityBadge(x.severity || "INFO") + "</td>" +
+      "<td>" + deps.headBlockerCell(metrics) + "</td>" +
+      "<td>" + deps.blockingStateBadge(metrics) + "</td>" +
+      "<td>" + deps.esc(metrics.chain_depth === undefined || metrics.chain_depth === null ? "" : String(metrics.chain_depth)) + "</td>" +
+      "<td>" + deps.esc(metrics.blocked_session_count === undefined || metrics.blocked_session_count === null ? "" : String(metrics.blocked_session_count)) + "</td>" +
+      "<td>" + deps.esc(metrics.max_wait_sec === undefined || metrics.max_wait_sec === null ? "" : String(metrics.max_wait_sec)) + "</td>" +
+      "<td>" + deps.esc(metrics.wait_type || "") + "</td>" +
+      "<td>" + aiIcon + "</td>" +
+      "<td class='row-action-cell'>" +
+        "<button type='button' class='btn-kill-head'" + killAttrs + ">Kill</button> " +
+        "<button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button>" +
+      "</td>";
+
+    var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
+    var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
+    var idCopyEl = tr.querySelector(".finding-id-copy") as HTMLElement | null;
+    var killBtn = tr.querySelector(".btn-kill-head") as HTMLButtonElement | null;
+
+    if (idCopyEl) {
+      idCopyEl.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        deps.copyTextToClipboardWithFallback(String(x.finding_id || ""));
+      });
+    }
+
+    // Kill HEAD BLOCKER (session gây ra blocking) — khác slow_sessions (kill victim)
+    if (killBtn) {
+      killBtn.addEventListener("click", async function (ev) {
+        ev.stopPropagation();
+        if (killBtn.disabled) return;
+        var sessionId = Number(metrics.head_blocker_session_id);
+        if (!isFinite(sessionId) || sessionId <= 0) return;
+        await deps.requestKillSession(sessionId, "head_blocker_session_id", metrics, String(x.node || ""));
+      });
+    }
+
+    // Row click → chain tree + held locks modal (+ Diagnostics tab nếu có)
+    tr.addEventListener("click", async function () {
+      await deps.withGlobalLoading(async function () {
+        var d = await deps.apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+        var hasDiag = !!(d && d.has_diagnostics);
+        deps.openModal("Blocking Chain", deps.renderBlockingChainModal(d));
+        if (hasDiag) deps.bindFindingModalTabs(x.finding_id);
+      });
+    });
+
+    if (rowActionCell) {
+      rowActionCell.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+      });
+    }
+    aiBtn.addEventListener("click", async function () {
+      if (aiBtn.disabled) return;
+      await deps.withButtonLoading(aiBtn, async function () {
+        var ai = x.ai_analysis;
+        if (!ai) {
+          await deps.withGlobalLoading(async function () {
+            var d = await deps.apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+            ai = d && d.ai_analysis ? d.ai_analysis : null;
+          });
+        }
+        deps.openModal("AI Analysis", deps.renderAiAnalysisTable(ai));
+        deps.bindAiAnalysisFieldButtons();
+      }, "Loading...");
+    });
+  }
+
   function renderDefaultFindingRow(tr: HTMLTableRowElement, x: any, idx: number) {
     var noCell = "<td class='no-cell'>" + String(deps.getPage() * deps.getLimit() + idx + 1) + "</td>";
     tr.innerHTML = noCell +
@@ -146,6 +232,12 @@ export function createTopicLayoutHandlers(deps: TopicLayoutDeps): Record<TopicLa
       headerHtml: "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Session Id</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>",
       showBlockingFilter: true,
       renderRow: renderSlowSessionFindingRow
+    },
+    blocking: {
+      key: "blocking",
+      headerHtml: "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Head Blocker</th><th>State</th><th>Depth</th><th>Blocked</th><th>Max Wait(s)</th><th>Wait Type</th><th>AI Analyses</th><th>Action</th>",
+      showBlockingFilter: false,
+      renderRow: renderBlockingFindingRow
     },
     default: {
       key: "default",
