@@ -177,6 +177,9 @@ class BlockingChainDetector:
                 wait_types.append(str(row["wait_type"]))
             victim_details.append({
                 "session_id": sid,
+                # Parent trực tiếp trong chain — Layer 3 vẽ tree đúng tầng (head → victims);
+                # thiếu field này UI rơi về fallback flat list
+                "blocking_session_id": chain.get(sid),
                 "wait_sec": wait_sec,
                 "wait_type": row.get("wait_type"),
                 "login_name": row.get("login_name"),
