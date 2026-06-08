@@ -96,7 +96,7 @@ def _all_topics() -> list[MonitorTopic]:
 
 # ── 1. AG Health & CDC ───────────────────────────────────────────────────────
 
-def _ag_health_legacy() -> MonitorTopic:
+def _ag_health() -> MonitorTopic:
     return MonitorTopic(
         topic_id=TOPIC_AG_HEALTH,
         display_name="AG Health & CDC Monitor",
@@ -106,12 +106,23 @@ def _ag_health_legacy() -> MonitorTopic:
         queries=[
             QueryConfig(
                 query_id="ag_sync_state",
-                description="AG replica synchronization state và log send queue",
+                description="AG replica sync state, suspend/failover/connected + lag queues (view từ Primary)",
                 sql="""
 SELECT TOP 20
     ar.replica_server_name,
+    DB_NAME(drs.database_id)            AS database_name,
+    ars.role_desc,
+    ars.connected_state_desc,
+    ars.operational_state_desc,
     drs.synchronization_state_desc,
     drs.synchronization_health_desc,
+    drs.is_suspended,
+    CASE drs.suspend_reason
+        WHEN 0 THEN 'USER'    WHEN 1 THEN 'PARTNER' WHEN 2 THEN 'REDO'
+        WHEN 3 THEN 'APPLY'   WHEN 4 THEN 'CAPTURE' WHEN 5 THEN 'RESTART'
+        WHEN 6 THEN 'UNDO'    WHEN 7 THEN 'REVALIDATION' ELSE NULL
+    END                                  AS suspend_reason_desc,
+    dcs.is_failover_ready,
     drs.log_send_queue_size,
     drs.log_send_rate,
     drs.redo_queue_size,
@@ -120,13 +131,18 @@ SELECT TOP 20
 FROM sys.dm_hadr_database_replica_states drs
 JOIN sys.availability_replicas ar
     ON drs.replica_id = ar.replica_id
+JOIN sys.dm_hadr_availability_replica_states ars
+    ON drs.replica_id = ars.replica_id
+LEFT JOIN sys.dm_hadr_database_replica_cluster_states dcs
+    ON drs.group_database_id = dcs.group_database_id
+   AND drs.replica_id = dcs.replica_id
 WHERE drs.is_local = 0
 """,
                 timeout_sec=30,
             ),
             QueryConfig(
                 query_id="cdc_jobs",
-                description="CDC capture và cleanup job status",
+                description="CDC capture va cleanup job status",
                 sql="""
 SELECT TOP 20
     j.name AS job_name,
@@ -150,10 +166,96 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
         detector_type="threshold",
         thresholds={
             "log_send_queue_size": ThresholdConfig(warning=500, critical=1000),
-            "redo_queue_size": ThresholdConfig(warning=1000, critical=5000),
-            # run_status: 0 = Failed → critical nếu != 1
+            "is_suspended": ThresholdConfig(warning=1, critical=1),
             "run_status": ThresholdConfig(warning=1, critical=0),
         },
+        extra={
+            "issue_type_map": {
+                "log_send_queue_size": "ag_lag",
+                "is_suspended": "ag_lag",
+                "run_status": "cdc_failure",
+            },
+        },
+        analysis_config=AnalysisConfig(
+            context=(
+                "AG replica sync health + CDC job status (view từ Primary). "
+                "is_suspended=1 = data movement đã dừng (xem suspend_reason_desc) - nguy hiểm nhất. "
+                "connected_state_desc=DISCONNECTED = replica rớt kết nối. "
+                "is_failover_ready=0 = không failover an toàn được. "
+                "log_send_queue lớn = primary gửi log chậm/secondary nhận chậm. "
+                "CDC run_status=0 (Failed) làm version store TempDB phình + capture latency tăng. "
+                "Redo lag chi tiết xem topic ag_redo_secondary (đo cục bộ trên secondary)."
+            ),
+            focus_metrics=[
+                "synchronization_state_desc", "synchronization_health_desc",
+                "is_suspended", "suspend_reason_desc", "connected_state_desc",
+                "operational_state_desc", "is_failover_ready",
+                "log_send_queue_size", "last_commit_time",
+                "job_name", "run_status", "run_duration", "message",
+            ],
+        ),
+    )
+
+
+# ── 1b. AG Redo Lag Monitor (Secondary, đo cục bộ) ──────────────────────────
+
+def _ag_redo_secondary() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id=TOPIC_AG_REDO_SECONDARY,
+        display_name="AG Redo Lag Monitor (Secondary local)",
+        enabled=True,
+        schedule_sec=120,
+        nodes=["secondary"],
+        queries=[QueryConfig(
+            query_id="redo_state_local",
+            description="Redo queue/rate + secondary_lag_seconds đo cục bộ trên secondary (is_local=1)",
+            sql="""
+SELECT TOP 20
+    ar.replica_server_name,
+    DB_NAME(drs.database_id)            AS database_name,
+    drs.synchronization_state_desc,
+    drs.synchronization_health_desc,
+    drs.is_suspended,
+    CASE drs.suspend_reason
+        WHEN 0 THEN 'USER'    WHEN 1 THEN 'PARTNER' WHEN 2 THEN 'REDO'
+        WHEN 3 THEN 'APPLY'   WHEN 4 THEN 'CAPTURE' WHEN 5 THEN 'RESTART'
+        WHEN 6 THEN 'UNDO'    WHEN 7 THEN 'REVALIDATION' ELSE NULL
+    END                                  AS suspend_reason_desc,
+    drs.redo_queue_size,
+    drs.redo_rate,
+    drs.secondary_lag_seconds,
+    drs.last_redone_time,
+    drs.last_commit_time
+FROM sys.dm_hadr_database_replica_states drs
+JOIN sys.availability_replicas ar
+    ON drs.replica_id = ar.replica_id
+WHERE drs.is_local = 1
+""",
+            timeout_sec=30,
+        )],
+        detector_type="threshold",
+        thresholds={
+            "redo_queue_size": ThresholdConfig(warning=1000, critical=5000),
+            "secondary_lag_seconds": ThresholdConfig(warning=30, critical=120),
+        },
+        extra={
+            "issue_type_map": {
+                "redo_queue_size": "ag_lag",
+                "secondary_lag_seconds": "ag_lag",
+            },
+        },
+        analysis_config=AnalysisConfig(
+            context=(
+                "Redo lag đo cục bộ trên từng readable secondary (is_local=1) - chính xác hơn view từ primary. "
+                "redo_queue lớn + redo_rate thấp = redo thread nghẽn (CPU/IO secondary hoặc bị read query block). "
+                "secondary_lag_seconds = thời gian secondary trễ so với primary (RPO khi đọc trên secondary)."
+            ),
+            focus_metrics=[
+                "redo_queue_size", "redo_rate", "secondary_lag_seconds",
+                "synchronization_state_desc", "is_suspended", "suspend_reason_desc",
+                "last_redone_time",
+            ],
+        ),
     )
 
 
@@ -1146,167 +1248,6 @@ ORDER BY ips.avg_fragmentation_in_percent DESC
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _ag_health() -> MonitorTopic:
-    return MonitorTopic(
-        topic_id=TOPIC_AG_HEALTH,
-        display_name="AG Health & CDC Monitor",
-        enabled=True,
-        schedule_sec=120,
-        nodes=["primary"],
-        queries=[
-            QueryConfig(
-                query_id="ag_sync_state",
-                description="AG replica sync state, suspend/failover/connected + lag queues (view tu Primary)",
-                sql="""
-SELECT TOP 20
-    ar.replica_server_name,
-    DB_NAME(drs.database_id)            AS database_name,
-    ars.role_desc,
-    ars.connected_state_desc,
-    ars.operational_state_desc,
-    drs.synchronization_state_desc,
-    drs.synchronization_health_desc,
-    drs.is_suspended,
-    CASE drs.suspend_reason
-        WHEN 0 THEN 'USER'    WHEN 1 THEN 'PARTNER' WHEN 2 THEN 'REDO'
-        WHEN 3 THEN 'APPLY'   WHEN 4 THEN 'CAPTURE' WHEN 5 THEN 'RESTART'
-        WHEN 6 THEN 'UNDO'    WHEN 7 THEN 'REVALIDATION' ELSE NULL
-    END                                  AS suspend_reason_desc,
-    dcs.is_failover_ready,
-    drs.log_send_queue_size,
-    drs.log_send_rate,
-    drs.redo_queue_size,
-    drs.redo_rate,
-    drs.last_commit_time
-FROM sys.dm_hadr_database_replica_states drs
-JOIN sys.availability_replicas ar
-    ON drs.replica_id = ar.replica_id
-JOIN sys.dm_hadr_availability_replica_states ars
-    ON drs.replica_id = ars.replica_id
-LEFT JOIN sys.dm_hadr_database_replica_cluster_states dcs
-    ON drs.group_database_id = dcs.group_database_id
-   AND drs.replica_id = dcs.replica_id
-WHERE drs.is_local = 0
-""",
-                timeout_sec=30,
-            ),
-            QueryConfig(
-                query_id="cdc_jobs",
-                description="CDC capture va cleanup job status",
-                sql="""
-SELECT TOP 20
-    j.name AS job_name,
-    j.enabled,
-    jh.run_status,         -- 0=Failed, 1=Succeeded, 2=Retry, 3=Cancelled
-    jh.run_date,
-    jh.run_time,
-    jh.run_duration,
-    jh.message
-FROM msdb.dbo.sysjobs j
-JOIN msdb.dbo.sysjobhistory jh
-    ON j.job_id = jh.job_id
-WHERE j.name LIKE 'cdc.%'
-  AND jh.step_id = 0
-  AND jh.run_date >= CAST(CONVERT(VARCHAR, GETDATE(), 112) AS INT)
-ORDER BY jh.run_date DESC, jh.run_time DESC
-""",
-                timeout_sec=20,
-            ),
-        ],
-        detector_type="threshold",
-        thresholds={
-            "log_send_queue_size": ThresholdConfig(warning=500, critical=1000),
-            "is_suspended": ThresholdConfig(warning=1, critical=1),
-            "run_status": ThresholdConfig(warning=1, critical=0),
-        },
-        extra={
-            "issue_type_map": {
-                "log_send_queue_size": "ag_lag",
-                "is_suspended": "ag_lag",
-                "run_status": "cdc_failure",
-            },
-        },
-        analysis_config=AnalysisConfig(
-            context=(
-                "AG replica sync health + CDC job status (view tu Primary). "
-                "is_suspended=1 = data movement da dung (xem suspend_reason_desc) - nguy hiem nhat. "
-                "connected_state_desc=DISCONNECTED = replica rot ket noi. "
-                "is_failover_ready=0 = khong failover an toan duoc. "
-                "log_send_queue lon = primary gui log cham/secondary nhan cham. "
-                "CDC run_status=0 (Failed) lam version store TempDB phinh + capture latency tang. "
-                "Redo lag chi tiet xem topic ag_redo_secondary (do cuc bo tren secondary)."
-            ),
-            focus_metrics=[
-                "synchronization_state_desc", "synchronization_health_desc",
-                "is_suspended", "suspend_reason_desc", "connected_state_desc",
-                "operational_state_desc", "is_failover_ready",
-                "log_send_queue_size", "last_commit_time",
-                "job_name", "run_status", "run_duration", "message",
-            ],
-        ),
-    )
-
-
-def _ag_redo_secondary() -> MonitorTopic:
-    return MonitorTopic(
-        topic_id=TOPIC_AG_REDO_SECONDARY,
-        display_name="AG Redo Lag Monitor (Secondary local)",
-        enabled=True,
-        schedule_sec=120,
-        nodes=["secondary"],
-        queries=[QueryConfig(
-            query_id="redo_state_local",
-            description="Redo queue/rate + secondary_lag_seconds doc cuc bo tren secondary (is_local=1)",
-            sql="""
-SELECT TOP 20
-    ar.replica_server_name,
-    DB_NAME(drs.database_id)            AS database_name,
-    drs.synchronization_state_desc,
-    drs.synchronization_health_desc,
-    drs.is_suspended,
-    CASE drs.suspend_reason
-        WHEN 0 THEN 'USER'    WHEN 1 THEN 'PARTNER' WHEN 2 THEN 'REDO'
-        WHEN 3 THEN 'APPLY'   WHEN 4 THEN 'CAPTURE' WHEN 5 THEN 'RESTART'
-        WHEN 6 THEN 'UNDO'    WHEN 7 THEN 'REVALIDATION' ELSE NULL
-    END                                  AS suspend_reason_desc,
-    drs.redo_queue_size,
-    drs.redo_rate,
-    drs.secondary_lag_seconds,
-    drs.last_redone_time,
-    drs.last_commit_time
-FROM sys.dm_hadr_database_replica_states drs
-JOIN sys.availability_replicas ar
-    ON drs.replica_id = ar.replica_id
-WHERE drs.is_local = 1
-""",
-            timeout_sec=30,
-        )],
-        detector_type="threshold",
-        thresholds={
-            "redo_queue_size": ThresholdConfig(warning=1000, critical=5000),
-            "secondary_lag_seconds": ThresholdConfig(warning=30, critical=120),
-        },
-        extra={
-            "issue_type_map": {
-                "redo_queue_size": "ag_lag",
-                "secondary_lag_seconds": "ag_lag",
-            },
-        },
-        analysis_config=AnalysisConfig(
-            context=(
-                "Redo lag do cuc bo tren tung readable secondary (is_local=1) - chinh xac hon view tu primary. "
-                "redo_queue lon + redo_rate thap = redo thread nghen (CPU/IO secondary hoac bi read query block). "
-                "secondary_lag_seconds = thoi gian secondary tre so voi primary (RPO khi doc tren secondary)."
-            ),
-            focus_metrics=[
-                "redo_queue_size", "redo_rate", "secondary_lag_seconds",
-                "synchronization_state_desc", "is_suspended", "suspend_reason_desc",
-                "last_redone_time",
-            ],
-        ),
-    )
-
 
 def _select_topics(topic_ids: list[str] | None) -> list[MonitorTopic]:
     """
