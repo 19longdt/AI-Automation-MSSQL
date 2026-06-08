@@ -582,4 +582,76 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     threshold: "Có trong query lớn là cảnh báo.",
     impact: "Ngăn parallelism và pushdown optimization. Cân nhắc inline TVF hoặc rewrite.",
   },
+  log_send_queue_size: {
+    term: "log_send_queue_size",
+    definition: "Số KB log đang nằm trong hàng đợi gửi từ primary sang secondary.",
+    threshold: "> 500 KB cảnh báo, > 1000 KB nghiêm trọng.",
+    impact: "Primary gửi log chậm hoặc secondary nhận log không kịp, làm tăng độ trễ đồng bộ."
+  },
+  log_send_rate: {
+    term: "log_send_rate",
+    definition: "Tốc độ gửi log sang secondary, đơn vị KB/giây.",
+    impact: "Tốc độ thấp khi queue đang tắc cho thấy network hoặc luồng HADR send đang nghẽn."
+  },
+  redo_queue_size: {
+    term: "redo_queue_size",
+    definition: "Số KB log đã nhận nhưng secondary chưa redo xong thành data pages.",
+    threshold: "> 1000 KB cảnh báo, > 5000 KB nghiêm trọng.",
+    impact: "Readable secondary trả data cũ hơn primary; failover async có nguy cơ mất thêm giao dịch."
+  },
+  redo_rate: {
+    term: "redo_rate",
+    definition: "Tốc độ secondary apply log vào data files, đơn vị KB/giây.",
+    impact: "Tốc độ thấp khi redo queue cao thường cho thấy CPU/IO secondary hoặc read workload đang cản redo."
+  },
+  secondary_lag_seconds: {
+    term: "secondary_lag_seconds",
+    definition: "Số giây secondary đang trễ so với primary, ước lượng RPO khi đọc trên secondary.",
+    threshold: "> 30s cảnh báo, > 120s nghiêm trọng.",
+    impact: "Read trên secondary thấy dữ liệu cũ; nếu failover async có thể mất tới gần bằng đó giây giao dịch."
+  },
+  synchronization_state_desc: {
+    term: "synchronization_state_desc",
+    definition: "Trạng thái đồng bộ của replica/database như SYNCHRONIZED, SYNCHRONIZING hoặc NOT SYNCHRONIZING.",
+    impact: "Cho biết replica đang bám kịp primary hay đang chậm/trục trặc."
+  },
+  synchronization_health_desc: {
+    term: "synchronization_health_desc",
+    definition: "Đánh giá tổng hợp sức khỏe đồng bộ: HEALTHY, PARTIALLY_HEALTHY hoặc NOT_HEALTHY.",
+    impact: "Là summary nhanh nhất để biết replica có an toàn cho failover/đọc hay không."
+  },
+  is_suspended: {
+    term: "is_suspended",
+    definition: "Bit cho biết data movement của database replica có đang bị suspend hay không.",
+    threshold: "1 = nghiêm trọng.",
+    impact: "Khi suspend, secondary không nhận/redo thêm log; độ trễ sẽ tăng liên tục."
+  },
+  suspend_reason_desc: {
+    term: "suspend_reason_desc",
+    definition: "Lý do data movement bị suspend, ví dụ USER, PARTNER, REDO hay RESTART.",
+    impact: "Giúp phân biệt suspend do thao tác tay, do partner cắt kết nối hay do redo/apply pipeline."
+  },
+  is_failover_ready: {
+    term: "is_failover_ready",
+    definition: "Bit cho biết database replica có sẵn sàng cho failover an toàn hay không.",
+    threshold: "0 = không sẵn sàng.",
+    impact: "Replica chưa failover-ready có thể không đảm bảo failover không mất dữ liệu."
+  },
+  connected_state_desc: {
+    term: "connected_state_desc",
+    definition: "Trạng thái kết nối giữa replica hiện tại với partner, thường là CONNECTED hoặc DISCONNECTED.",
+    threshold: "DISCONNECTED = nghiêm trọng.",
+    impact: "Replica mất kết nối thì log không thể chuyển sang, queue sẽ phồng nhanh."
+  },
+  operational_state_desc: {
+    term: "operational_state_desc",
+    definition: "Trạng thái vận hành nội bộ của replica như ONLINE, PENDING hoặc FAILED.",
+    impact: "Cho biết replica có thực sự hoạt động bình thường trong pipeline HADR hay không."
+  },
+  run_status: {
+    term: "run_status",
+    definition: "Trạng thái chạy job SQL Agent; với CDC thường 1 = Succeeded, 0 = Failed.",
+    threshold: "0 = nghiêm trọng.",
+    impact: "CDC job fail làm capture/cleanup ngưng, latency tăng và version store/TempDB có thể phồng."
+  },
 };

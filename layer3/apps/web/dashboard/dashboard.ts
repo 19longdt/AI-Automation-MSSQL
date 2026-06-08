@@ -5,6 +5,8 @@ import { PlanAnalysisResult } from "@layer3/core";
 import { PlanAnalysisComponent } from "./plan-analysis-component";
 import { createTopicLayoutHandlers, TopicLayoutKey } from "./topics/layout-registry";
 import { renderBlockingChainModal } from "./topics/blocking-detail";
+import { renderAgHealthModal } from "./topics/ag-health-detail";
+import { attachGlossaryTooltips } from "./glossary-tooltip";
 declare const QP: any;
 declare const window: any;
 
@@ -54,6 +56,7 @@ function layoutKeyForTopic(topicLikeId: any): TopicLayoutKey {
   var id = String(topicLikeId || "").toLowerCase();
   if (id === "slow_sessions") return "slow_sessions";
   if (id === "blocking") return "blocking";
+  if (id === "ag_health" || id === "ag_redo_secondary") return "ag_health";
   return "default";
 }
 
@@ -1069,7 +1072,9 @@ var layoutHandlers = createTopicLayoutHandlers({
   bindJsonTreeToolbar: bindJsonTreeToolbar,
   headBlockerCell: headBlockerCell,
   blockingStateBadge: blockingStateBadge,
-  renderBlockingChainModal: renderBlockingChainModal
+  renderBlockingChainModal: renderBlockingChainModal,
+  renderAgHealthModal: renderAgHealthModal,
+  attachGlossaryTooltips: attachGlossaryTooltips
 });
 
 function renderFindingsHeader(forcedKey?: TopicLayoutKey) {
