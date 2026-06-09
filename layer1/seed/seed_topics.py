@@ -245,11 +245,15 @@ WHERE drs.is_local = 1
         thresholds={
             "redo_queue_size": ThresholdConfig(warning=1000, critical=5000),
             "secondary_lag_seconds": ThresholdConfig(warning=30, critical=120),
+            # Bắt suspend cục bộ trên chính secondary (is_local=1) — không phụ thuộc
+            # view từ primary. is_suspended là boolean 0/1, "cao=tệ": 1 → CRITICAL.
+            "is_suspended": ThresholdConfig(warning=1, critical=1),
         },
         extra={
             "issue_type_map": {
                 "redo_queue_size": "ag_lag",
                 "secondary_lag_seconds": "ag_lag",
+                "is_suspended": "ag_lag",
             },
         },
         analysis_config=AnalysisConfig(
