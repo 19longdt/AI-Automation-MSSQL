@@ -648,10 +648,55 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     definition: "Trạng thái vận hành nội bộ của replica như ONLINE, PENDING hoặc FAILED.",
     impact: "Cho biết replica có thực sự hoạt động bình thường trong pipeline HADR hay không."
   },
+  replica_server_name: {
+    term: "replica_server_name",
+    definition: "Tên SQL Server instance đang giữ replica được ghi nhận trong finding này.",
+    impact: "Giúp xác định chính xác replica nào đang có vấn đề trong Availability Group."
+  },
+  database_name: {
+    term: "database_name",
+    definition: "Tên database thuộc Availability Group mà metric hiện tại áp dụng.",
+    impact: "Quan trọng khi một AG chứa nhiều database nhưng chỉ một database bị lag hoặc suspend."
+  },
+  role_desc: {
+    term: "role_desc",
+    definition: "Vai trò hiện tại của replica, thường là PRIMARY hoặc SECONDARY.",
+    impact: "Giúp phân biệt sự cố đang xảy ra ở phía gửi log hay phía nhận và redo log."
+  },
+  last_commit_time: {
+    term: "last_commit_time",
+    definition: "Mốc thời gian commit gần nhất được ghi nhận từ phía replica liên quan.",
+    impact: "Dùng để ước lượng dữ liệu mới nhất đã được commit trước khi lag hoặc ngắt kết nối tăng lên."
+  },
+  last_redone_time: {
+    term: "last_redone_time",
+    definition: "Mốc thời gian bản ghi log gần nhất đã được redo trên secondary local.",
+    impact: "Nếu quá cũ so với hiện tại hoặc so với last commit, secondary đang chậm apply log."
+  },
   run_status: {
     term: "run_status",
     definition: "Trạng thái chạy job SQL Agent; với CDC thường 1 = Succeeded, 0 = Failed.",
     threshold: "0 = nghiêm trọng.",
     impact: "CDC job fail làm capture/cleanup ngưng, latency tăng và version store/TempDB có thể phồng."
+  },
+  job_name: {
+    term: "job_name",
+    definition: "Tên SQL Agent job được kiểm tra, ví dụ CDC capture hoặc cleanup job.",
+    impact: "Cho biết chính xác job nào đang fail để đối chiếu với SQL Agent và lịch chạy."
+  },
+  run_duration: {
+    term: "run_duration",
+    definition: "Thời gian chạy của lần thực thi job gần nhất hoặc đang được ghi nhận.",
+    impact: "Duration tăng bất thường có thể báo hiệu job bị kẹt, backlog lớn hoặc thao tác cleanup/capture chậm."
+  },
+  message: {
+    term: "message",
+    definition: "Thông điệp trạng thái hoặc lỗi trả về từ lần chạy job gần nhất.",
+    impact: "Là nguồn nhanh nhất để thấy lỗi CDC/Agent cụ thể trước khi mở lịch sử job chi tiết."
+  },
+  node_name: {
+    term: "node_name",
+    definition: "Tên node hoặc SQL instance nơi finding được phát hiện.",
+    impact: "Giúp định vị nhanh máy chủ cần kiểm tra khi cùng một AG trải trên nhiều node."
   },
 };

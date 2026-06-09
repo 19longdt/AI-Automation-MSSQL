@@ -65,9 +65,9 @@ function section(title: string, rowsHtml: string): string {
 
 function syncSection(m: any): string {
   return section("Sync status",
-    fieldRow("Replica", "synchronization_state_desc", escapeHtml(m.replica_server_name || "-")) +
-    fieldRow("Database", "synchronization_state_desc", escapeHtml(m.database_name || "-")) +
-    fieldRow("Role", "synchronization_state_desc", escapeHtml(m.role_desc || "-")) +
+    fieldRow("Replica", "replica_server_name", escapeHtml(m.replica_server_name || "-")) +
+    fieldRow("Database", "database_name", escapeHtml(m.database_name || "-")) +
+    fieldRow("Role", "role_desc", escapeHtml(m.role_desc || "-")) +
     fieldRow("Sync state", "synchronization_state_desc", escapeHtml(m.synchronization_state_desc || "-")) +
     fieldRow("Sync health", "synchronization_health_desc", escapeHtml(m.synchronization_health_desc || "-")) +
     fieldRow("Connected", "connected_state_desc", escapeHtml(m.connected_state_desc || "-")) +
@@ -90,8 +90,8 @@ function lagSection(m: any): string {
     fieldRow("Redo queue", "redo_queue_size", fmtKb(m.redo_queue_size)) +
     fieldRow("Redo rate", "redo_rate", fmtKb(m.redo_rate)) +
     fieldRow("Secondary lag", "secondary_lag_seconds", fmtSec(m.secondary_lag_seconds), redoFlag) +
-    fieldRow("Last commit", "secondary_lag_seconds", escapeHtml(m.last_commit_time || "-")) +
-    fieldRow("Last redone", "secondary_lag_seconds", escapeHtml(m.last_redone_time || "-"))
+    fieldRow("Last commit", "last_commit_time", escapeHtml(m.last_commit_time || "-")) +
+    fieldRow("Last redone", "last_redone_time", escapeHtml(m.last_redone_time || "-"))
   );
 }
 
@@ -108,11 +108,11 @@ function suspendSection(m: any): string {
 
 function cdcSection(m: any): string {
   return section("CDC job",
-    fieldRow("Job", "run_status", escapeHtml(m.job_name || "-")) +
+    fieldRow("Job", "job_name", escapeHtml(m.job_name || "-")) +
     fieldRow("Run status", "run_status", Number(m.run_status) === 1 ? "Succeeded" : "Failed",
       Number(m.run_status) === 1 ? "" : flag("critical", "critical")) +
-    fieldRow("Run duration", "run_status", escapeHtml(String(m.run_duration || "-"))) +
-    fieldRow("Message", "run_status", escapeHtml(m.message || "-"))
+    fieldRow("Run duration", "run_duration", escapeHtml(String(m.run_duration || "-"))) +
+    fieldRow("Message", "message", escapeHtml(m.message || "-"))
   );
 }
 
@@ -131,10 +131,10 @@ function renderAgHealthDetailBody(finding: any): string {
 
   var kpis = isCdc
     ? "<div class='ag-kpis'>" +
-      kpi("CDC JOB", "run_status", escapeHtml(m.job_name || "-"), "ok") +
+      kpi("CDC JOB", "job_name", escapeHtml(m.job_name || "-"), "ok") +
       kpi("RUN STATUS", "run_status", Number(m.run_status) === 1 ? "Succeeded" : "Failed", Number(m.run_status) === 1 ? "ok" : "critical") +
-      kpi("DURATION", "run_status", escapeHtml(String(m.run_duration || "-")), "ok") +
-      kpi("NODE", "run_status", escapeHtml(finding.node || "-"), "ok") +
+      kpi("DURATION", "run_duration", escapeHtml(String(m.run_duration || "-")), "ok") +
+      kpi("NODE", "node_name", escapeHtml(finding.node || "-"), "ok") +
       "</div>"
     : "<div class='ag-kpis'>" +
       kpi("SYNC HEALTH", "synchronization_health_desc", escapeHtml(m.synchronization_health_desc || "-"), healthClass(m)) +
