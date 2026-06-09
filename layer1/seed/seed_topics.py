@@ -182,6 +182,9 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
                 "cdc_job_failed": "cdc_failure",
                 "cdc_job_retry": "cdc_failure",
             },
+            # Ghi finding INFO cho mỗi row khỏe mạnh → lưu lịch sử trạng thái AG/CDC.
+            "emit_info_when_healthy": True,
+            "info_issue_type": "ag_lag",
         },
         analysis_config=AnalysisConfig(
             context=(
@@ -255,6 +258,9 @@ WHERE drs.is_local = 1
                 "secondary_lag_seconds": "ag_lag",
                 "is_suspended": "ag_lag",
             },
+            # Ghi finding INFO cho mỗi row khỏe mạnh → lưu lịch sử redo lag secondary.
+            "emit_info_when_healthy": True,
+            "info_issue_type": "ag_lag",
         },
         analysis_config=AnalysisConfig(
             context=(

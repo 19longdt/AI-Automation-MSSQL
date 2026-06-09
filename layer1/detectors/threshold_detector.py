@@ -45,12 +45,16 @@ class ThresholdDetector:
             return []
 
         lower_is_worse: set[str] = set(topic.extra.get("lower_is_worse_fields", []))
+        # Opt-in: với mỗi row không vượt ngưỡng nào, vẫn ghi 1 finding INFO để giữ
+        # lịch sử trạng thái khỏe mạnh (dispatcher tự skip INFO, không gửi alert).
+        emit_info_when_healthy: bool = bool(topic.extra.get("emit_info_when_healthy", False))
 
         findings: list[Finding] = []
         for result in results:
             if not result.success:
                 continue
             for row in result.rows:
+                row_findings: list[Finding] = []
                 for field, threshold in topic.thresholds.items():
                     finding = self._check_row(
                         row=row,
@@ -62,7 +66,19 @@ class ThresholdDetector:
                         lower_is_worse=(field in lower_is_worse),
                     )
                     if finding is not None:
-                        findings.append(finding)
+                        row_findings.append(finding)
+
+                if row_findings:
+                    findings.extend(row_findings)
+                elif emit_info_when_healthy:
+                    findings.append(
+                        self._build_info_finding(
+                            row=row,
+                            topic=topic,
+                            node=result.node,
+                            role=result.role,
+                        )
+                    )
 
         return findings
 
@@ -132,6 +148,45 @@ class ThresholdDetector:
             role=role,
             metrics=metrics,
         )
+
+    def _build_info_finding(
+        self,
+        row: dict,
+        topic: MonitorTopic,
+        node: str,
+        role: str = "",
+    ) -> Finding:
+        """Tạo finding INFO ghi lại trạng thái 1 row khỏe mạnh (không vượt ngưỡng).
+
+        Giữ toàn bộ field serializable của row làm metrics để có lịch sử đầy đủ.
+        issue_type lấy từ extra["info_issue_type"] (fallback topic-level / WAIT_ANOMALY).
+        """
+        metrics: dict = {
+            k: v
+            for k, v in row.items()
+            if isinstance(v, (int, float, str, bool, type(None)))
+        }
+        return Finding(
+            topic_id=topic.topic_id,
+            issue_type=self._resolve_info_issue_type(topic),
+            severity=Severity.INFO,
+            node=node,
+            role=role,
+            metrics=metrics,
+        )
+
+    def _resolve_info_issue_type(self, topic: MonitorTopic) -> IssueType:
+        """IssueType cho finding INFO: extra["info_issue_type"] → topic-level → WAIT_ANOMALY."""
+        raw = topic.extra.get("info_issue_type") or topic.extra.get("issue_type")
+        if raw:
+            try:
+                return IssueType(raw)
+            except ValueError:
+                logger.warning(
+                    "threshold_detector: unknown info_issue_type '%s' (topic=%s)",
+                    raw, topic.topic_id,
+                )
+        return IssueType.WAIT_ANOMALY
 
     def _resolve_issue_type(self, topic: MonitorTopic, field: str) -> IssueType:
         """
