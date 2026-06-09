@@ -148,6 +148,11 @@ SELECT TOP 20
     j.name AS job_name,
     j.enabled,
     jh.run_status,         -- 0=Failed, 1=Succeeded, 2=Retry, 3=Cancelled
+    -- run_status là enum (không phải thang liên tục) → threshold range không biểu diễn
+    -- được. Tách thành flag boolean để detector "cao=tệ" chạy đúng: chỉ Failed(0) →
+    -- critical, Retry(2) → warning; Succeeded(1)/Cancelled(3) không sinh finding.
+    CASE WHEN jh.run_status = 0 THEN 1 ELSE 0 END AS cdc_job_failed,
+    CASE WHEN jh.run_status = 2 THEN 1 ELSE 0 END AS cdc_job_retry,
     jh.run_date,
     jh.run_time,
     jh.run_duration,
@@ -167,13 +172,15 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
         thresholds={
             "log_send_queue_size": ThresholdConfig(warning=500, critical=1000),
             "is_suspended": ThresholdConfig(warning=1, critical=1),
-            "run_status": ThresholdConfig(warning=1, critical=0),
+            "cdc_job_failed": ThresholdConfig(warning=1, critical=1),
+            "cdc_job_retry": ThresholdConfig(warning=1, critical=2),
         },
         extra={
             "issue_type_map": {
                 "log_send_queue_size": "ag_lag",
                 "is_suspended": "ag_lag",
-                "run_status": "cdc_failure",
+                "cdc_job_failed": "cdc_failure",
+                "cdc_job_retry": "cdc_failure",
             },
         },
         analysis_config=AnalysisConfig(
@@ -191,7 +198,8 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
                 "is_suspended", "suspend_reason_desc", "connected_state_desc",
                 "operational_state_desc", "is_failover_ready",
                 "log_send_queue_size", "last_commit_time",
-                "job_name", "run_status", "run_duration", "message",
+                "job_name", "run_status", "cdc_job_failed", "cdc_job_retry",
+                "run_duration", "message",
             ],
         ),
     )
