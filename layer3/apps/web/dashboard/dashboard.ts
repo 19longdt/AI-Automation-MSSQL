@@ -791,7 +791,9 @@ function layoutKeyForTopic(topicLikeId: any): TopicLayoutKey {
   var id = String(topicLikeId || "").toLowerCase();
   if (id === "slow_sessions") return "slow_sessions";
   if (id === "blocking") return "blocking";
-  if (id === "ag_health" || id === "ag_redo_secondary") return "ag_health";
+  if (id === "ag_health") return "ag_health";
+  if (id === "ag_redo_secondary") return "ag_redo_secondary";
+  if (id === "cdc_health") return "cdc_health";
   return "default";
 }
 
