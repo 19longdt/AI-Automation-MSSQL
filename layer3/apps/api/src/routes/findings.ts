@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { listFindings, getFindingById } from "../services/findings-service";
+import { listFindings, getFindingById, getFindingTimeline } from "../services/findings-service";
 import { getDiagnosticsByFindingId } from "../services/findings-diagnostics-service";
 
 export async function registerFindingRoutes(app: FastifyInstance) {
@@ -9,6 +9,21 @@ export async function registerFindingRoutes(app: FastifyInstance) {
     const { total, items } = await listFindings(app.getDb(), q);
     reply.header("X-Total-Count", String(total));
     return reply.send(items);
+  });
+
+  app.get("/api/findings/timeline", async (req, reply) => {
+    if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
+    const q = req.query as Record<string, string>;
+    const timeline = await getFindingTimeline(app.getDb(), {
+      topic_id: q.topic_id,
+      severity: q.severity,
+      alert_status: q.alert_status,
+      blocking_status: q.blocking_status,
+      since: q.since,
+      until: q.until,
+      interval_minutes: q.interval_minutes ? Number(q.interval_minutes) : undefined
+    });
+    return reply.send(timeline);
   });
 
   app.get("/api/findings/:id", async (req, reply) => {
