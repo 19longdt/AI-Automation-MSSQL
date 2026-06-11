@@ -7,6 +7,7 @@ Thread-safe: tạo connection mới mỗi lần execute.
 """
 from __future__ import annotations
 
+import datetime
 import decimal
 import logging
 import time
@@ -19,9 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_value(v: object) -> object:
-    """Convert pyodbc types mà MongoDB không encode được (Decimal → float)."""
+    """Convert pyodbc types mà MongoDB không encode được (Decimal → float, datetime → ISO string)."""
     if isinstance(v, decimal.Decimal):
         return float(v)
+    if isinstance(v, datetime.datetime):
+        return v.isoformat(sep=" ", timespec="seconds")
     return v
 
 

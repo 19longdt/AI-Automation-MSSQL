@@ -1,4 +1,4 @@
-"""
+﻿"""
 seed_topics.py — Seed toàn bộ monitoring topics vào MongoDB.
 
 Chạy một lần trước khi start service lần đầu, hoặc chạy lại để update config.
@@ -11,7 +11,8 @@ Cách chạy:
     python -m layer1.seed.seed_topics --topic blocking --dry-run
 
 Topics được seed:
-    1.  ag_health          — AG Health & CDC (2 phút)
+    1.  ag_health          — AG Health (2 phút)
+    1c. cdc_health         — CDC Job Status (5 phút)
     2.  blocking           — Blocking Chain, head-blocker-centric (1 phút)
     2b. deadlock           — Deadlock từ System Health XEvent (5 phút)
     3.  blocked_query      — Blocked Query Snapshot (DISABLED — defer)
@@ -36,6 +37,7 @@ from ..config import settings
 from ..models.topic_constants import (
     TOPIC_AG_HEALTH,
     TOPIC_AG_REDO_SECONDARY,
+    TOPIC_CDC_HEALTH,
     TOPIC_AGENT_MAINTENANCE,
     TOPIC_BLOCKED_QUERY,
     TOPIC_BLOCKING,
@@ -76,6 +78,7 @@ logger = logging.getLogger(__name__)
 def _all_topics() -> list[MonitorTopic]:
     return [
         _ag_health(),
+        _cdc_health(),
         _ag_redo_secondary(),
         _blocking(),
         _deadlock(),
@@ -99,7 +102,7 @@ def _all_topics() -> list[MonitorTopic]:
 def _ag_health() -> MonitorTopic:
     return MonitorTopic(
         topic_id=TOPIC_AG_HEALTH,
-        display_name="AG Health & CDC Monitor",
+        display_name="AG Health Monitor",
         enabled=True,
         schedule_sec=120,
         nodes=["primary"],
@@ -140,6 +143,49 @@ WHERE drs.is_local = 0
 """,
                 timeout_sec=30,
             ),
+        ],
+        detector_type="threshold",
+        thresholds={
+            "log_send_queue_size": ThresholdConfig(warning=500, critical=1000),
+            "is_suspended": ThresholdConfig(warning=1, critical=1),
+        },
+        extra={
+            "issue_type_map": {
+                "log_send_queue_size": "ag_lag",
+                "is_suspended": "ag_lag",
+            },
+            # Ghi finding INFO cho mỗi row khỏe mạnh → lưu lịch sử trạng thái AG.
+            "emit_info_when_healthy": True,
+            "info_issue_type": "ag_lag",
+        },
+        analysis_config=AnalysisConfig(
+            context=(
+                "AG replica sync health (view từ Primary). "
+                "is_suspended=1 = data movement đã dừng (xem suspend_reason_desc) - nguy hiểm nhất. "
+                "connected_state_desc=DISCONNECTED = replica rớt kết nối. "
+                "is_failover_ready=0 = không failover an toàn được. "
+                "log_send_queue lớn = primary gửi log chậm/secondary nhận chậm. "
+                "Redo lag chi tiết xem topic ag_redo_secondary (đo cục bộ trên secondary). "
+                "CDC job status xem topic cdc_health."
+            ),
+            focus_metrics=[
+                "synchronization_state_desc", "synchronization_health_desc",
+                "is_suspended", "suspend_reason_desc", "connected_state_desc",
+                "operational_state_desc", "is_failover_ready",
+                "log_send_queue_size", "last_commit_time",
+            ],
+        ),
+    )
+
+
+def _cdc_health() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id=TOPIC_CDC_HEALTH,
+        display_name="CDC Health Monitor",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["primary"],
+        queries=[
             QueryConfig(
                 query_id="cdc_jobs",
                 description="CDC capture va cleanup job status",
@@ -147,10 +193,7 @@ WHERE drs.is_local = 0
 SELECT TOP 20
     j.name AS job_name,
     j.enabled,
-    jh.run_status,         -- 0=Failed, 1=Succeeded, 2=Retry, 3=Cancelled
-    -- run_status là enum (không phải thang liên tục) → threshold range không biểu diễn
-    -- được. Tách thành flag boolean để detector "cao=tệ" chạy đúng: chỉ Failed(0) →
-    -- critical, Retry(2) → warning; Succeeded(1)/Cancelled(3) không sinh finding.
+    jh.run_status,
     CASE WHEN jh.run_status = 0 THEN 1 ELSE 0 END AS cdc_job_failed,
     CASE WHEN jh.run_status = 2 THEN 1 ELSE 0 END AS cdc_job_retry,
     jh.run_date,
@@ -170,37 +213,25 @@ ORDER BY jh.run_date DESC, jh.run_time DESC
         ],
         detector_type="threshold",
         thresholds={
-            "log_send_queue_size": ThresholdConfig(warning=500, critical=1000),
-            "is_suspended": ThresholdConfig(warning=1, critical=1),
             "cdc_job_failed": ThresholdConfig(warning=1, critical=1),
             "cdc_job_retry": ThresholdConfig(warning=1, critical=2),
         },
         extra={
             "issue_type_map": {
-                "log_send_queue_size": "ag_lag",
-                "is_suspended": "ag_lag",
                 "cdc_job_failed": "cdc_failure",
                 "cdc_job_retry": "cdc_failure",
             },
-            # Ghi finding INFO cho mỗi row khỏe mạnh → lưu lịch sử trạng thái AG/CDC.
-            "emit_info_when_healthy": True,
-            "info_issue_type": "ag_lag",
         },
         analysis_config=AnalysisConfig(
             context=(
-                "AG replica sync health + CDC job status (view từ Primary). "
-                "is_suspended=1 = data movement đã dừng (xem suspend_reason_desc) - nguy hiểm nhất. "
-                "connected_state_desc=DISCONNECTED = replica rớt kết nối. "
-                "is_failover_ready=0 = không failover an toàn được. "
-                "log_send_queue lớn = primary gửi log chậm/secondary nhận chậm. "
-                "CDC run_status=0 (Failed) làm version store TempDB phình + capture latency tăng. "
-                "Redo lag chi tiết xem topic ag_redo_secondary (đo cục bộ trên secondary)."
+                "CDC capture/cleanup job status từ msdb. "
+                "cdc_job_failed=1 (run_status=0) = job thất bại - version store TempDB không được dọn "
+                "+ capture latency tăng cho downstream consumers. "
+                "cdc_job_retry=1 (run_status=2) = dấu hiệu instability trước khi fail hoàn toàn. "
+                "Xem message để biết error cụ thể. "
+                "TempDB pressure do CDC failure xem topic tempdb_memory."
             ),
             focus_metrics=[
-                "synchronization_state_desc", "synchronization_health_desc",
-                "is_suspended", "suspend_reason_desc", "connected_state_desc",
-                "operational_state_desc", "is_failover_ready",
-                "log_send_queue_size", "last_commit_time",
                 "job_name", "run_status", "cdc_job_failed", "cdc_job_retry",
                 "run_duration", "message",
             ],
@@ -219,7 +250,7 @@ def _ag_redo_secondary() -> MonitorTopic:
         nodes=["secondary"],
         queries=[QueryConfig(
             query_id="redo_state_local",
-            description="Redo queue/rate + secondary_lag_seconds đo cục bộ trên secondary (is_local=1)",
+            description="Redo queue/rate + redo_lag_seconds tính cục bộ trên secondary (is_local=1)",
             sql="""
 SELECT TOP 20
     ar.replica_server_name,
@@ -234,7 +265,9 @@ SELECT TOP 20
     END                                  AS suspend_reason_desc,
     drs.redo_queue_size,
     drs.redo_rate,
-    drs.secondary_lag_seconds,
+    -- Đo gap giữa log đã committed và log đã redone — không bị false positive khi
+    -- database idle (DATEDIFF vs GETDATE() lớn dù secondary đã catch up hoàn toàn).
+    DATEDIFF_BIG(MILLISECOND, drs.last_redone_time, drs.last_commit_time) AS redo_lag_ms,
     drs.last_redone_time,
     drs.last_commit_time
 FROM sys.dm_hadr_database_replica_states drs
@@ -247,15 +280,15 @@ WHERE drs.is_local = 1
         detector_type="threshold",
         thresholds={
             "redo_queue_size": ThresholdConfig(warning=1000, critical=5000),
-            "secondary_lag_seconds": ThresholdConfig(warning=30, critical=120),
-            # Bắt suspend cục bộ trên chính secondary (is_local=1) — không phụ thuộc
-            # view từ primary. is_suspended là boolean 0/1, "cao=tệ": 1 → CRITICAL.
+            # secondary_lag_seconds luôn NULL khi query từ secondary (is_local=1) —
+            # dùng redo_lag_ms = DATEDIFF_BIG(MILLISECOND, last_redone_time, GETDATE()) thay thế.
+            "redo_lag_ms": ThresholdConfig(warning=30_000, critical=120_000),
             "is_suspended": ThresholdConfig(warning=1, critical=1),
         },
         extra={
             "issue_type_map": {
                 "redo_queue_size": "ag_lag",
-                "secondary_lag_seconds": "ag_lag",
+                "redo_lag_ms": "ag_lag",
                 "is_suspended": "ag_lag",
             },
             # Ghi finding INFO cho mỗi row khỏe mạnh → lưu lịch sử redo lag secondary.
@@ -266,10 +299,12 @@ WHERE drs.is_local = 1
             context=(
                 "Redo lag đo cục bộ trên từng readable secondary (is_local=1) - chính xác hơn view từ primary. "
                 "redo_queue lớn + redo_rate thấp = redo thread nghẽn (CPU/IO secondary hoặc bị read query block). "
-                "secondary_lag_seconds = thời gian secondary trễ so với primary (RPO khi đọc trên secondary)."
+                "redo_lag_ms = DATEDIFF_BIG(MILLISECOND, last_redone_time, last_commit_time) — gap giữa log đã committed "
+                "và log đã redone; ≈0 khi caught up, tăng khi redo thread không theo kịp. "
+                "Không dùng DATEDIFF vs GETDATE() vì false positive khi database idle."
             ),
             focus_metrics=[
-                "redo_queue_size", "redo_rate", "secondary_lag_seconds",
+                "redo_queue_size", "redo_rate", "redo_lag_ms",
                 "synchronization_state_desc", "is_suspended", "suspend_reason_desc",
                 "last_redone_time",
             ],
@@ -454,10 +489,7 @@ def _deadlock() -> MonitorTopic:
 SELECT TOP 20
     xdr.value('@timestamp', 'datetime2')    AS deadlock_time,
     xdr.value('(//deadlock/process-list/process/@id)[1]', 'varchar(50)') AS victim_id,
-    SUBSTRING(
-        xdr.value('(//deadlock/process-list/process/inputbuf)[1]', 'varchar(max)'),
-        1, 500
-    )                                        AS victim_query
+    xdr.value('(//deadlock/process-list/process/inputbuf)[1]', 'varchar(max)') AS victim_query
 FROM (
     SELECT CAST(target_data AS XML) AS target_data
     FROM sys.dm_xe_session_targets t

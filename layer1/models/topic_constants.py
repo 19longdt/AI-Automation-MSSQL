@@ -1,10 +1,11 @@
-"""
+﻿"""
 topic_constants.py - Topic ID constants dùng chung toàn service.
 """
 from __future__ import annotations
 
 TOPIC_AG_HEALTH = "ag_health"
 TOPIC_AG_REDO_SECONDARY = "ag_redo_secondary"
+TOPIC_CDC_HEALTH = "cdc_health"
 TOPIC_BLOCKING = "blocking"
 TOPIC_DEADLOCK = "deadlock"
 TOPIC_BLOCKED_QUERY = "blocked_query"

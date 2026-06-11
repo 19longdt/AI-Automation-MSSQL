@@ -315,6 +315,8 @@ class BlockingChainDetector:
         Chỉ tạo finding cho event MỚI: deadlock_time trong lookback window
         (2 × schedule_sec, floor 10 phút). Event cũ hơn = đã xử lý ở run trước.
         Trade-off chấp nhận: service down lâu hơn lookback → miss alert event cũ.
+
+        victim_query được lưu full (KHÔNG truncate) để AI phân tích chính xác.
         """
         lookback_sec = max(topic.schedule_sec * 2, _DEADLOCK_LOOKBACK_FLOOR_SEC)
         cutoff = utc_now() - timedelta(seconds=lookback_sec)
@@ -331,7 +333,8 @@ class BlockingChainDetector:
             if deadlock_time < cutoff:
                 continue
 
-            victim_query = self._truncate(row.get("victim_query"))
+            # Full victim_query (KHÔNG truncate) — AI cần query đầy đủ để phân tích deadlock
+            victim_query = self._text(row.get("victim_query"))
             findings.append(
                 Finding(
                     topic_id=topic.topic_id,
