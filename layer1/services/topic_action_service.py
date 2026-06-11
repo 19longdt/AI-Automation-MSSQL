@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from ..models.findings import Finding
-from ..models.topic_constants import TOPIC_SLOW_SESSIONS
+from ..models.topic_constants import TOPIC_BLOCKING, TOPIC_SLOW_SESSIONS
 from .session_service import kill_session
 
 
@@ -89,9 +89,49 @@ class SlowSessionsActionHandler(TopicActionHandler):
         return result
 
 
+class BlockingActionHandler(TopicActionHandler):
+    """Kill HEAD BLOCKER — session gây ra blocking chain (khác slow_sessions kill victim).
+
+    An toàn nhất khi metrics.head_blocker_is_idle=true + open_txn>0 (forgotten
+    transaction — app đã treo, kill không mất gì); active blocker kill sẽ rollback.
+    Alert đã hiển thị đủ context để DBA tự quyết định.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(topic_id=TOPIC_BLOCKING)
+
+    def topic_commands(self) -> list[str]:
+        return ["/kill-head-blocker"]
+
+    def command_aliases(self) -> dict[str, str]:
+        return {"/kill_head_blocker": "/kill-head-blocker"}
+
+    def resolve_target(self, finding: Finding, command: str) -> dict:
+        session_id = _coerce_positive_int(finding.metrics.get("head_blocker_session_id"))
+        if session_id is None:
+            return {
+                "ok": False,
+                "status": 400,
+                "code": "invalid_metric",
+                "metric_key": "head_blocker_session_id",
+                "message": "Invalid or missing metrics.head_blocker_session_id",
+            }
+        return {"ok": True, "value": session_id, "metric_key": "head_blocker_session_id"}
+
+    def execute_target(self, finding: Finding, command: str, target_value: int) -> dict:
+        # Kill đúng node phát hiện blocking — SPID chỉ có nghĩa trong phạm vi 1 instance
+        result = kill_session(target_value, hosts=[finding.node])
+        result["metric_key"] = "head_blocker_session_id"
+        result["target_node"] = finding.node
+        return result
+
+
 class TopicActionRegistry:
     def __init__(self) -> None:
-        self._handlers: list[TopicActionHandler] = [SlowSessionsActionHandler()]
+        self._handlers: list[TopicActionHandler] = [
+            SlowSessionsActionHandler(),
+            BlockingActionHandler(),
+        ]
 
     def commands_for_topic(self, topic_id: str) -> list[str]:
         for handler in self._handlers:

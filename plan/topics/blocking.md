@@ -72,7 +72,7 @@ Tác giả: Long Do + Claude
 | GAP-5 | ~~Topic `blocked_query_trend` chưa tồn tại~~ | ⏸️ Defer | Ngoài scope (A0) |
 | GAP-6 | `blocking.yaml` specialization trống — agent không có hướng dẫn phân tích blocking | 🟡 Trung | Phân tích sẽ generic, không tận dụng context AG/CDC/RG |
 | GAP-7 | Topic `blocking` chưa khai báo `capture_tools` + `analysis_config` | 🟢 Thấp | CRITICAL finding không trigger DiagnosticCapture; `/quick` không hoạt động |
-| GAP-8 | Layer 3 chưa có visualization riêng cho blocking chain | ⏸️ Defer | Ngoài scope (A0) |
+| GAP-8 | Layer 3 chưa có visualization riêng cho blocking chain | ✅ Done 2026-06-04 | Layout `blocking` 13 cột (head blocker, IDLE TXN badge, kill head blocker) + chain tree modal. Wire `layout-registry.ts` vào `dashboard.ts` (xóa inline duplicate); module mới `topics/blocking-detail.ts` |
 | GAP-9 | Topic `blocked_query` đang `enabled=true` với detector chưa tồn tại | 🟡 Trung | Khi register detector mà không handle `blocked_snapshot` → behavior nửa vời. **Quyết định: disable topic này trong seed** (giữ config để bật lại sau) |
 
 ### Insight quan trọng từ phân tích
@@ -181,9 +181,15 @@ Layer 3: dashboard hiển thị findings + insights (generic — phase sau mới
 
 ### Deferred (ngoài scope đợt này) ⏸️
 
-- Topic `blocked_query` (victim snapshot chi tiết) — bật lại + queries mới khi cần
+- ~~Topic `blocked_query`~~ → ✅ **Giải quyết bằng capture tool, KHÔNG bật lại job riêng** (2026-06-05):
+  capture tool `get_blocked_victims_snapshot` (per-victim full text + wait_resource + host + victim plan XML)
+  chạy tự động khi blocking CRITICAL → `finding_diagnostics` → tab Diagnostics trên UI + AI context.
+  Lý do bỏ job riêng: job 60s tốn DMV khi không có blocking, snapshot lệch thời điểm với topic `blocking`
+  (không correlate session_id được), và data chỉ có nghĩa tại T+0 của incident.
+  Đồng thời bỏ `get_blocking_chain` (trùng subset metrics) + `get_wait_stats`
+  (dm_os_wait_stats cumulative từ restart — vô nghĩa cho incident) khỏi capture_tools của blocking.
 - Topic `blocked_query_trend` (structural contention) — thêm khi blocking core ổn định
-- Layer 3 visualization (chain tree view, trend chart, glossary lock modes)
+- ~~Layer 3 visualization~~ → ✅ Done 2026-06-04 (layout `blocking` + chain tree modal; còn lại: trend chart cho blocked_query_trend khi bật topic, glossary lock modes — dashboard chưa dùng glossary nên skip)
 
 ---
 
@@ -298,15 +304,13 @@ SELECT TOP 100
     s.login_name,
     s.host_name,
     s.program_name,
-    CONVERT(VARCHAR(64), HASHBYTES('MD5', qt.text), 2) AS query_hash,
-    SUBSTRING(qt.text, 1, 500)      AS query_text,
-    -- Execution plan của victim — để biết victim đang làm gì (scan? seek? lookup?)
-    -- NULL nếu plan chưa compile hoặc session chờ quá sớm
-    CONVERT(NVARCHAR(MAX), qp.query_plan) AS query_plan_xml
+    -- Native query_hash (không MD5) + full text — cùng convention với slow_sessions
+    -- (cập nhật 2026-06-05: native hash join được dm_exec_query_stats / Query Store)
+    CONVERT(NVARCHAR(18), r.query_hash, 1) AS query_hash,
+    qt.text                         AS query_text
 FROM sys.dm_exec_requests r
 JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
 CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) qt
-OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) qp
 WHERE r.blocking_session_id > 0
   AND r.wait_time > 10000          -- >= 10 giây (tăng từ 5s để giảm noise)
 ORDER BY r.wait_time DESC
@@ -332,20 +336,22 @@ SELECT TOP 20
     s.open_transaction_count,
     s.status                                            AS session_status,
     DATEDIFF(SECOND, s.last_request_start_time, GETDATE()) AS idle_sec,
-    -- SQL text: dùng most_recent_sql_handle từ connection (có cả khi session idle)
-    SUBSTRING(ISNULL(qt.text, ''), 1, 500)              AS last_query_text,
+    -- SQL text: dùng most_recent_sql_handle từ connection (có cả khi session idle) — FULL text
+    ISNULL(qt.text, '')                                 AS last_query_text,
     -- Active request nếu có
     r.command,
     r.cpu_time / 1000                                   AS cpu_sec,
     r.reads,
+    -- Native query_hash: active từ request; idle bridge qua dm_exec_query_stats
+    CONVERT(NVARCHAR(18), COALESCE(r.query_hash, cached_plan.query_hash), 1) AS query_hash,
     -- Execution plan — 2 case:
     --   Active blocker:  lấy từ dm_exec_requests.plan_handle (chính xác nhất)
     --   Idle blocker:    tìm trong plan cache bằng most_recent_sql_handle từ connection
     --                    → plan của câu query cuối cùng session này chạy (câu đã acquire lock)
-    CONVERT(NVARCHAR(MAX), COALESCE(
+    COALESCE(
         active_plan.query_plan,      -- active blocker
         cached_plan.query_plan       -- idle blocker — tìm qua plan cache
-    )) AS blocker_plan_xml
+    ) AS blocker_plan_xml
 FROM sys.dm_exec_sessions s
 LEFT JOIN sys.dm_exec_requests r       ON s.session_id = r.session_id
 LEFT JOIN sys.dm_exec_connections c    ON s.session_id = c.session_id
@@ -355,12 +361,12 @@ OUTER APPLY sys.dm_exec_query_plan(r.plan_handle) active_plan
 -- Plan cho idle blocker: dùng dm_exec_query_stats — DMV duy nhất có cả sql_handle + plan_handle
 -- dm_exec_sql_text KHÔNG có cột sql_handle, không thể dùng để filter
 OUTER APPLY (
-    SELECT TOP 1 qp2.query_plan
+    SELECT TOP 1 qp2.query_plan, qs.query_hash
     FROM sys.dm_exec_query_stats qs
     CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp2
     WHERE qs.sql_handle = c.most_recent_sql_handle
       AND r.plan_handle IS NULL       -- chỉ chạy khi không có active request
-) cached_plan(query_plan)
+) cached_plan(query_plan, query_hash)
 WHERE s.session_id IN (
     SELECT DISTINCT blocking_session_id
     FROM sys.dm_exec_requests

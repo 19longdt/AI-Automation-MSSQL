@@ -25,12 +25,12 @@ from pymongo.operations import IndexModel
 logger = logging.getLogger(__name__)
 
 # TTL values (giây)
-TTL_RAW_METRICS_SEC = 3 * 24 * 3600
-TTL_FINDINGS_SEC = 9 * 24 * 3600
-TTL_FINDING_DIAGNOSTICS_SEC = 9 * 24 * 3600
-TTL_AI_ANALYSIS_SEC = 9 * 24 * 3600
-TTL_DEDUP_CACHE_SEC = 7 * 24 * 3600
-TTL_JOB_EXECUTIONS_SEC = 3 * 24 * 3600
+TTL_RAW_METRICS_SEC = 1 * 24 * 3600
+TTL_FINDINGS_SEC = 7 * 24 * 3600
+TTL_FINDING_DIAGNOSTICS_SEC = 7 * 24 * 3600
+TTL_AI_ANALYSIS_SEC = 7 * 24 * 3600
+TTL_DEDUP_CACHE_SEC = 1 * 24 * 3600
+TTL_JOB_EXECUTIONS_SEC = 1 * 24 * 3600
 
 # Maintenance module — queue/batch TTL ngắn (chỉ dọn item terminal),
 # history TTL DÀI vì là AI context cho Layer 2 ("lần rebuild trước có giúp không?")
@@ -39,11 +39,11 @@ TTL_MAINT_BATCHES_SEC = 14 * 24 * 3600
 TTL_MAINT_HISTORY_SEC = 90 * 24 * 3600
 
 # Giữ alias ngày để backward compat với các module khác import constants này
-TTL_RAW_METRICS_DAYS = 3
-TTL_FINDINGS_DAYS = 9
-TTL_AI_ANALYSIS_DAYS = 9
-TTL_DEDUP_CACHE_DAYS = 7
-TTL_JOB_EXECUTIONS_DAYS = 3
+TTL_RAW_METRICS_DAYS = 1
+TTL_FINDINGS_DAYS = 7
+TTL_AI_ANALYSIS_DAYS = 7
+TTL_DEDUP_CACHE_DAYS = 1
+TTL_JOB_EXECUTIONS_DAYS = 1
 
 
 def create_all_indexes(db: Database) -> None:

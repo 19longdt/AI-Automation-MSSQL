@@ -82,7 +82,7 @@ body {
   color: var(--color-text);
   background: var(--color-bg);
   position: relative;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 body>* {
@@ -287,10 +287,10 @@ body>* {
 }
 
 .panel {
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  /*border: 1px solid var(--color-border);*/
+  /*border-radius: 8px;*/
   background: var(--color-surface);
-  padding: 10px;
+  /*padding: 10px;*/
   overflow-x: auto;
 }
 
@@ -338,6 +338,10 @@ button:disabled {
 
 .filters .hidden {
   display: none;
+}
+
+.hidden {
+  display: none !important;
 }
 
 table {

@@ -43,7 +43,11 @@
       "PowerShell(claude mcp *)",
       "PowerShell(serena *)",
       "PowerShell(uv tool *)",
-      "PowerShell(claude *)"
+      "PowerShell(claude *)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/layer1/ -q)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(git -C /c/GIT/AI-Automation-MSSQL status --short)",
+      "PowerShell(python -m py_compile layer1/seed/seed_topics.py; if \\($?\\) { \"OK\" })"
     ]
   }
 }

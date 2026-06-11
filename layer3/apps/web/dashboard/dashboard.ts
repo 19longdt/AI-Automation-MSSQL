@@ -3,6 +3,10 @@ import { withButtonLoading, withGlobalLoading } from "./loading-overlay";
 import { bindModalEvents, openActionConfirmModal, openModal } from "./modal";
 import { PlanAnalysisResult } from "@layer3/core";
 import { PlanAnalysisComponent } from "./plan-analysis-component";
+import { createTopicLayoutHandlers, TopicLayoutKey } from "./topics/layout-registry";
+import { renderBlockingChainModal } from "./topics/blocking-detail";
+import { renderAgHealthModal } from "./topics/ag-health-detail";
+import { attachGlossaryTooltips } from "./glossary-tooltip";
 declare const QP: any;
 declare const window: any;
 
@@ -10,6 +14,28 @@ var page = 0;
 var limit = 15;
 var activeTopicId = "";
 var topics: any[] = [];
+var activeTimeRange: any = null;
+var autoRefreshTimer: number | null = null;
+var isLoadingFindings = false;
+var autoRefreshTick = 0;
+var TIME_RANGE_STORAGE_KEY = "dashboard.timeRange.recent.v1";
+var AUTO_REFRESH_STORAGE_KEY = "dashboard.timeRange.autoRefresh.v1";
+var latestTimelineData: any = null;
+
+interface TimelineBucket {
+  ts: string
+  count: number
+  critical: number
+  warning: number
+  info: number
+}
+
+interface TimelineResponse {
+  interval_minutes: number
+  from: string | null
+  to: string | null
+  buckets: TimelineBucket[]
+}
 
 function pad2(n: number): string {
   return n < 10 ? "0" + String(n) : String(n);
@@ -24,16 +50,729 @@ function toDateTimeLocalValue(d: Date): string {
     pad2(d.getSeconds());
 }
 
-function initDefaultDetectedAtRange() {
+function buildRelativeTimeRange(amount: number, unit: string, label?: string): any {
+  return {
+    mode: "relative",
+    amount: amount,
+    unit: unit,
+    label: label || ("Last " + String(amount) + " " + unit)
+  };
+}
+
+function buildAbsoluteTimeRange(fromValue: string, toValue: string, label?: string): any {
+  return {
+    mode: "absolute",
+    from: fromValue,
+    to: toValue,
+    label: label || "Custom range"
+  };
+}
+
+function readLocalDateTimeInput(v: string): Date | null {
+  if (!v) return null;
+  var d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function startOfWeek(d: Date): Date {
+  var x = startOfDay(d);
+  var day = x.getDay();
+  var diff = day === 0 ? -6 : (1 - day);
+  x.setDate(x.getDate() + diff);
+  return x;
+}
+
+function shiftDate(d: Date, amount: number, unit: string): Date {
+  var x = new Date(d.getTime());
+  if (unit === "minutes") x.setMinutes(x.getMinutes() + amount);
+  else if (unit === "hours") x.setHours(x.getHours() + amount);
+  else if (unit === "days") x.setDate(x.getDate() + amount);
+  else if (unit === "weeks") x.setDate(x.getDate() + amount * 7);
+  else if (unit === "months") x.setMonth(x.getMonth() + amount);
+  return x;
+}
+
+function presetTimeRange(presetId: string, now?: Date): any {
+  var anchor = now || new Date();
+  if (presetId === "today") {
+    return { label: "Today", from: startOfDay(anchor), to: anchor };
+  }
+  if (presetId === "this_week") {
+    return { label: "This week", from: startOfWeek(anchor), to: anchor };
+  }
+  if (presetId === "last_1_minute") {
+    return { label: "Last 1 minute", from: shiftDate(anchor, -1, "minutes"), to: anchor };
+  }
+  if (presetId === "last_15_minutes") {
+    return { label: "Last 15 minutes", from: shiftDate(anchor, -15, "minutes"), to: anchor };
+  }
+  if (presetId === "last_30_minutes") {
+    return { label: "Last 30 minutes", from: shiftDate(anchor, -30, "minutes"), to: anchor };
+  }
+  if (presetId === "last_1_hour") {
+    return { label: "Last 1 hour", from: shiftDate(anchor, -1, "hours"), to: anchor };
+  }
+  if (presetId === "last_24_hours") {
+    return { label: "Last 24 hours", from: shiftDate(anchor, -24, "hours"), to: anchor };
+  }
+  if (presetId === "last_7_days") {
+    return { label: "Last 7 days", from: shiftDate(anchor, -7, "days"), to: anchor };
+  }
+  if (presetId === "last_30_days") {
+    return { label: "Last 30 days", from: shiftDate(anchor, -30, "days"), to: anchor };
+  }
+  if (presetId === "last_90_days") {
+    return { label: "Last 90 days", from: shiftDate(anchor, -90, "days"), to: anchor };
+  }
+  if (presetId === "last_1_year") {
+    return { label: "Last 1 year", from: shiftDate(anchor, -12, "months"), to: anchor };
+  }
+  return { label: "Last 1 hour", from: shiftDate(anchor, -1, "hours"), to: anchor };
+}
+
+function resolveTimeRange(state: any, now?: Date): { label: string; from: Date; to: Date } {
+  var anchor = now || new Date();
+  if (!state || !state.mode) {
+    var fallback = presetTimeRange("last_1_hour", anchor);
+    return { label: fallback.label, from: fallback.from, to: fallback.to };
+  }
+  if (state.mode === "absolute") {
+    var fromAbs = readLocalDateTimeInput(String(state.from || ""));
+    var toAbs = readLocalDateTimeInput(String(state.to || ""));
+    if (fromAbs && toAbs) return { label: String(state.label || "Custom range"), from: fromAbs, to: toAbs };
+  }
+  if (state.mode === "preset") {
+    var preset = presetTimeRange(String(state.presetId || ""), anchor);
+    return { label: String(state.label || preset.label), from: preset.from, to: preset.to };
+  }
+  if (state.mode === "relative") {
+    var amount = Math.max(1, Number(state.amount) || 1);
+    var unit = String(state.unit || "minutes");
+    return {
+      label: String(state.label || ("Last " + String(amount) + " " + unit)),
+      from: shiftDate(anchor, -amount, unit),
+      to: anchor
+    };
+  }
+  var fallback2 = presetTimeRange("last_1_hour", anchor);
+  return { label: fallback2.label, from: fallback2.from, to: fallback2.to };
+}
+
+function formatTimeRangeDisplay(d: Date): string {
+  var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return months[d.getMonth()] + " " + String(d.getDate()) + ", " + String(d.getFullYear()) +
+    " @ " + pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+}
+
+function parseWallClockDate(v: string | null | undefined): Date | null {
+  if (!v) return null;
+  var raw = String(v).trim();
+  if (!raw) return null;
+  var normalized = raw;
+  if (normalized.charAt(normalized.length - 1) === "Z") normalized = normalized.slice(0, -1);
+  if (normalized.indexOf("T") >= 0) normalized = normalized.replace("T", " ");
+  var m = normalized.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?$/);
+  if (!m) {
+    var fallback = new Date(raw);
+    return isNaN(fallback.getTime()) ? null : fallback;
+  }
+  return new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    Number(m[6] || "0"),
+    0
+  );
+}
+
+function formatChartTick(d: Date, intervalMinutes: number): string {
+  if (intervalMinutes >= 24 * 60) {
+    return pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1);
+  }
+  if (intervalMinutes >= 180) {
+    return pad2(d.getHours()) + ":00";
+  }
+  return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+}
+
+function formatTimelineRange(fromIso: string | null, toIso: string | null): string {
+  if (!fromIso || !toIso) return "No range";
+  var from = parseWallClockDate(fromIso);
+  var to = parseWallClockDate(toIso);
+  if (!from || !to) return "No range";
+  return formatTimeRangeDisplay(from) + " -> " + formatTimeRangeDisplay(to);
+}
+
+function formatWindowLabel(fromDate: Date, toDate: Date): string {
+  return "Showing activity window: " + formatTimeRangeDisplay(fromDate) + " -> " + formatTimeRangeDisplay(toDate);
+}
+
+function formatIntervalLabel(intervalMinutes: number): string {
+  if (intervalMinutes % (24 * 60) === 0) {
+    var days = intervalMinutes / (24 * 60);
+    return "Interval: " + String(days) + " day" + (days > 1 ? "s" : "");
+  }
+  if (intervalMinutes % 60 === 0) {
+    var hours = intervalMinutes / 60;
+    return "Interval: " + String(hours) + " hour" + (hours > 1 ? "s" : "");
+  }
+  return "Interval: " + String(intervalMinutes) + " minute" + (intervalMinutes > 1 ? "s" : "");
+}
+
+function formatTooltipDateTime(d: Date): string {
+  return formatTimeRangeDisplay(d);
+}
+
+function buildNiceTicks(maxValue: number): number[] {
+  // Findings count là số nguyên. Chọn step nguyên để 4 mốc cách đều tuyệt đối:
+  // value/yMax = i/4 cho mọi tick, tránh tình trạng làm tròn lệch (vd [0,3,5,8,10]).
+  var max = Math.max(1, Math.ceil(maxValue));
+  var step = Math.max(1, Math.ceil(max / 4));
+  // Làm step "tròn" hơn (2,5,10...) khi giá trị lớn, vẫn giữ tính nguyên & đều.
+  if (step > 5) {
+    var exponent = Math.floor(Math.log(step) / Math.log(10));
+    var base = Math.pow(10, exponent);
+    var fraction = step / base;
+    var niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+    step = Math.round(niceFraction * base);
+  }
+  var ticks: number[] = [];
+  for (var i = 0; i <= 4; i++) ticks.push(step * i);
+  return ticks;
+}
+
+function chooseXAxisLabelMinutes(intervalMinutes: number, rangeMinutes: number, plotWidth: number): number {
+  if (intervalMinutes <= 30) {
+    return intervalMinutes;
+  }
+  var targetLabels = Math.max(6, Math.floor(plotWidth / 72));
+  var rawStep = Math.max(intervalMinutes, Math.ceil(rangeMinutes / Math.max(targetLabels, 1)));
+  var choices = [
+    intervalMinutes,
+    30,
+    60,
+    120,
+    180,
+    240,
+    360,
+    720,
+    1440
+  ].sort(function (a, b) { return a - b; });
+  for (var i = 0; i < choices.length; i++) {
+    var candidate = choices[i];
+    if (candidate >= rawStep && candidate >= intervalMinutes && candidate % intervalMinutes === 0) {
+      return candidate;
+    }
+  }
+  return Math.max(intervalMinutes, rawStep);
+}
+
+function floorTimeToMinutes(ts: number, stepMinutes: number): number {
+  var stepMs = stepMinutes * 60 * 1000;
+  return ts - (ts % stepMs);
+}
+
+function ceilTimeToMinutes(ts: number, stepMinutes: number): number {
+  var stepMs = stepMinutes * 60 * 1000;
+  var remainder = ts % stepMs;
+  return remainder === 0 ? ts : ts + (stepMs - remainder);
+}
+
+function chooseTimelineIntervalMinutes(from: Date, to: Date): number {
+  var durationMs = Math.max(1, to.getTime() - from.getTime());
+  var minutes = durationMs / 60000;
+  if (minutes <= 180) return 5;
+  if (minutes <= 24 * 60) return 30;
+  if (minutes <= 3 * 24 * 60) return 60;
+  if (minutes <= 14 * 24 * 60) return 180;
+  if (minutes <= 45 * 24 * 60) return 720;
+  return 1440;
+}
+
+function buildTimelineQueryParams(
+  severity: string,
+  alertStatus: string,
+  blockingStatus: string,
+  detectedFrom: string,
+  detectedTo: string
+): Record<string, string | number | undefined> {
+  var resolved = currentResolvedTimeRange();
+  return {
+    topic_id: activeTopicId,
+    severity: severity,
+    alert_status: alertStatus,
+    blocking_status: blockingStatus,
+    since: detectedFrom,
+    until: detectedTo,
+    interval_minutes: chooseTimelineIntervalMinutes(resolved.from, resolved.to)
+  };
+}
+
+function setTimelineCardVisible(visible: boolean): void {
+  var card = document.getElementById("findingsTimelineCard");
+  if (!card) return;
+  if (visible) card.classList.remove("hidden");
+  else card.classList.add("hidden");
+}
+
+function renderFindingTimeline(data: TimelineResponse | null): void {
+  latestTimelineData = data;
+  var svg = document.getElementById("findingsTimelineSvg") as any;
+  var empty = document.getElementById("findingsTimelineEmpty");
+  var wrap = document.getElementById("findingsTimelineSvgWrap");
+  var rangeEl = document.getElementById("findingsTimelineRange");
+  var windowEl = document.getElementById("findingsTimelineWindow");
+  var intervalEl = document.getElementById("findingsTimelineInterval");
+  var summaryEl = document.getElementById("findingsTimelineSummary");
+  var tooltip = document.getElementById("findingsTimelineTooltip") as HTMLDivElement | null;
+  if (!svg || !empty || !wrap || !rangeEl || !windowEl || !intervalEl || !summaryEl || !tooltip) return;
+
+  rangeEl.textContent = data ? formatTimelineRange(data.from, data.to) : "No range";
+  windowEl.classList.add("hidden");
+  windowEl.textContent = "";
+  intervalEl.textContent = data ? formatIntervalLabel(Number(data.interval_minutes || 0)) : "Interval: -";
+  summaryEl.textContent = "Waiting for data.";
+
+  var buckets = data && data.buckets ? data.buckets : [];
+  var hasActivity = false;
+  for (var i = 0; i < buckets.length; i++) {
+    if (Number(buckets[i].count || 0) > 0) {
+      hasActivity = true;
+      break;
+    }
+  }
+
+  empty.classList.toggle("hidden", hasActivity);
+  wrap.classList.toggle("hidden", !hasActivity);
+  svg.innerHTML = "";
+  tooltip.classList.add("hidden");
+  if (!hasActivity) summaryEl.textContent = "No findings for the active filters and time range.";
+  if (!hasActivity || !data) return;
+
+  // viewBox width khớp đúng chiều rộng render thực tế của wrap → tỉ lệ viewBox
+  // trùng khít khung CSS (width × 170px) nên "xMidYMid meet" mặc định vừa lấp đầy
+  // (không còn khoảng trắng 2 bên) vừa giữ scale 1:1 → đường kẻ/nét đứt sắc nét.
+  var width = Math.max(wrap.clientWidth || 960, 320);
+  var height = 170;
+  svg.setAttribute("viewBox", "0 0 " + String(width) + " " + String(height));
+  svg.removeAttribute("preserveAspectRatio");
+  var marginLeft = 40;
+  var marginTop = 14;
+  var marginRight = 10;
+  var marginBottom = 26;
+  var plotWidth = width - marginLeft - marginRight;
+  var plotHeight = height - marginTop - marginBottom;
+  var now = new Date();
+  var fromDate = parseWallClockDate(data.from);
+  var toDate = parseWallClockDate(data.to);
+  var fromTime = fromDate ? fromDate.getTime() : 0;
+  var toTime = toDate ? toDate.getTime() : 0;
+  var intervalMs = Math.max(1, data.interval_minutes * 60 * 1000);
+  var maxCount = 0;
+  var totalCount = 0;
+  var peakBucket: TimelineBucket | null = null;
+  for (var j = 0; j < buckets.length; j++) {
+    var bucketCount = Number(buckets[j].count || 0);
+    totalCount += bucketCount;
+    if (bucketCount >= maxCount) peakBucket = buckets[j];
+    maxCount = Math.max(maxCount, bucketCount);
+  }
+  var ticks = buildNiceTicks(maxCount);
+  var yMax = ticks[ticks.length - 1];
+  var ns = "http://www.w3.org/2000/svg";
+  var visibleFromDate = fromDate || (parseWallClockDate(buckets[0] && buckets[0].ts) || new Date());
+  var visibleToDate = toDate || (parseWallClockDate(buckets[buckets.length - 1] && buckets[buckets.length - 1].ts) || new Date());
+  var visibleFromTime = floorTimeToMinutes(visibleFromDate.getTime(), data.interval_minutes);
+  var visibleToTime = ceilTimeToMinutes(visibleToDate.getTime(), data.interval_minutes);
+  if (visibleToTime <= visibleFromTime) visibleToTime = visibleFromTime + intervalMs;
+  var visibleBucketCount = Math.max(1, Math.ceil((visibleToTime - visibleFromTime) / intervalMs));
+  var barSlotWidth = plotWidth / visibleBucketCount;
+
+  windowEl.classList.add("hidden");
+
+  summaryEl.textContent = "Total " + String(totalCount) + " findings. Peak " + String(maxCount) + " at " +
+    (peakBucket ? formatChartTick(parseWallClockDate(peakBucket.ts) || new Date(), data.interval_minutes) : "-") + ".";
+
+  function svgEl(name: string): SVGElement {
+    return document.createElementNS(ns, name) as any;
+  }
+
+  function appendLine(x1: number, y1: number, x2: number, y2: number, color: string, widthPx: number, dash?: string): void {
+    var line = svgEl("line");
+    line.setAttribute("x1", String(x1));
+    line.setAttribute("y1", String(y1));
+    line.setAttribute("x2", String(x2));
+    line.setAttribute("y2", String(y2));
+    line.setAttribute("stroke", color);
+    line.setAttribute("stroke-width", String(widthPx));
+    if (dash) line.setAttribute("stroke-dasharray", dash);
+    svg.appendChild(line);
+  }
+
+  function appendText(x: number, y: number, text: string, color: string, anchor?: string): void {
+    var el = svgEl("text");
+    el.setAttribute("x", String(x));
+    el.setAttribute("y", String(y));
+    el.setAttribute("fill", color);
+    el.setAttribute("font-size", "11");
+    el.setAttribute("font-family", "inherit");
+    if (anchor) el.setAttribute("text-anchor", anchor);
+    el.textContent = text;
+    svg.appendChild(el);
+  }
+
+  var styles = getComputedStyle(document.documentElement);
+  var gridColor = styles.getPropertyValue("--color-border").trim() || "#d7deea";
+  var axisColor = styles.getPropertyValue("--color-muted").trim() || "#5b6472";
+  var criticalColor = styles.getPropertyValue("--color-danger").trim() || "#d5443e";
+  var warningColor = styles.getPropertyValue("--color-warning").trim() || "#ca8a04";
+  var infoColor = styles.getPropertyValue("--color-primary").trim() || "#2563eb";
+  var markerColor = styles.getPropertyValue("--color-danger").trim() || "#d5443e";
+
+  for (var step = 0; step < ticks.length; step++) {
+    var value = ticks[step];
+    var y = marginTop + plotHeight - ((value / yMax) * plotHeight);
+    appendLine(marginLeft, y, width - marginRight, y, gridColor, step === 0 ? 1.2 : 0.8, step === 0 ? "" : "2 4");
+    appendText(marginLeft - 8, y + 4, String(value), axisColor, "end");
+  }
+
+  // Cột là histogram phủ khoảng [T, T+interval) nên phải lấp gần đầy slot và
+  // neo mép trái tại timeToX(T). Cap ở 48px để khi rất ít bucket cột không quá to.
+  var barGap = Math.min(8, Math.max(2, barSlotWidth * 0.2));
+  var barWidth = Math.min(48, Math.max(2, barSlotWidth - barGap));
+  // Căn giữa cột trong slot để tâm cột = slotX + barSlotWidth/2, khớp với nhãn thời gian.
+  var barOffset = Math.max(0, (barSlotWidth - barWidth) / 2);
+
+  function timeToX(ts: number): number {
+    return marginLeft + (plotWidth * ((ts - visibleFromTime) / Math.max(1, visibleToTime - visibleFromTime)));
+  }
+
+  if (now.getTime() >= visibleFromTime && now.getTime() <= visibleToTime) {
+    var nowRatio = (now.getTime() - visibleFromTime) / Math.max(1, visibleToTime - visibleFromTime);
+    var nowX = marginLeft + (plotWidth * nowRatio);
+    appendLine(nowX, marginTop, nowX, marginTop + plotHeight, markerColor, 1.2);
+    appendText(nowX - 2, marginTop + 11, "now", markerColor, "end");
+  }
+
+  function showTooltip(item: TimelineBucket, clientX: number, clientY: number): void {
+    var itemDate = parseWallClockDate(item.ts) || new Date();
+    tooltip.innerHTML =
+      "<div class='findings-timeline-tooltip-time'>" + esc(formatTooltipDateTime(itemDate)) + "</div>" +
+      "<div class='findings-timeline-tooltip-total'>Total: " + String(item.count) + "</div>" +
+      "<div class='findings-timeline-tooltip-list'>" +
+      "<div class='findings-timeline-tooltip-row'><span>Critical</span><strong>" + String(item.critical || 0) + "</strong></div>" +
+      "<div class='findings-timeline-tooltip-row'><span>Warning</span><strong>" + String(item.warning || 0) + "</strong></div>" +
+      "<div class='findings-timeline-tooltip-row'><span>Info</span><strong>" + String(item.info || 0) + "</strong></div>" +
+      "</div>";
+    var rect = wrap.getBoundingClientRect();
+    tooltip.style.left = String(clientX - rect.left + 8) + "px";
+    tooltip.style.top = String(clientY - rect.top - 6) + "px";
+    tooltip.classList.remove("hidden");
+  }
+
+  function hideTooltip(): void {
+    tooltip.classList.add("hidden");
+  }
+
+  for (var b = 0; b < buckets.length; b++) {
+    (function (item: TimelineBucket, b: number) {
+      var itemDate = parseWallClockDate(item.ts) || new Date();
+      var itemTime = itemDate.getTime();
+      if (itemTime + intervalMs <= visibleFromTime || itemTime >= visibleToTime) return;
+      var count = Number(item.count || 0);
+      var slotX = timeToX(itemTime);
+      var x = slotX + barOffset;
+      var group = svgEl("g");
+      group.setAttribute("data-ts", item.ts);
+      group.setAttribute("tabindex", "0");
+
+      var hoverZone = svgEl("rect");
+      hoverZone.setAttribute("x", String(slotX));
+      hoverZone.setAttribute("y", String(marginTop));
+      hoverZone.setAttribute("width", String(barSlotWidth));
+      hoverZone.setAttribute("height", String(plotHeight));
+      hoverZone.setAttribute("fill", "transparent");
+      group.appendChild(hoverZone);
+
+      var stackValues = [
+        { key: "info", value: Number(item.info || 0), color: infoColor },
+        { key: "warning", value: Number(item.warning || 0), color: warningColor },
+        { key: "critical", value: Number(item.critical || 0), color: criticalColor }
+      ];
+      var stackedHeight = 0;
+      for (var s = 0; s < stackValues.length; s++) {
+        var stack = stackValues[s];
+        if (stack.value <= 0) continue;
+        var segmentHeight = yMax <= 0 ? 0 : (stack.value / yMax) * plotHeight;
+        var segmentY = marginTop + plotHeight - stackedHeight - segmentHeight;
+        var rect = svgEl("rect");
+        rect.setAttribute("x", String(x));
+        rect.setAttribute("y", String(segmentY));
+        rect.setAttribute("width", String(barWidth));
+        rect.setAttribute("height", String(Math.max(segmentHeight, 2)));
+        rect.setAttribute("fill", stack.color);
+        rect.setAttribute("fill-opacity", count === maxCount ? "0.98" : "0.88");
+        rect.setAttribute("stroke", count === maxCount ? "rgba(255,255,255,0.35)" : "transparent");
+        rect.setAttribute("stroke-width", count === maxCount ? "0.6" : "0");
+        group.appendChild(rect);
+        stackedHeight += segmentHeight;
+      }
+
+      group.addEventListener("mousemove", function (ev) {
+        var mouseEv = ev as MouseEvent;
+        showTooltip(item, mouseEv.clientX, mouseEv.clientY);
+      });
+      group.addEventListener("mouseenter", function (ev) {
+        var mouseEv = ev as MouseEvent;
+        showTooltip(item, mouseEv.clientX, mouseEv.clientY);
+      });
+      group.addEventListener("mouseleave", function () {
+        hideTooltip();
+      });
+      group.addEventListener("focus", function () {
+        var wrapRect = wrap.getBoundingClientRect();
+        showTooltip(item, wrapRect.left + x, wrapRect.top + marginTop + 20);
+      });
+      group.addEventListener("blur", function () {
+        hideTooltip();
+      });
+      svg.appendChild(group);
+    })(buckets[b], b);
+  }
+
+  if (visibleToTime > visibleFromTime) {
+    var rangeMinutes = Math.max(1, Math.round((visibleToTime - visibleFromTime) / 60000));
+    var labelStepMinutes = chooseXAxisLabelMinutes(data.interval_minutes, rangeMinutes, plotWidth);
+    var tickTime = floorTimeToMinutes(visibleFromTime, labelStepMinutes);
+    if (tickTime < visibleFromTime) tickTime += labelStepMinutes * 60 * 1000;
+
+    while (tickTime <= visibleToTime) {
+      var ratio = (tickTime - visibleFromTime) / Math.max(1, visibleToTime - visibleFromTime);
+      // +barSlotWidth/2: cột phủ [T, T+interval) nên tâm cột nằm lệch nửa slot so
+      // với timeToX(T); đặt nhãn ngay chính giữa cột thay vì ở mép trái.
+      var tickX = marginLeft + (plotWidth * ratio) + (barSlotWidth / 2);
+      appendText(tickX, height - 14, formatChartTick(new Date(tickTime), labelStepMinutes), axisColor, "middle");
+      tickTime += labelStepMinutes * 60 * 1000;
+    }
+  }
+}
+
+function currentResolvedTimeRange(): { label: string; from: Date; to: Date } {
+  return resolveTimeRange(activeTimeRange);
+}
+
+function ensureCustomDateTimeInputsFilled(): void {
+  var fromEl = document.getElementById("detectedFromCustom") as HTMLInputElement | null;
+  var toEl = document.getElementById("detectedToCustom") as HTMLInputElement | null;
+  if (!fromEl || !toEl) return;
+  if (fromEl.value && toEl.value) return;
+  var fallback = presetTimeRange("last_1_hour");
+  if (!fromEl.value) fromEl.value = toDateTimeLocalValue(fallback.from);
+  if (!toEl.value) toEl.value = toDateTimeLocalValue(fallback.to);
+}
+
+function syncDetectedAtInputsFromState(): void {
   var fromEl = document.getElementById("detectedFromFilter") as HTMLInputElement | null;
   var toEl = document.getElementById("detectedToFilter") as HTMLInputElement | null;
   if (!fromEl || !toEl) return;
-  if (fromEl.value || toEl.value) return;
+  var range = currentResolvedTimeRange();
+  fromEl.value = toDateTimeLocalValue(range.from);
+  toEl.value = toDateTimeLocalValue(range.to);
+}
 
-  var now = new Date();
-  var oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  fromEl.value = toDateTimeLocalValue(oneHourAgo);
-  toEl.value = toDateTimeLocalValue(now);
+function updateTimeRangeSummary(): void {
+  var summaryEl = document.getElementById("timeRangeSummary");
+  var summaryLabelEl = document.getElementById("timeRangeSummaryLabel");
+  var customFromEl = document.getElementById("detectedFromCustom") as HTMLInputElement | null;
+  var customToEl = document.getElementById("detectedToCustom") as HTMLInputElement | null;
+  var range = currentResolvedTimeRange();
+  if (summaryLabelEl) summaryLabelEl.textContent = range.label;
+  if (summaryEl) summaryEl.textContent = formatTimeRangeDisplay(range.from) + " -> " + formatTimeRangeDisplay(range.to);
+  if (customFromEl) customFromEl.value = toDateTimeLocalValue(range.from);
+  if (customToEl) customToEl.value = toDateTimeLocalValue(range.to);
+  ensureCustomDateTimeInputsFilled();
+}
+
+function recentRangeItems(): any[] {
+  try {
+    var raw = window.localStorage.getItem(TIME_RANGE_STORAGE_KEY);
+    if (!raw) return [];
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+function saveRecentRangeItems(items: any[]): void {
+  try {
+    window.localStorage.setItem(TIME_RANGE_STORAGE_KEY, JSON.stringify(items.slice(0, 8)));
+  } catch (_e) { }
+}
+
+function pushRecentRange(label: string, from: Date, to: Date): void {
+  var entry = {
+    mode: "absolute",
+    label: label,
+    from: toDateTimeLocalValue(from),
+    to: toDateTimeLocalValue(to)
+  };
+  var key = entry.from + "|" + entry.to;
+  var items = recentRangeItems().filter(function (x: any) {
+    return (String(x && x.from || "") + "|" + String(x && x.to || "")) !== key;
+  });
+  items.unshift(entry);
+  saveRecentRangeItems(items);
+}
+
+function renderRecentRanges(): void {
+  var box = document.getElementById("recentRangesList");
+  if (!box) return;
+  var items = recentRangeItems();
+  if (!items.length) {
+    box.innerHTML = "<div class='time-picker-empty'>No recent ranges yet.</div>";
+    return;
+  }
+  box.innerHTML = items.map(function (x: any, idx: number) {
+    var from = readLocalDateTimeInput(String(x && x.from || ""));
+    var to = readLocalDateTimeInput(String(x && x.to || ""));
+    var detail = (from && to)
+      ? formatTimeRangeDisplay(from) + " -> " + formatTimeRangeDisplay(to)
+      : "";
+    return "<a href='#' class='time-recent-link' data-recent-idx='" + String(idx) + "'>" +
+      "<span class='time-recent-label'>" + esc(String(x && x.label || "Range")) + "</span>" +
+      "<span class='time-recent-detail'>" + esc(detail) + "</span></a>";
+  }).join("");
+}
+
+function applyTimeRangeState(nextState: any, saveRecent?: boolean): void {
+  activeTimeRange = nextState;
+  syncDetectedAtInputsFromState();
+  updateTimeRangeSummary();
+  renderRecentRanges();
+  if (saveRecent !== false) {
+    var range = currentResolvedTimeRange();
+    pushRecentRange(range.label, range.from, range.to);
+    renderRecentRanges();
+  }
+  scheduleAutoRefresh();
+}
+
+function initDefaultDetectedAtRange() {
+  if (!activeTimeRange) activeTimeRange = { mode: "preset", presetId: "last_1_hour", label: "Last 1 hour" };
+  applyTimeRangeState(activeTimeRange, false);
+  ensureCustomDateTimeInputsFilled();
+}
+
+function positionTimePicker(): void {
+  var popover = document.getElementById("timePickerPopover");
+  var btn = document.getElementById("timeRangeBtn");
+  if (!popover || !btn || popover.classList.contains("hidden")) return;
+  var rect = btn.getBoundingClientRect();
+  var margin = 12;
+  var width = popover.offsetWidth;
+  var height = popover.offsetHeight;
+  var left = rect.left;
+  if (left + width > window.innerWidth - margin) {
+    left = Math.max(margin, window.innerWidth - margin - width);
+  }
+  var top = rect.bottom + 8;
+  // Nếu tràn dưới mép màn hình mà phía trên có chỗ → hiển thị phía trên nút
+  if (top + height > window.innerHeight - margin && rect.top - 8 - height > margin) {
+    top = rect.top - 8 - height;
+  }
+  top = Math.max(margin, top);
+  popover.style.left = String(Math.round(left)) + "px";
+  popover.style.top = String(Math.round(top)) + "px";
+}
+
+function setTimePickerOpen(open: boolean): void {
+  var popover = document.getElementById("timePickerPopover");
+  var btn = document.getElementById("timeRangeBtn");
+  if (!popover || !btn) return;
+  popover.classList.toggle("hidden", !open);
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) {
+    updateTimeRangeSummary();
+    ensureCustomDateTimeInputsFilled();
+    renderRecentRanges();
+    positionTimePicker();
+  }
+}
+
+function shiftActiveRange(direction: number): void {
+  var range = currentResolvedTimeRange();
+  var duration = Math.max(1000, range.to.getTime() - range.from.getTime());
+  var delta = duration * direction;
+  var nextFrom = new Date(range.from.getTime() + delta);
+  var nextTo = new Date(range.to.getTime() + delta);
+  applyTimeRangeState(buildAbsoluteTimeRange(toDateTimeLocalValue(nextFrom), toDateTimeLocalValue(nextTo), "Shifted range"));
+}
+
+function autoRefreshIntervalMs(): number {
+  var toggle = document.getElementById("autoRefreshToggle") as HTMLInputElement | null;
+  var valueEl = document.getElementById("autoRefreshValue") as HTMLInputElement | null;
+  var unitEl = document.getElementById("autoRefreshUnit") as HTMLSelectElement | null;
+  if (!toggle || !valueEl || !unitEl || !toggle.checked) return 0;
+  var value = Math.max(1, Number(valueEl.value) || 0);
+  var unit = String(unitEl.value || "seconds");
+  return unit === "minutes" ? value * 60 * 1000 : value * 1000;
+}
+
+function persistAutoRefreshSettings(): void {
+  var toggle = document.getElementById("autoRefreshToggle") as HTMLInputElement | null;
+  var valueEl = document.getElementById("autoRefreshValue") as HTMLInputElement | null;
+  var unitEl = document.getElementById("autoRefreshUnit") as HTMLSelectElement | null;
+  if (!toggle || !valueEl || !unitEl) return;
+  try {
+    window.localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, JSON.stringify({
+      enabled: !!toggle.checked,
+      value: Math.max(1, Number(valueEl.value) || 60),
+      unit: String(unitEl.value || "seconds")
+    }));
+  } catch (_e) { }
+}
+
+function restoreAutoRefreshSettings(): void {
+  var toggle = document.getElementById("autoRefreshToggle") as HTMLInputElement | null;
+  var valueEl = document.getElementById("autoRefreshValue") as HTMLInputElement | null;
+  var unitEl = document.getElementById("autoRefreshUnit") as HTMLSelectElement | null;
+  if (!toggle || !valueEl || !unitEl) return;
+  try {
+    var raw = window.localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
+    if (!raw) return;
+    var parsed = JSON.parse(raw) || {};
+    toggle.checked = !!parsed.enabled;
+    valueEl.value = String(Math.max(1, Number(parsed.value) || 60));
+    unitEl.value = parsed.unit === "minutes" ? "minutes" : "seconds";
+  } catch (_e) { }
+}
+
+function scheduleAutoRefresh(): void {
+  if (autoRefreshTimer) {
+    window.clearTimeout(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+  var delay = autoRefreshIntervalMs();
+  if (!delay) return;
+  autoRefreshTimer = window.setTimeout(async function () {
+    if (document.hidden || isLoadingFindings) {
+      scheduleAutoRefresh();
+      return;
+    }
+    var token = ++autoRefreshTick;
+    try {
+      await loadFindings({ silent: true, autoRefreshToken: token });
+    } finally {
+      scheduleAutoRefresh();
+    }
+  }, delay);
 }
 function getActiveTopic(): any {
   for (var i = 0; i < topics.length; i++) {
@@ -47,8 +786,20 @@ function isSlowSessionTopic(): boolean {
   return id === "slow_sessions";
 }
 
-function isSlowSessionFinding(finding: any): boolean {
-  return String((finding && finding.topic_id) || "").toLowerCase() === "slow_sessions";
+// Topic → layout key: thêm topic layout mới = thêm 1 case + 1 handler trong layout-registry.ts
+function layoutKeyForTopic(topicLikeId: any): TopicLayoutKey {
+  var id = String(topicLikeId || "").toLowerCase();
+  if (id === "slow_sessions") return "slow_sessions";
+  if (id === "blocking") return "blocking";
+  if (id === "ag_health") return "ag_health";
+  if (id === "ag_redo_secondary") return "ag_redo_secondary";
+  if (id === "cdc_health") return "cdc_health";
+  return "default";
+}
+
+function activeLayoutKey(): TopicLayoutKey {
+  var t = getActiveTopic();
+  return layoutKeyForTopic((t && t.topic_id) || activeTopicId);
 }
 
 function severityBadge(sev: string): string {
@@ -95,6 +846,33 @@ function sessionIdBadge(metrics: any): string {
   return '<span class="blocking-badge session-id-badge session-kill-btn" title="session_id ' + esc(String(sessionId)) + ' (click for KILL option)">#' + esc(String(sessionId)) + '</span>';
 }
 
+// Topic `blocking` — head blocker cell: #sid + login, host/program trong title attr
+function headBlockerCell(metrics: any): string {
+  var sid = metrics && metrics.head_blocker_session_id;
+  if (sid === undefined || sid === null || sid === "") {
+    return '<span class="blocking-badge blocking-no">None</span>';
+  }
+  var titleParts: string[] = [];
+  if (metrics.head_blocker_host) titleParts.push("host: " + String(metrics.head_blocker_host));
+  if (metrics.head_blocker_program) titleParts.push("program: " + String(metrics.head_blocker_program));
+  var title = esc(titleParts.join(" | "));
+  var login = metrics.head_blocker_login ? " <span class='hb-login'>" + esc(String(metrics.head_blocker_login)) + "</span>" : "";
+  return "<span class='blocking-badge blocking-yes' title='" + title + "'>#" + esc(String(sid)) + "</span>" + login;
+}
+
+// Topic `blocking` — state: IDLE TXN (forgotten transaction, kill an toàn) vs ACTIVE
+function blockingStateBadge(metrics: any): string {
+  var idle = !!(metrics && metrics.head_blocker_is_idle);
+  var openTxn = Number(metrics && metrics.head_blocker_open_txn_count) || 0;
+  if (idle && openTxn > 0) {
+    var sec = (metrics.head_blocker_idle_sec === undefined || metrics.head_blocker_idle_sec === null)
+      ? "" : " " + String(metrics.head_blocker_idle_sec) + "s";
+    return "<span class='state-badge state-idle-txn' title='Idle session holding " + esc(String(openTxn)) +
+      " open transaction(s) - forgotten transaction'>IDLE TXN ⚠" + esc(sec) + "</span>";
+  }
+  return "<span class='state-badge state-active'>ACTIVE</span>";
+}
+
 function truncateForPreview(text: string, maxLen: number): string {
   if (!text) return "";
   if (text.length <= maxLen) return text;
@@ -112,7 +890,9 @@ function renderSqlPreviewBlock(title: string, value: any): string {
 
 async function requestKillSession(sessionId: number, sourceLabel: string, metrics: any, node: string) {
   var m = metrics || {};
-  var killButtonLabel = sourceLabel === "blocking_session_id" ? "KILL Blocking" : "KILL Session";
+  var killButtonLabel = sourceLabel === "blocking_session_id" ? "KILL Blocking"
+    : sourceLabel === "head_blocker_session_id" ? "KILL Head Blocker"
+    : "KILL Session";
   var confirmed = await openActionConfirmModal(
     "Confirm KILL Session",
     "<div class='kill-confirm'>" +
@@ -168,7 +948,7 @@ function esc(s: string): string {
 var DIAG_PHASE_GROUPS: Array<{ label: string; tools: string[] }> = [
   {
     label: "Phase 1 - DMV Snapshot",
-    tools: ["get_blocking_chain", "get_wait_stats", "get_memory_grant", "get_tempdb_usage",
+    tools: ["get_blocking_chain", "get_blocked_victims_snapshot", "get_wait_stats", "get_memory_grant", "get_tempdb_usage",
       "get_ag_status", "get_memory_pressure", "get_resource_governor_stats",
       "get_cdc_status", "get_missing_indexes", "get_query_stats", "get_query_store_history"]
   },
@@ -1002,20 +1782,47 @@ function renderTopicTabs() {
   });
 }
 
-function renderFindingsHeader(useSlowSessionLayout?: boolean) {
+// Layout handlers từ registry — render logic per-topic nằm trong topics/layout-registry.ts.
+// Function declarations hoisted → khởi tạo module-scope an toàn dù helpers định nghĩa phía dưới.
+var layoutHandlers = createTopicLayoutHandlers({
+  getPage: function () { return page; },
+  getLimit: function () { return limit; },
+  esc: esc,
+  formatDetectedAtForUi: formatDetectedAtForUi,
+  roleNodeCell: roleNodeCell,
+  severityBadge: severityBadge,
+  alertStatusBadge: alertStatusBadge,
+  sessionIdBadge: sessionIdBadge,
+  blockingBadge: blockingBadge,
+  copyTextToClipboardWithFallback: copyTextToClipboardWithFallback,
+  requestKillSession: requestKillSession,
+  withGlobalLoading: withGlobalLoading,
+  withButtonLoading: withButtonLoading,
+  apiGet: apiGet,
+  openModal: openModal,
+  renderTabbedMetricsModal: renderTabbedMetricsModal,
+  bindSlowSessionMetricActions: bindSlowSessionMetricActions,
+  bindFindingModalTabs: bindFindingModalTabs,
+  renderAiAnalysisTable: renderAiAnalysisTable,
+  bindAiAnalysisFieldButtons: bindAiAnalysisFieldButtons,
+  renderTabbedFindingModal: renderTabbedFindingModal,
+  bindJsonTreeToolbar: bindJsonTreeToolbar,
+  headBlockerCell: headBlockerCell,
+  blockingStateBadge: blockingStateBadge,
+  renderBlockingChainModal: renderBlockingChainModal,
+  renderAgHealthModal: renderAgHealthModal,
+  attachGlossaryTooltips: attachGlossaryTooltips
+});
+
+function renderFindingsHeader(forcedKey?: TopicLayoutKey) {
   var row = document.getElementById("findingsHeadRow");
   if (!row) return;
+  var handler = layoutHandlers[forcedKey || activeLayoutKey()];
+  row.innerHTML = handler.headerHtml;
+
   var blockingFilter = document.getElementById("blockingStatusFilter") as HTMLSelectElement | null;
-  var slowLayout = useSlowSessionLayout === undefined ? isSlowSessionTopic() : useSlowSessionLayout;
-
-  if (slowLayout) {
-    row.innerHTML = "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Alert Status</th><th>Elapsed(s)</th><th>CPU(s)</th><th>Login</th><th>Host</th><th>Session Id</th><th>Blocking</th><th>AI Analyses</th><th>Action</th>";
-  } else {
-    row.innerHTML = "<th class='no-cell'>No</th><th>Time</th><th>Issue</th><th>Status</th><th>Node</th><th>Severity</th><th></th>";
-  }
-
   if (blockingFilter) {
-    if (isSlowSessionTopic()) {
+    if (handler.showBlockingFilter) {
       blockingFilter.classList.remove("hidden");
       blockingFilter.disabled = false;
     } else {
@@ -1080,14 +1887,16 @@ async function loadTopics() {
   });
 }
 
-async function loadFindings() {
+async function loadFindings(options?: { silent?: boolean; autoRefreshToken?: number }) {
   var body = document.getElementById("findingsBody");
   var err = document.getElementById("findingsError");
   if (!body || !err) return;
   err.textContent = "";
-
-  await withGlobalLoading(async function () {
+  var runner = async function () {
+    if (options && options.autoRefreshToken !== undefined && options.autoRefreshToken !== autoRefreshTick) return;
+    isLoadingFindings = true;
     try {
+      syncDetectedAtInputsFromState();
       var findingId = (document.getElementById("findingIdFilter") as HTMLInputElement).value.trim();
       var severity = (document.getElementById("severityFilter") as HTMLSelectElement).value;
       var alertStatus = (document.getElementById("alertStatusFilter") as HTMLSelectElement).value;
@@ -1100,132 +1909,52 @@ async function loadFindings() {
       if (!findingId && detectedFrom && detectedTo && detectedFrom > detectedTo) {
         err.textContent = "Khoang thoi gian khong hop le: from > to.";
         body.innerHTML = "";
+        renderFindingTimeline(null);
         return;
       }
 
-      var data = await apiGet("/api/findings", buildFindingsQueryParams(
-        findingId,
-        severity,
-        alertStatus,
-        blockingStatus,
-        detectedFrom,
-        detectedTo
-      ));
+      setTimelineCardVisible(!findingId);
+
+      var requests: Promise<any>[] = [
+        apiGet("/api/findings", buildFindingsQueryParams(
+          findingId,
+          severity,
+          alertStatus,
+          blockingStatus,
+          detectedFrom,
+          detectedTo
+        ))
+      ];
+
+      if (!findingId) {
+        requests.push(apiGet("/api/findings/timeline", buildTimelineQueryParams(
+          severity,
+          alertStatus,
+          blockingStatus,
+          detectedFrom,
+          detectedTo
+        )));
+      }
+
+      var results = await Promise.all(requests);
+      var data = results[0];
+      var timeline = !findingId ? (results[1] as TimelineResponse) : null;
+      if (!findingId) renderFindingTimeline(timeline);
+      else renderFindingTimeline(null);
 
       body.innerHTML = "";
       var c = 0, w = 0, i = 0;
-      var useSlowSessionLayout = isSlowSessionTopic();
-      if (findingId && data.length === 1) useSlowSessionLayout = isSlowSessionFinding(data[0]);
-      renderFindingsHeader(useSlowSessionLayout);
+      // Layout theo topic đang chọn; nếu filter theo finding_id cụ thể → theo topic của finding
+      var layoutKey = activeLayoutKey();
+      if (findingId && data.length === 1) layoutKey = layoutKeyForTopic(data[0].topic_id);
+      renderFindingsHeader(layoutKey);
+      var handler = layoutHandlers[layoutKey];
 
       data.forEach(function (x: any, idx: number) {
         if (x.severity === "CRITICAL") c++; else if (x.severity === "WARNING") w++; else i++;
         var tr = document.createElement("tr");
         tr.className = "clickable-finding-row";
-        var noCell = "<td class='no-cell'>" + String(page * limit + idx + 1) + "</td>";
-        if (useSlowSessionLayout) {
-          var metrics = x.metrics || {};
-          var aiDone = !!x.ai_analyzed;
-          var aiIcon = aiDone
-            ? "<span class='badge badge-success' title='Da phan tich'>Done</span>"
-            : "<span class='badge badge-warning' title='Chua phan tich'>Pending</span>";
-          var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
-          tr.innerHTML =
-            noCell +
-            "<td><span class='finding-id-copy' title='Click to copy ID'>" + esc(x.finding_id || "") + "</span></td>" +
-            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-            "<td>" + roleNodeCell(x.role, x.node) + "</td>" +
-            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-            "<td>" + esc(metrics.elapsed_seconds === undefined || metrics.elapsed_seconds === null ? "" : String(metrics.elapsed_seconds)) + "</td>" +
-            "<td>" + esc(metrics.cpu_time_seconds === undefined || metrics.cpu_time_seconds === null ? "" : String(metrics.cpu_time_seconds)) + "</td>" +
-            "<td>" + esc(metrics.login_name || "") + "</td>" +
-            "<td>" + esc(metrics.host_name || "") + "</td>" +
-            "<td>" + sessionIdBadge(metrics) + "</td>" +
-            "<td>" + blockingBadge(metrics) + "</td>" +
-            "<td>" + aiIcon + "</td>" +
-            "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
-        } else {
-          tr.innerHTML = noCell +
-            "<td>" + esc(formatDetectedAtForUi(x.detected_at)) + "</td>" +
-            "<td>" + esc(x.issue_type || "") + "</td>" +
-            "<td>" + alertStatusBadge(x.alert_status || "") + "</td>" +
-            "<td>" + esc(x.node || "") + "</td>" +
-            "<td>" + severityBadge(x.severity || "INFO") + "</td>" +
-            "<td>" + (x.has_diagnostics ? "<span class='diag-badge-indicator' title='Diagnostics captured'>D</span>" : "") + "</td>";
-        }
-        if (useSlowSessionLayout) {
-          var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
-          var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
-          var idCopyEl = tr.querySelector(".finding-id-copy") as HTMLElement | null;
-          var blockingKillEl = tr.querySelector(".blocking-kill-btn") as HTMLElement | null;
-          var sessionKillEl = tr.querySelector(".session-kill-btn") as HTMLElement | null;
-
-          if (idCopyEl) {
-            idCopyEl.addEventListener("click", function (ev) {
-              ev.stopPropagation();
-              copyTextToClipboardWithFallback(String(x.finding_id || ""));
-            });
-          }
-
-          if (blockingKillEl) {
-            blockingKillEl.addEventListener("click", async function (ev) {
-              ev.stopPropagation();
-              var sessionId = Number(metrics && metrics.blocking_session_id);
-              if (!isFinite(sessionId) || sessionId <= 0) return;
-            await requestKillSession(sessionId, "blocking_session_id", metrics, String(x.node || ""));
-            });
-          }
-
-          if (sessionKillEl) {
-            sessionKillEl.addEventListener("click", async function (ev) {
-              ev.stopPropagation();
-              var sessionId = Number(metrics && metrics.session_id);
-              if (!isFinite(sessionId) || sessionId <= 0) return;
-            await requestKillSession(sessionId, "session_id", metrics, String(x.node || ""));
-            });
-          }
-
-          tr.addEventListener("click", async function () {
-            await withGlobalLoading(async function () {
-              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              var metrics = (d && d.metrics) || {};
-              var hasDiag = !!(d && d.has_diagnostics);
-              openModal("Finding Metrics", renderTabbedMetricsModal(metrics, hasDiag));
-              bindSlowSessionMetricActions(metrics);
-              if (hasDiag) bindFindingModalTabs(x.finding_id);
-            });
-          });
-
-          if (rowActionCell) {
-            rowActionCell.addEventListener("click", function (ev) {
-              ev.stopPropagation();
-            });
-          }
-          aiBtn.addEventListener("click", async function () {
-            if (aiBtn.disabled) return;
-            await withButtonLoading(aiBtn, async function () {
-              var ai = x.ai_analysis;
-              if (!ai) {
-                await withGlobalLoading(async function () {
-                  var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-                  ai = d && d.ai_analysis ? d.ai_analysis : null;
-                });
-              }
-              openModal("AI Analysis", renderAiAnalysisTable(ai));
-              bindAiAnalysisFieldButtons();
-            }, "Loading...");
-          });
-        } else {
-          tr.addEventListener("click", async function () {
-            await withGlobalLoading(async function () {
-              var d = await apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
-              openModal("Finding Detail", renderTabbedFindingModal(d));
-              bindJsonTreeToolbar();
-              if (d && d.has_diagnostics) bindFindingModalTabs(x.finding_id);
-            });
-          });
-        }
+        handler.renderRow(tr, x, idx);
         body.appendChild(tr);
       });
 
@@ -1235,8 +1964,16 @@ async function loadFindings() {
       (document.getElementById("pageInfo") as HTMLElement).textContent = "Page " + String(page + 1);
     } catch (_e) {
       err.textContent = "Khong tai duoc findings.";
+      renderFindingTimeline(null);
+    } finally {
+      isLoadingFindings = false;
     }
-  });
+  };
+  if (options && options.silent) {
+    await runner();
+  } else {
+    await withGlobalLoading(runner);
+  }
 }
 
 function toLocalDateTimeFilterValue(v: string): string {
@@ -1271,6 +2008,132 @@ function fallbackCopyText(text: string) {
   document.body.removeChild(ta);
 }
 
+function bindTimePickerEvents(): void {
+  var timeBtn = document.getElementById("timeRangeBtn") as HTMLButtonElement | null;
+  var quickApplyBtn = document.getElementById("applyQuickRangeBtn") as HTMLButtonElement | null;
+  var customApplyBtn = document.getElementById("applyCustomRangeBtn") as HTMLButtonElement | null;
+  var shiftBackBtn = document.getElementById("timeShiftBackBtn") as HTMLButtonElement | null;
+  var shiftForwardBtn = document.getElementById("timeShiftForwardBtn") as HTMLButtonElement | null;
+  var autoRefreshToggle = document.getElementById("autoRefreshToggle") as HTMLInputElement | null;
+  var autoRefreshValue = document.getElementById("autoRefreshValue") as HTMLInputElement | null;
+  var autoRefreshUnit = document.getElementById("autoRefreshUnit") as HTMLSelectElement | null;
+  if (!timeBtn || !quickApplyBtn || !customApplyBtn || !autoRefreshToggle || !autoRefreshValue || !autoRefreshUnit) return;
+
+  timeBtn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    var popover = document.getElementById("timePickerPopover");
+    setTimePickerOpen(!!popover && popover.classList.contains("hidden"));
+  });
+
+  quickApplyBtn.addEventListener("click", async function () {
+    var amountEl = document.getElementById("quickRangeAmount") as HTMLInputElement | null;
+    var unitEl = document.getElementById("quickRangeUnit") as HTMLSelectElement | null;
+    var amount = Math.max(1, Number(amountEl && amountEl.value) || 15);
+    var unit = String(unitEl && unitEl.value || "minutes");
+    applyTimeRangeState(buildRelativeTimeRange(amount, unit, "Last " + String(amount) + " " + unit));
+    setTimePickerOpen(false);
+    page = 0;
+    await loadFindings();
+  });
+
+  customApplyBtn.addEventListener("click", async function () {
+    var fromCustom = document.getElementById("detectedFromCustom") as HTMLInputElement | null;
+    var toCustom = document.getElementById("detectedToCustom") as HTMLInputElement | null;
+    var err = document.getElementById("findingsError");
+    if (!fromCustom || !toCustom || !err) return;
+    var from = readLocalDateTimeInput(fromCustom.value);
+    var to = readLocalDateTimeInput(toCustom.value);
+    if (!from || !to) {
+      err.textContent = "Custom time range is incomplete.";
+      return;
+    }
+    if (from.getTime() > to.getTime()) {
+      err.textContent = "Custom time range is invalid: from > to.";
+      return;
+    }
+    err.textContent = "";
+    applyTimeRangeState(buildAbsoluteTimeRange(fromCustom.value, toCustom.value, "Custom range"));
+    setTimePickerOpen(false);
+    page = 0;
+    await loadFindings();
+  });
+
+  if (shiftBackBtn) {
+    shiftBackBtn.addEventListener("click", async function () {
+      shiftActiveRange(-1);
+      page = 0;
+      await loadFindings();
+    });
+  }
+  if (shiftForwardBtn) {
+    shiftForwardBtn.addEventListener("click", async function () {
+      shiftActiveRange(1);
+      page = 0;
+      await loadFindings();
+    });
+  }
+
+  var presetBtns = document.querySelectorAll(".time-preset-link");
+  for (var i = 0; i < presetBtns.length; i++) {
+    presetBtns[i].addEventListener("click", async function (ev) {
+      ev.preventDefault();
+      var btn = ev.currentTarget as HTMLElement;
+      var presetId = String(btn.getAttribute("data-preset") || "");
+      var preset = presetTimeRange(presetId);
+      applyTimeRangeState({ mode: "preset", presetId: presetId, label: preset.label });
+      setTimePickerOpen(false);
+      page = 0;
+      await loadFindings();
+    });
+  }
+
+  var recentHost = document.getElementById("recentRangesList");
+  if (recentHost) {
+    recentHost.addEventListener("click", async function (ev) {
+      var target = ev.target as HTMLElement | null;
+      if (!target) return;
+      var btn = target.closest(".time-recent-link") as HTMLElement | null;
+      if (!btn) return;
+      ev.preventDefault();
+      var idx = Number(btn.getAttribute("data-recent-idx"));
+      var items = recentRangeItems();
+      var item = items[idx];
+      if (!item) return;
+      applyTimeRangeState(item, false);
+      setTimePickerOpen(false);
+      page = 0;
+      await loadFindings();
+    });
+  }
+
+  autoRefreshToggle.addEventListener("change", function () {
+    persistAutoRefreshSettings();
+    scheduleAutoRefresh();
+  });
+  autoRefreshValue.addEventListener("change", function () {
+    persistAutoRefreshSettings();
+    scheduleAutoRefresh();
+  });
+  autoRefreshUnit.addEventListener("change", function () {
+    persistAutoRefreshSettings();
+    scheduleAutoRefresh();
+  });
+
+  document.addEventListener("click", function (ev) {
+    var target = ev.target as HTMLElement | null;
+    var popover = document.getElementById("timePickerPopover");
+    var root = document.querySelector(".time-filter");
+    if (!target || !popover || !root) return;
+    if (popover.classList.contains("hidden")) return;
+    if (root.contains(target)) return;
+    setTimePickerOpen(false);
+  });
+
+  window.addEventListener("resize", positionTimePicker);
+  window.addEventListener("scroll", positionTimePicker, true);
+
+}
+
 function bindEvents() {
   (document.getElementById("reloadBtn") as HTMLButtonElement).addEventListener("click", function (ev) {
     var btn = ev.currentTarget as HTMLButtonElement;
@@ -1286,8 +2149,7 @@ function bindEvents() {
       (document.getElementById("severityFilter") as HTMLSelectElement).value = "";
       (document.getElementById("alertStatusFilter") as HTMLSelectElement).value = "";
       (document.getElementById("blockingStatusFilter") as HTMLSelectElement).value = "";
-      (document.getElementById("detectedFromFilter") as HTMLInputElement).value = "";
-      (document.getElementById("detectedToFilter") as HTMLInputElement).value = "";
+      activeTimeRange = { mode: "preset", presetId: "last_1_hour", label: "Last 1 hour" };
       initDefaultDetectedAtRange();
       page = 0;
       await loadFindings();
@@ -1308,13 +2170,19 @@ function bindEvents() {
       await loadFindings();
     }, "Loading...");
   });
+
+  window.addEventListener("resize", function () {
+    if (latestTimelineData) renderFindingTimeline(latestTimelineData);
+  });
 }
 
 bindModalEvents();
+bindTimePickerEvents();
 bindEvents();
+restoreAutoRefreshSettings();
 initDefaultDetectedAtRange();
 loadTopics().then(function () {
   renderFindingsHeader();
+  scheduleAutoRefresh();
   return loadFindings();
 });
-
