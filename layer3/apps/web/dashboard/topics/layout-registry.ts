@@ -1,4 +1,4 @@
-export type TopicLayoutKey = "slow_sessions" | "blocking" | "ag_health" | "ag_redo_secondary" | "cdc_health" | "default";
+export type TopicLayoutKey = "slow_sessions" | "blocking" | "deadlock" | "ag_health" | "ag_redo_secondary" | "cdc_health" | "default";
 
 export interface TopicLayoutHandler {
   key: TopicLayoutKey;
@@ -35,6 +35,8 @@ interface TopicLayoutDeps {
   blockingStateBadge: (metrics: any) => string;
   renderBlockingChainModal: (finding: any) => string;
   renderAgHealthModal: (finding: any) => string;
+  renderDeadlockModal: (finding: any) => string;
+  bindDeadlockDetailActions: (copyTextToClipboardWithFallback: (text: string) => void) => void;
   attachGlossaryTooltips: (root: HTMLElement) => void;
 }
 
@@ -276,6 +278,68 @@ export function createTopicLayoutHandlers(deps: TopicLayoutDeps): Record<TopicLa
     });
   }
 
+  function renderDeadlockFindingRow(tr: HTMLTableRowElement, x: any, idx: number) {
+    var metrics = x.metrics || {};
+    var aiDone = !!x.ai_analyzed;
+    var aiIcon = aiDone
+      ? "<span class='badge badge-success' title='Da phan tich'>Done</span>"
+      : "<span class='badge badge-warning' title='Chua phan tich'>Pending</span>";
+    var aiBtnAttrs = aiDone ? "" : " disabled title='Pending'";
+    var noCell = "<td class='no-cell'>" + String(deps.getPage() * deps.getLimit() + idx + 1) + "</td>";
+    tr.innerHTML =
+      noCell +
+      "<td><span class='finding-id-copy' title='Click to copy ID'>" + deps.esc(x.finding_id || "") + "</span></td>" +
+      "<td>" + deps.esc(deps.formatDetectedAtForUi(x.detected_at)) + "</td>" +
+      "<td>" + deps.roleNodeCell(x.role, x.node) + "</td>" +
+      "<td>" + deps.severityBadge(x.severity || "INFO") + "</td>" +
+      "<td>" + deps.esc(metrics.victim_id || "") + "</td>" +
+      "<td>" + deps.esc(deps.formatDetectedAtForUi(metrics.deadlock_time)) + "</td>" +
+      "<td><code class='deadlock-query-inline'>" + deps.esc(metricText(metrics.victim_query)) + "</code></td>" +
+      "<td>" + aiIcon + "</td>" +
+      "<td class='row-action-cell'><button type='button' class='btn-ai'" + aiBtnAttrs + ">AI Analysis</button></td>";
+
+    var aiBtn = tr.querySelector(".btn-ai") as HTMLButtonElement;
+    var rowActionCell = tr.querySelector(".row-action-cell") as HTMLElement;
+    var idCopyEl = tr.querySelector(".finding-id-copy") as HTMLElement | null;
+
+    if (idCopyEl) {
+      idCopyEl.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        deps.copyTextToClipboardWithFallback(String(x.finding_id || ""));
+      });
+    }
+
+    tr.addEventListener("click", async function () {
+      await deps.withGlobalLoading(async function () {
+        var d = await deps.apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+        var hasDiag = !!(d && d.has_diagnostics);
+        deps.openModal("Deadlock Detail", deps.renderDeadlockModal(d));
+        deps.bindDeadlockDetailActions(deps.copyTextToClipboardWithFallback);
+        if (hasDiag) deps.bindFindingModalTabs(x.finding_id);
+      });
+    });
+
+    if (rowActionCell) {
+      rowActionCell.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+      });
+    }
+    aiBtn.addEventListener("click", async function () {
+      if (aiBtn.disabled) return;
+      await deps.withButtonLoading(aiBtn, async function () {
+        var ai = x.ai_analysis;
+        if (!ai) {
+          await deps.withGlobalLoading(async function () {
+            var d = await deps.apiGet("/api/findings/" + encodeURIComponent(x.finding_id));
+            ai = d && d.ai_analysis ? d.ai_analysis : null;
+          });
+        }
+        deps.openModal("AI Analysis", deps.renderAiAnalysisTable(ai));
+        deps.bindAiAnalysisFieldButtons();
+      }, "Loading...");
+    });
+  }
+
   function renderAgHealthFindingRow(tr: HTMLTableRowElement, x: any, idx: number) {
     var metrics = x.metrics || {};
     var aiDone = !!x.ai_analyzed;
@@ -502,6 +566,12 @@ export function createTopicLayoutHandlers(deps: TopicLayoutDeps): Record<TopicLa
       headerHtml: "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Head Blocker</th><th>State</th><th>Depth</th><th>Blocked</th><th>Max Wait(s)</th><th>Wait Type</th><th>AI Analyses</th><th>Action</th>",
       showBlockingFilter: false,
       renderRow: renderBlockingFindingRow
+    },
+    deadlock: {
+      key: "deadlock",
+      headerHtml: "<th class='no-cell'>No</th><th>ID</th><th>Time</th><th>Role + Node</th><th>Severity</th><th>Victim ID</th><th>Deadlock Time</th><th>Victim Query</th><th>AI Analyses</th><th>Action</th>",
+      showBlockingFilter: false,
+      renderRow: renderDeadlockFindingRow
     },
     ag_health: {
       key: "ag_health",

@@ -6,6 +6,7 @@ import { PlanAnalysisComponent } from "./plan-analysis-component";
 import { createTopicLayoutHandlers, TopicLayoutKey } from "./topics/layout-registry";
 import { renderBlockingChainModal } from "./topics/blocking-detail";
 import { renderAgHealthModal } from "./topics/ag-health-detail";
+import { bindDeadlockDetailActions, renderDeadlockModal } from "./topics/deadlock-detail";
 import { attachGlossaryTooltips } from "./glossary-tooltip";
 declare const QP: any;
 declare const window: any;
@@ -791,6 +792,7 @@ function layoutKeyForTopic(topicLikeId: any): TopicLayoutKey {
   var id = String(topicLikeId || "").toLowerCase();
   if (id === "slow_sessions") return "slow_sessions";
   if (id === "blocking") return "blocking";
+  if (id === "deadlock") return "deadlock";
   if (id === "ag_health") return "ag_health";
   if (id === "ag_redo_secondary") return "ag_redo_secondary";
   if (id === "cdc_health") return "cdc_health";
@@ -1811,6 +1813,8 @@ var layoutHandlers = createTopicLayoutHandlers({
   blockingStateBadge: blockingStateBadge,
   renderBlockingChainModal: renderBlockingChainModal,
   renderAgHealthModal: renderAgHealthModal,
+  renderDeadlockModal: renderDeadlockModal,
+  bindDeadlockDetailActions: bindDeadlockDetailActions,
   attachGlossaryTooltips: attachGlossaryTooltips
 });
 
