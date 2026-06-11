@@ -11,8 +11,8 @@ from datetime import datetime
 
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 
-from ...storage.mongo_client import MongoConnection
 from ...utils.time_utils import now_vn
+from ..mongo import get_maint_db
 from ..models.work_item import (
     OPEN_STATUSES,
     TERMINAL_STATUSES,
@@ -38,7 +38,7 @@ class QueueRepo:
 
     @property
     def collection(self):
-        return MongoConnection.get_db()[COLLECTION]
+        return get_maint_db()[COLLECTION]
 
     # ── Scan side ────────────────────────────────────────────────────────────
 

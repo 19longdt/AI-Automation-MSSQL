@@ -1,0 +1,8 @@
+pymongo>=4.0
+pydantic>=2.0
+pydantic-settings>=2.0
+apscheduler>=3.10
+pyodbc>=4.0
+tenacity>=8.0
+python-dotenv>=1.0
+python-logstash-async>=2.5

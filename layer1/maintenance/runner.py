@@ -35,12 +35,15 @@ from ..utils.time_utils import now_vn
 from .config import maint_settings
 from .execute.duration_estimator import DurationEstimator
 from .execute.execute_service import ExecuteService
+from .indexes import create_maint_indexes
+from .mongo import get_maint_db
 from .notify.maintenance_notifier import MaintenanceNotifier
 from .policy.policy_resolver import PolicyResolver
 from .repositories.batch_repo import BatchRepo
 from .repositories.history_repo import HistoryRepo
 from .repositories.policy_repo import PolicyRepo
 from .repositories.queue_repo import QueueRepo
+from .repositories.scan_query_repo import ScanQueryRepo
 from .repositories.window_repo import WindowRepo
 from .safety.gate_service import GateService
 from .scan.scan_service import ScanService
@@ -84,10 +87,15 @@ class MaintenanceService:
         MongoConnection.close()
 
     def _setup_infrastructure(self) -> None:
-        # 1. MongoDB + indexes (idempotent — bao gồm maintenance collections)
+        # 1. MongoDB + indexes
         logger.info("Connecting to MongoDB: %s", settings.mongodb_uri)
         MongoConnection.initialize(settings)
+        # Monitoring DB (findings, raw_metrics...) — dùng bởi job_execution_repo, node_role_cache
         create_all_indexes(MongoConnection.get_db())
+        # Maintenance DB riêng — tất cả collections maintenance
+        maint_db = get_maint_db()
+        create_maint_indexes(maint_db)
+        logger.info("Maintenance DB: %s", maint_db.name)
 
         # 2. Repos + fail fast nếu chưa seed
         policy_repo = PolicyRepo()
@@ -95,11 +103,17 @@ class MaintenanceService:
         window_repo = WindowRepo()
         history_repo = HistoryRepo()
         batch_repo = BatchRepo()
+        scan_query_repo = ScanQueryRepo()
         self._history_repo = history_repo
 
         if policy_repo.find_default() is None or window_repo.get() is None:
             raise RuntimeError(
                 "Chưa seed maintenance config. Chạy: "
+                "python -m layer1.maintenance.seed.seed_maintenance"
+            )
+        if not scan_query_repo.find_all_enabled():
+            raise RuntimeError(
+                "Chưa seed scan queries. Chạy: "
                 "python -m layer1.maintenance.seed.seed_maintenance"
             )
 
@@ -111,12 +125,20 @@ class MaintenanceService:
         self._role_cache = NodeRoleCache()
         self._role_cache.initialize()
 
-        # 5. Notifier (send-only — KHÔNG polling)
-        if settings.telegram_bot_token and settings.telegram_chat_id:
-            self._notifier = MaintenanceNotifier(
-                settings.telegram_bot_token, settings.telegram_chat_id
-            )
-            logger.info("Maintenance Telegram notifier enabled (send-only).")
+        # 5. Telegram bot riêng — bắt buộc có MAINT_TELEGRAM_BOT_TOKEN.
+        #    Tự poll approval callbacks, độc lập với monitoring bot.
+        from .notify.maintenance_bot import MaintenanceBot
+        self._notifier = MaintenanceNotifier(
+            maint_settings.maint_telegram_bot_token,
+            maint_settings.maint_telegram_chat_id,
+        )
+        MaintenanceBot(
+            bot_token=maint_settings.maint_telegram_bot_token,
+            chat_id=maint_settings.maint_telegram_chat_id,
+            queue_repo=queue_repo,
+            batch_repo=batch_repo,
+        ).start()
+        logger.info("Maintenance Telegram bot started (polling).")
 
         # 6. Services
         resolver = PolicyResolver(policy_repo)
@@ -131,6 +153,7 @@ class MaintenanceService:
             policy_resolver=resolver,
             queue_repo=queue_repo,
             batch_repo=batch_repo,
+            scan_query_repo=scan_query_repo,
             estimator=estimator,
             maint_settings=maint_settings,
             notifier=self._notifier,

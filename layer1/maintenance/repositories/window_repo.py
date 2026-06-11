@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 
-from ...storage.mongo_client import MongoConnection
 from ...utils.time_utils import now_vn
+from ..mongo import get_maint_db
 from ..models.window import MaintenanceWindow
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ class WindowRepo:
 
     @property
     def collection(self):
-        return MongoConnection.get_db()[COLLECTION]
+        return get_maint_db()[COLLECTION]
 
     def get(self) -> MaintenanceWindow | None:
         """

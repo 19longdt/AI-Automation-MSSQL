@@ -40,9 +40,12 @@ import logging
 from ...config import settings
 from ...storage.mongo_client import MongoConnection
 from ..models.policy import MaintenancePolicy, PolicyScope
+from ..models.scan_query import ScanQueryConfig
 from ..models.window import MaintenanceWindow, WindowSlot
 from ..repositories.policy_repo import PolicyRepo
+from ..repositories.scan_query_repo import ScanQueryRepo
 from ..repositories.window_repo import WindowRepo
+from ..scan import scan_queries as _sq
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +91,33 @@ def _default_window() -> MaintenanceWindow:
     )
 
 
+def _default_scan_queries() -> list[ScanQueryConfig]:
+    return [
+        ScanQueryConfig(
+            query_id="scan_fragmentation",
+            description="Index fragmentation scan via dm_db_index_physical_stats (SAMPLED)",
+            sql=_sq.FRAGMENTATION_SQL,
+            timeout_sec=_sq.SCAN_TIMEOUT_SEC,
+        ),
+        ScanQueryConfig(
+            query_id="scan_stats_staleness",
+            description="Statistics staleness scan via dm_db_stats_properties",
+            sql=_sq.STATS_STALENESS_SQL,
+            timeout_sec=_sq.SCAN_TIMEOUT_SEC,
+        ),
+        ScanQueryConfig(
+            query_id="scan_heap_forwarded",
+            description="Heap forwarded records scan via dm_db_index_physical_stats (index_id=0)",
+            sql=_sq.HEAP_FORWARDED_SQL,
+            timeout_sec=_sq.SCAN_TIMEOUT_SEC,
+        ),
+    ]
+
+
 def seed(dry_run: bool = False) -> None:
     policy = _default_policy()
     window = _default_window()
+    scan_query_list = _default_scan_queries()
 
     if dry_run:
         print("=== DRY RUN — không ghi MongoDB ===")
@@ -98,6 +125,9 @@ def seed(dry_run: bool = False) -> None:
         print(policy.model_dump_json(indent=2))
         print("\n--- maintenance_window ---")
         print(window.model_dump_json(indent=2))
+        print("\n--- maintenance_scan_queries ---")
+        for q in scan_query_list:
+            print(f"  [{q.query_id}] timeout={q.timeout_sec}s — {q.description}")
         return
 
     MongoConnection.initialize(settings)
@@ -110,6 +140,10 @@ def seed(dry_run: bool = False) -> None:
             window.default.start, window.default.end,
             window.default.time_budget_minutes, len(window.day_overrides),
         )
+        repo = ScanQueryRepo()
+        for q in scan_query_list:
+            repo.upsert(q)
+        logger.info("Seeded %d scan queries into maintenance_scan_queries.", len(scan_query_list))
     finally:
         MongoConnection.close()
 

@@ -48,6 +48,13 @@ class MongoConnection:
         logger.info("MongoDB connected: uri=%s db=%s", cfg.mongodb_uri, cfg.mongodb_db)
 
     @classmethod
+    def get_client(cls) -> MongoClient:
+        """Trả về MongoClient. Dùng khi cần truy cập nhiều DB từ cùng connection pool."""
+        if cls._client is None:
+            raise RuntimeError("MongoConnection chưa được initialize. Gọi initialize() trước.")
+        return cls._client
+
+    @classmethod
     def get_db(cls) -> Database:
         """Trả về database instance. Raise nếu chưa initialize."""
         if cls._db is None:

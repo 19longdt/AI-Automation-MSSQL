@@ -60,6 +60,14 @@ class MaintEnvSettings(BaseSettings):
     # Batch chưa được duyệt quá số giờ này → expire (không bao giờ chạy).
     maint_approval_expire_hours: int = Field(default=30, ge=1)
 
+    # MongoDB database riêng cho maintenance (tách khỏi db monitoring của Layer 1).
+    maint_mongodb_db: str = Field(default="db_maintenance")
+
+    # Telegram bot riêng cho maintenance (send + poll approval callbacks).
+    # Bắt buộc — maintenance process tự poll token này để nhận approval callbacks.
+    maint_telegram_bot_token: str
+    maint_telegram_chat_id: str
+
     @field_validator("maint_scan_cron", "maint_summary_cron")
     @classmethod
     def validate_cron_fields(cls, v: str) -> str:

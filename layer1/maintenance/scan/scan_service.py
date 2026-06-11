@@ -5,6 +5,10 @@ scan_service.py — Job scan: đánh giá fragmentation/stats/heap → enqueue w
 Read-only với MSSQL (qua QueryExecutor, timeout riêng). Chạy trên PRIMARY —
 dm_db_index_physical_stats và dm_db_stats_properties phản ánh trạng thái
 bản ghi write; REBUILD/REORGANIZE cũng sẽ chạy trên primary.
+
+SQL scan queries được load từ MongoDB (maintenance_scan_queries) thay vì hardcode.
+Placeholders {min_page_count}, {min_frag_pct}, {mod_threshold}, {fwd_threshold}
+được format với giá trị từ default policy lúc runtime.
 """
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ from ..models.work_item import (
 from ..policy.policy_resolver import PolicyResolver
 from ..repositories.batch_repo import BatchRepo
 from ..repositories.queue_repo import QueueRepo
-from . import scan_queries
+from ..repositories.scan_query_repo import ScanQueryRepo
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +48,7 @@ class ScanService:
         policy_resolver: PolicyResolver,
         queue_repo: QueueRepo,
         batch_repo: BatchRepo,
+        scan_query_repo: ScanQueryRepo,
         estimator: DurationEstimator,
         maint_settings: MaintEnvSettings,
         notifier=None,  # MaintenanceNotifier | None — optional, không có Telegram vẫn scan được
@@ -53,9 +58,13 @@ class ScanService:
         self._resolver = policy_resolver
         self._queue_repo = queue_repo
         self._batch_repo = batch_repo
+        self._scan_query_repo = scan_query_repo
         self._estimator = estimator
         self._settings = maint_settings
         self._notifier = notifier
+
+    # Ánh xạ query_id → mapper function. Query không có mapper sẽ bị bỏ qua.
+    _MAPPER_KEYS = ("scan_fragmentation", "scan_stats_staleness", "scan_heap_forwarded")
 
     def run(self) -> int:
         """Scan toàn DB → enqueue items mới → gửi batch approval. Trả về số items."""
@@ -67,6 +76,19 @@ class ScanService:
             logger.error("Scan aborted — không resolve được primary node.")
             return 0
 
+        scan_queries = {q.query_id: q for q in self._scan_query_repo.find_all_enabled()}
+        if not scan_queries:
+            logger.error("Scan aborted — không có scan query nào enabled trong MongoDB.")
+            return 0
+
+        # Placeholders có thể có trong bất kỳ SQL scan nào — format hết, SQL dùng cái nào thì cái đó được thay.
+        format_kwargs = {
+            "min_page_count": int(default_policy.min_page_count),
+            "min_frag_pct": float(default_policy.reorganize_threshold_pct),
+            "mod_threshold": int(default_policy.stats_modification_threshold),
+            "fwd_threshold": int(default_policy.heap_forwarded_records_threshold),
+        }
+
         # Batch cũ chưa duyệt quá hạn → expire trước khi tạo batch mới
         cutoff = now_vn() - timedelta(hours=self._settings.maint_approval_expire_hours)
         expired_items = self._queue_repo.expire_stale_awaiting(cutoff)
@@ -77,31 +99,21 @@ class ScanService:
                 expired_items, expired_batches, self._settings.maint_approval_expire_hours,
             )
 
-        frag_rows = self._run_query(
-            primary, "scan_fragmentation",
-            scan_queries.FRAGMENTATION_SQL.format(
-                min_page_count=int(default_policy.min_page_count),
-                min_frag_pct=float(default_policy.reorganize_threshold_pct),
-            ),
-        )
-        stats_rows = self._run_query(
-            primary, "scan_stats_staleness",
-            scan_queries.STATS_STALENESS_SQL.format(
-                mod_threshold=int(default_policy.stats_modification_threshold),
-            ),
-        )
-        heap_rows = self._run_query(
-            primary, "scan_heap_forwarded",
-            scan_queries.HEAP_FORWARDED_SQL.format(
-                fwd_threshold=int(default_policy.heap_forwarded_records_threshold),
-            ),
-        )
+        mappers = {
+            "scan_fragmentation": self._map_fragmentation,
+            "scan_stats_staleness": self._map_stats,
+            "scan_heap_forwarded": self._map_heap,
+        }
 
         batch = MaintenanceBatch()
         items: list[WorkItem] = []
-        items.extend(self._map_fragmentation(frag_rows, batch.batch_id))
-        items.extend(self._map_stats(stats_rows, batch.batch_id))
-        items.extend(self._map_heap(heap_rows, batch.batch_id))
+        for query_id, mapper in mappers.items():
+            q = scan_queries.get(query_id)
+            if q is None:
+                logger.warning("Scan query '%s' không tìm thấy trong MongoDB — bỏ qua.", query_id)
+                continue
+            rows = self._run_query(primary, query_id, q.sql.format(**format_kwargs), q.timeout_sec)
+            items.extend(mapper(rows, batch.batch_id))
 
         # Dedupe với items đang open trong queue (multi-day backlog)
         open_keys = self._queue_repo.find_open_keys()
@@ -144,12 +156,12 @@ class ScanService:
         resolved = self._role_cache.resolve(["primary"])
         return resolved[0][0] if resolved else None
 
-    def _run_query(self, host: str, query_id: str, sql: str) -> list[dict]:
+    def _run_query(self, host: str, query_id: str, sql: str, timeout_sec: int = 300) -> list[dict]:
         config = QueryConfig(
             query_id=query_id,
             description=f"Maintenance {query_id}",
             sql=sql,
-            timeout_sec=scan_queries.SCAN_TIMEOUT_SEC,
+            timeout_sec=timeout_sec,
         )
         result = self._query_executor.execute(config, host, _TOPIC_ID, "primary")
         if not result.success:

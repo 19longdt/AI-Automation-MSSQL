@@ -10,9 +10,9 @@
 #
 
 param(
-    [ValidateSet("", "layer1", "layer2", "layer3")]
+    [ValidateSet("", "layer1", "layer2", "layer3", "maintenance")]
     [string]$Layer = "",
-    [ValidateSet("", "layer1", "layer2", "layer3")]
+    [ValidateSet("", "layer1", "layer2", "layer3", "maintenance")]
     [string]$SetVersion = "",
     [string]$SetVersionValue = ""
 )
@@ -37,6 +37,11 @@ $LAYER_CONFIG = @{
         VersionFile = ".version.layer3"
         Dockerfile = "layer3/Dockerfile"
         Context = "layer3"
+    }
+    maintenance = @{
+        VersionFile = ".version.maintenance"
+        Dockerfile = "Dockerfile.maintenance"
+        Context = "."
     }
 }
 
@@ -108,7 +113,7 @@ function Build-And-Push-Layer {
 if ($Layer) {
     $buildLayers = @($Layer)
 } else {
-    $buildLayers = @("layer1", "layer2", "layer3")
+    $buildLayers = @("layer1", "layer2", "layer3", "maintenance")
 }
 
 foreach ($layerName in $buildLayers) {
@@ -117,7 +122,7 @@ foreach ($layerName in $buildLayers) {
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
-foreach ($layerName in @("layer1", "layer2", "layer3")) {
+foreach ($layerName in @("layer1", "layer2", "layer3", "maintenance")) {
     $versionFile = $LAYER_CONFIG[$layerName].VersionFile
     $version = if (Test-Path $versionFile) { (Get-Content $versionFile).Trim() } else { "0.0.0" }
     Write-Host "  ${layerName}: $version" -ForegroundColor Cyan
