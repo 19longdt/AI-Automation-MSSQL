@@ -1,0 +1,47 @@
+import { useEffect } from "react";
+import { useTopics } from "@/hooks/useTopics";
+import { useTimeline } from "@/hooks/useTimeline";
+import { useDashboardStore } from "@/store/dashboard.store";
+import { PageShell } from "@/components/layout/PageShell";
+import { TopicTabs } from "@/components/dashboard/TopicTabs";
+import { FilterBar } from "@/components/dashboard/FilterBar";
+import { KpiCards } from "@/components/dashboard/KpiCards";
+import { TimelineChart } from "@/components/dashboard/TimelineChart";
+import { FindingsTable } from "@/components/dashboard/FindingsTable";
+
+export function DashboardPage() {
+  const { data: topics } = useTopics();
+  const { data: timeline, isLoading: timelineLoading } = useTimeline();
+  const { activeTopicId, setActiveTopicId } = useDashboardStore();
+
+  // Set first topic as default once topics load
+  useEffect(() => {
+    if (!activeTopicId && topics?.length) {
+      const defaultTopic = topics.find((t) => t.topic_id === "slow_sessions") ?? topics[0];
+      setActiveTopicId(defaultTopic.topic_id);
+    }
+  }, [topics, activeTopicId, setActiveTopicId]);
+
+  const showBlockingFilter = activeTopicId === "slow_sessions";
+
+  return (
+    <PageShell className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      {/* Topic tabs */}
+      <TopicTabs topics={topics ?? []} />
+
+      {/* Filter bar */}
+      <FilterBar showBlockingFilter={showBlockingFilter} />
+
+      {/* KPI row */}
+      <KpiCards />
+
+      {/* Timeline chart */}
+      <TimelineChart data={timeline} isLoading={timelineLoading} />
+
+      {/* Findings table */}
+      <div className="flex-1 min-h-0">
+        <FindingsTable />
+      </div>
+    </PageShell>
+  );
+}

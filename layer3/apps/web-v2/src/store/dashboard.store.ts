@@ -1,0 +1,69 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import type { TimeRangeState } from "@/lib/time-range";
+import type { AutoRefreshConfig, FindingFilters } from "@/types";
+
+const DEFAULT_TIME_RANGE: TimeRangeState = { mode: "preset", presetId: "last_1_hour" };
+const DEFAULT_AUTO_REFRESH: AutoRefreshConfig = { enabled: false, intervalMs: 60_000 };
+
+interface DashboardState {
+  activeTopicId: string;
+  setActiveTopicId: (id: string) => void;
+
+  timeRange: TimeRangeState;
+  setTimeRange: (range: TimeRangeState) => void;
+
+  filters: FindingFilters;
+  setFilters: (filters: FindingFilters) => void;
+
+  page: number;
+  setPage: (p: number) => void;
+
+  autoRefresh: AutoRefreshConfig;
+  setAutoRefresh: (cfg: AutoRefreshConfig) => void;
+  timeAnchorMs: number;
+  refreshNow: () => void;
+
+  theme: "light" | "dark";
+  toggleTheme: () => void;
+}
+
+export const useDashboardStore = create<DashboardState>()(
+  persist(
+    (set, get) => ({
+      activeTopicId: "",
+      setActiveTopicId: (id) => set({ activeTopicId: id, page: 0 }),
+
+      timeRange: DEFAULT_TIME_RANGE,
+      setTimeRange: (timeRange) => set({ timeRange, page: 0 }),
+
+      filters: {},
+      setFilters: (filters) => set({ filters, page: 0 }),
+
+      page: 0,
+      setPage: (page) => set({ page }),
+
+      autoRefresh: DEFAULT_AUTO_REFRESH,
+      setAutoRefresh: (autoRefresh) => set({ autoRefresh }),
+      timeAnchorMs: Date.now(),
+      refreshNow: () => set({ timeAnchorMs: Date.now() }),
+
+      theme: "light",
+      toggleTheme: () => {
+        const next = get().theme === "light" ? "dark" : "light";
+        set({ theme: next });
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem("theme", next); } catch (_) {}
+      },
+    }),
+    {
+      name: "dashboard-v3",
+      partialize: (s) => ({
+        activeTopicId: s.activeTopicId,
+        timeRange: s.timeRange,
+        autoRefresh: s.autoRefresh,
+        theme: s.theme,
+      }),
+    },
+  ),
+);

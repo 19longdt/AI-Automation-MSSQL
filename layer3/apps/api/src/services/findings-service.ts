@@ -1,6 +1,6 @@
-import { Db } from "mongodb";
+import { Db, Document } from "mongodb";
 import { collections } from "../db/collections";
-import { applyDetectedAtRangeFilter } from "./time-filter";
+import { buildDetectedAtDateRangeMatch } from "./time-filter";
 
 export interface FindingsQuery {
   finding_id?: string;
@@ -27,10 +27,37 @@ export interface FindingTimelineQuery {
   interval_minutes?: number;
 }
 
-function applyBlockingStatusFilter(filter: Record<string, unknown>, blockingStatus?: string) {
+interface FindingDocument extends Document {
+  finding_id?: string;
+  analysis_text?: string;
+  root_cause_summary?: string;
+  top_actions?: unknown;
+}
+
+interface AnalysisDocument extends Document {
+  finding_id?: string;
+  started_at?: string;
+  analysis_text?: string;
+  root_cause_summary?: string;
+  top_actions?: unknown;
+  finding_snapshot?: unknown;
+  tool_snapshots?: unknown;
+}
+
+interface TimelineBucket {
+  _id: Date;
+  count?: number;
+  critical?: number;
+  warning?: number;
+  info?: number;
+}
+
+function applyBlockingStatusFilter(filter: Record<string, unknown>, blockingStatus?: string): void {
+  const currentAnd = Array.isArray(filter.$and) ? filter.$and : [];
+
   if (blockingStatus === "blocked") {
     filter.$and = [
-      ...((filter.$and as unknown[]) || []),
+      ...currentAnd,
       {
         $or: [
           { "metrics.blocking_session_id": { $gt: 0 } },
@@ -43,7 +70,7 @@ function applyBlockingStatusFilter(filter: Record<string, unknown>, blockingStat
 
   if (blockingStatus === "not_blocked") {
     filter.$and = [
-      ...((filter.$and as unknown[]) || []),
+      ...currentAnd,
       {
         $or: [
           { "metrics.blocking_session_id": { $exists: false } },
@@ -73,66 +100,106 @@ function buildFindingsFilter(query: FindingsQuery | FindingTimelineQuery): Recor
   if ("node" in query && query.node) filter.node = query.node;
   if ("status" in query && query.status) filter.status = query.status;
 
-  applyDetectedAtRangeFilter(filter, query.since, query.until);
   applyBlockingStatusFilter(filter, query.blocking_status);
 
   return filter;
 }
 
-export async function listFindings(db: Db, query: FindingsQuery) {
+function detectedAtAsDateExpression(): Record<string, unknown> {
+  return {
+    $convert: {
+      input: "$detected_at",
+      to: "date",
+      onError: null,
+      onNull: null
+    }
+  };
+}
+
+function buildDetectedAtPipeline(since?: string, until?: string): Array<Record<string, unknown>> {
+  const rangeMatch = buildDetectedAtDateRangeMatch(since, until);
+  if (!rangeMatch) {
+    return [];
+  }
+  return [
+    { $addFields: { detected_at_date: detectedAtAsDateExpression() } },
+    { $match: { detected_at_date: rangeMatch } }
+  ];
+}
+
+function sanitizeAnalysisDocument(analysis: AnalysisDocument): AnalysisDocument {
+  const sanitized = { ...analysis };
+  delete sanitized.finding_snapshot;
+  delete sanitized.tool_snapshots;
+  return sanitized;
+}
+
+export async function listFindings(db: Db, query: FindingsQuery): Promise<{ total: number; items: Array<Record<string, unknown>> }> {
   const filter = buildFindingsFilter(query);
 
-  if (!query.finding_id && query.issue_type) filter.issue_type = query.issue_type;
+  if (!query.finding_id && query.issue_type) {
+    filter.issue_type = query.issue_type;
+  }
 
   const limit = Math.min(Math.max(Number(query.limit || 50), 1), 200);
   const page = Math.max(Number(query.page || 0), 0);
 
-  const findingsColl = db.collection(collections.findings);
-  const analysesColl = db.collection(collections.analyses);
+  const findingsColl = db.collection<FindingDocument>(collections.findings);
+  const analysesColl = db.collection<AnalysisDocument>(collections.analyses);
 
-  const total = await findingsColl.countDocuments(filter);
-  const items = await findingsColl.find(filter).sort({ detected_at: -1 }).skip(page * limit).limit(limit).toArray();
+  const dateStages = buildDetectedAtPipeline(query.since, query.until);
+  const totalPipeline: Array<Record<string, unknown>> = [{ $match: filter }, ...dateStages, { $count: "total" }];
+  const itemsPipeline: Array<Record<string, unknown>> = [
+    { $match: filter },
+    ...dateStages,
+    { $sort: { detected_at_date: -1, detected_at: -1 } },
+    { $skip: page * limit },
+    { $limit: limit }
+  ];
 
-  const findingIds = items.map((x: any) => x.finding_id).filter(Boolean);
+  const totalResult = await findingsColl.aggregate<{ total?: number }>(totalPipeline).toArray();
+  const total = Number(totalResult[0]?.total || 0);
+  const items = await findingsColl.aggregate<FindingDocument>(itemsPipeline).toArray();
+
+  const findingIds = items
+    .map((item) => item.finding_id)
+    .filter((findingId): findingId is string => Boolean(findingId));
   const analyzedFindingIdSet = new Set<string>();
-  const latestAnalysisByFindingId: Record<string, any> = {};
+  const latestAnalysisByFindingId: Record<string, AnalysisDocument> = {};
 
-  if (findingIds.length) {
-    const analyses = await analysesColl
-      .find(
-        { finding_id: { $in: findingIds } },
-        { sort: { started_at: -1 } }
-      )
-      .toArray();
+  if (findingIds.length > 0) {
+    const analyses = await analysesColl.aggregate<AnalysisDocument>([
+      { $match: { finding_id: { $in: findingIds } } },
+      { $sort: { started_at: -1 } },
+      { $group: { _id: "$finding_id", doc: { $first: "$$ROOT" } } },
+      { $replaceRoot: { newRoot: "$doc" } }
+    ]).toArray();
 
-    analyses.forEach((a: any) => {
-      if (!a.finding_id) return;
-      const fid = String(a.finding_id);
-      analyzedFindingIdSet.add(fid);
-      if (!latestAnalysisByFindingId[fid]) {
-        const sanitized = { ...a };
-        delete sanitized.finding_snapshot;
-        latestAnalysisByFindingId[fid] = sanitized;
+    analyses.forEach((analysis) => {
+      if (!analysis.finding_id) {
+        return;
       }
+      analyzedFindingIdSet.add(analysis.finding_id);
+      latestAnalysisByFindingId[analysis.finding_id] = sanitizeAnalysisDocument(analysis);
     });
   }
 
-  const mapped = items.map((x: any) => {
-    const findingId = String(x.finding_id || "");
+  const mapped = items.map((finding) => {
+    const findingId = String(finding.finding_id || "");
     return {
-      ...x,
+      ...finding,
       ai_analyzed: analyzedFindingIdSet.has(findingId),
-      ai_analysis: latestAnalysisByFindingId[findingId] || null
+      ai_analysis: latestAnalysisByFindingId[findingId] ?? null
     };
   });
 
   return { total, items: mapped };
 }
 
-function parseTimelineDate(v?: string): Date | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
+function parseTimelineDate(value?: string): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function normalizeIntervalMinutes(value?: number): number {
@@ -141,26 +208,23 @@ function normalizeIntervalMinutes(value?: number): number {
   return Math.min(Math.max(Math.round(raw), 1), 24 * 60);
 }
 
-export async function getFindingTimeline(db: Db, query: FindingTimelineQuery) {
+export async function getFindingTimeline(
+  db: Db,
+  query: FindingTimelineQuery
+): Promise<{ interval_minutes: number; from: string | null; to: string | null; buckets: Array<{ ts: string; count: number; critical: number; warning: number; info: number }> }> {
   const intervalMinutes = normalizeIntervalMinutes(query.interval_minutes);
   const intervalMs = intervalMinutes * 60 * 1000;
   const since = parseTimelineDate(query.since);
   const until = parseTimelineDate(query.until);
   const filter = buildFindingsFilter(query);
-  const findingsColl = db.collection(collections.findings);
+  const findingsColl = db.collection<FindingDocument>(collections.findings);
 
-  const detectedAtAsDate = {
-    $convert: {
-      input: "$detected_at",
-      to: "date",
-      onError: null,
-      onNull: null
-    }
-  };
+  const dateStages = buildDetectedAtPipeline(query.since, query.until);
 
-  const buckets = await findingsColl.aggregate([
+  const buckets = await findingsColl.aggregate<TimelineBucket>([
     { $match: filter },
-    { $addFields: { detected_at_date: detectedAtAsDate } },
+    ...dateStages,
+    { $addFields: { detected_at_date: detectedAtAsDateExpression() } },
     { $match: { detected_at_date: { $ne: null } } },
     {
       $group: {
@@ -196,8 +260,8 @@ export async function getFindingTimeline(db: Db, query: FindingTimelineQuery) {
   let rangeStart = since;
   let rangeEnd = until;
 
-  if (!rangeStart && buckets.length) rangeStart = buckets[0]._id;
-  if (!rangeEnd && buckets.length) rangeEnd = buckets[buckets.length - 1]._id;
+  if (!rangeStart && buckets.length > 0) rangeStart = buckets[0]._id;
+  if (!rangeEnd && buckets.length > 0) rangeEnd = buckets[buckets.length - 1]._id;
   if (!rangeStart && !rangeEnd) {
     const now = new Date();
     rangeEnd = now;
@@ -208,8 +272,8 @@ export async function getFindingTimeline(db: Db, query: FindingTimelineQuery) {
     rangeEnd = new Date(rangeStart.getTime() + intervalMs * 24);
   }
 
-  const indexed = new Map<number, any>();
-  buckets.forEach((bucket: any) => {
+  const indexed = new Map<number, TimelineBucket>();
+  buckets.forEach((bucket) => {
     indexed.set(new Date(bucket._id).getTime(), bucket);
   });
 
@@ -245,25 +309,25 @@ export async function getFindingTimeline(db: Db, query: FindingTimelineQuery) {
   };
 }
 
-async function findAnalysisForFinding(db: Db, finding: any) {
-  const analyses = db.collection(collections.analyses);
+async function findAnalysisForFinding(db: Db, finding: FindingDocument): Promise<AnalysisDocument | null> {
+  const analyses = db.collection<AnalysisDocument>(collections.analyses);
 
   if (finding.finding_id) {
     const byFindingId = await analyses.findOne({ finding_id: finding.finding_id }, { sort: { started_at: -1 } });
-    if (byFindingId) return byFindingId;
+    if (byFindingId) {
+      return byFindingId;
+    }
   }
 
   return null;
 }
 
-export async function getFindingById(db: Db, id: string) {
-  const finding = await db.collection(collections.findings).findOne({ finding_id: id });
+export async function getFindingById(db: Db, id: string): Promise<Record<string, unknown> | null> {
+  const finding = await db.collection<FindingDocument>(collections.findings).findOne({ finding_id: id });
   if (!finding) return null;
 
   const analysis = await findAnalysisForFinding(db, finding);
-
-  const sanitizedAnalysis = analysis ? { ...analysis } : null;
-  if (sanitizedAnalysis) delete sanitizedAnalysis.finding_snapshot;
+  const sanitizedAnalysis = analysis ? sanitizeAnalysisDocument(analysis) : null;
 
   return {
     ...finding,

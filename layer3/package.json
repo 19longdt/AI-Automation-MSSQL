@@ -10,8 +10,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace=@layer3/web\" \"npm run dev --workspace=@layer3/api\"",
-    "build": "npm run build --workspace=@layer3/core && npm run build --workspace=@layer3/web && npm run build --workspace=@layer3/api",
+    "dev": "concurrently \"npm run dev --workspace=@layer3/web-v2\" \"npm run dev --workspace=@layer3/api\"",
+    "build": "npm run build --workspace=@layer3/core && npm run build --workspace=@layer3/web-v2 && npm run build --workspace=@layer3/api",
     "prestart": "npm run build",
     "start": "node apps/api/dist/main.js"
   },
