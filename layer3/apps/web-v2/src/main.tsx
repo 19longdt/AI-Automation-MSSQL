@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./styles/globals.css";
+import "./styles/qp-legacy.css";
 import App from "./App";
 
 const queryClient = new QueryClient({

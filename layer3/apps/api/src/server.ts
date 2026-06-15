@@ -61,6 +61,12 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   const repoRoot = path.resolve(__dirname, "../../..");
   const dist2Root = path.join(repoRoot, "dist-v2");
 
+  await app.register(fastifyStatic, {
+    root: path.join(repoRoot, "assets", "ssms-icons-ver17"),
+    prefix: "/assets/ssms-icons-ver17/",
+    decorateReply: false,
+  });
+
   // Vite build output: dist-v2/assets/ → served at /assets/*
   // decorateReply defaults to true → attaches reply.sendFile to all handlers below.
   await app.register(fastifyStatic, {

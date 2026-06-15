@@ -992,398 +992,398 @@ button.is-active {
 }
 
 .qp-icon-Catchall {
-    background-image: url('../assets/ssms-icons-ver17/icon-language-construct-catch-all.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-language-construct-catch-all.png')
 }
 
 .qp-icon-ArithmeticExpression {
-    background-image: url('../assets/ssms-icons-ver17/icon-arithmetic-expression.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-arithmetic-expression.png')
 }
 
 .qp-icon-Assert {
-    background-image: url('../assets/ssms-icons-ver17/icon-assert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-assert.png')
 }
 
 .qp-icon-Assign {
-    background-image: url('../assets/ssms-icons-ver17/icon-assign.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-assign.png')
 }
 
 .qp-icon-Bitmap {
-    background-image: url('../assets/ssms-icons-ver17/icon-bitmap.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-bitmap.png')
 }
 
 .qp-icon-BookmarkLookup {
-    background-image: url('../assets/ssms-icons-ver17/icon-key-lookup.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-key-lookup.png')
 }
 
 .qp-icon-ClusteredIndexDelete {
-    background-image: url('../assets/ssms-icons-ver17/icon-clustered-index-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-delete.png')
 }
 
 .qp-icon-ClusteredIndexInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-clustered-index-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-insert.png')
 }
 
 .qp-icon-ClusteredIndexScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-clustered-index-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-scan.png')
 }
 
 .qp-icon-ClusteredIndexSeek {
-    background-image: url('../assets/ssms-icons-ver17/icon-clustered-index-seek.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-seek.png')
 }
 
 .qp-icon-ClusteredIndexMerge {
-    background-image: url('../assets/ssms-icons-ver17/icon-clustered-index-merge.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-merge.png')
 }
 
 .qp-icon-KeyLookup {
-    background-image: url('../assets/ssms-icons-ver17/icon-key-lookup.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-key-lookup.png')
 }
 
 .qp-icon-ClusteredIndexUpdate {
-    background-image: url('../assets/ssms-icons-ver17/icon-clustered-index-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-update.png')
 }
 
 .qp-icon-Collapse {
-    background-image: url('../assets/ssms-icons-ver17/icon-collapse.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-collapse.png')
 }
 
 .qp-icon-ComputeScalar {
-    background-image: url('../assets/ssms-icons-ver17/icon-compute-scalar.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-compute-scalar.png')
 }
 
 .qp-icon-Concatenation {
-    background-image: url('../assets/ssms-icons-ver17/icon-concatenation.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-concatenation.png')
 }
 
 .qp-icon-ConstantScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-constant-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-constant-scan.png')
 }
 
 .qp-icon-Convert {
-    background-image: url('../assets/ssms-icons-ver17/icon-convert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-convert.png')
 }
 
 .qp-icon-CursorCatchall {
-    background-image: url('../assets/ssms-icons-ver17/icon-cursor-catch-all.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-cursor-catch-all.png')
 }
 
 .qp-icon-Declare {
-    background-image: url('../assets/ssms-icons-ver17/icon-declare.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-declare.png')
 }
 
 .qp-icon-Delete {
-    background-image: url('../assets/ssms-icons-ver17/icon-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-delete.png')
 }
 
 .qp-icon-DistributeStreams {
-    background-image: url('../assets/ssms-icons-ver17/icon-parallelism-distribute-streams.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-parallelism-distribute-streams.png')
 }
 
 .qp-icon-Dynamic {
-    background-image: url('../assets/ssms-icons-ver17/icon-dynamic.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-dynamic.png')
 }
 
 .qp-icon-EagerSpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-spool.png')
 }
 
 .qp-icon-FetchQuery {
-    background-image: url('../assets/ssms-icons-ver17/icon-fetch-query.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-fetch-query.png')
 }
 
 .qp-icon-Filter {
-    background-image: url('../assets/ssms-icons-ver17/icon-filter.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-filter.png')
 }
 
 .qp-icon-GatherStreams {
-    background-image: url('../assets/ssms-icons-ver17/icon-parallelism.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-parallelism.png')
 }
 
 .qp-icon-HashMatch {
-    background-image: url('../assets/ssms-icons-ver17/icon-hash-match.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-hash-match.png')
 }
 
 .qp-icon-HashMatchRoot {
-    background-image: url('../assets/ssms-icons-ver17/icon-hash-match.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-hash-match.png')
 }
 
 .qp-icon-HashMatchTeam {
-    background-image: url('../assets/ssms-icons-ver17/icon-hash-match.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-hash-match.png')
 }
 
 .qp-icon-If {
-    background-image: url('../assets/ssms-icons-ver17/icon-conditional.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-conditional.png')
 }
 
 .qp-icon-Insert {
-    background-image: url('../assets/ssms-icons-ver17/icon-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-insert.png')
 }
 
 .qp-icon-InsertedScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-inserted-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-inserted-scan.png')
 }
 
 .qp-icon-Intrinsic {
-    background-image: url('../assets/ssms-icons-ver17/icon-intrinsic.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-intrinsic.png')
 }
 
 .qp-icon-IteratorCatchall {
-    background-image: url('../assets/ssms-icons-ver17/icon-iterator-catch-all.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-iterator-catch-all.png')
 }
 
 .qp-icon-Keyset {
-    background-image: url('../assets/ssms-icons-ver17/icon-keyset.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-keyset.png')
 }
 
 .qp-icon-LanguageElementCatchall {
-    background-image: url('../assets/ssms-icons-ver17/icon-language-construct-catch-all.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-language-construct-catch-all.png')
 }
 
 .qp-icon-LazySpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-spool.png')
 }
 
 .qp-icon-LogRowScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-log-row-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-log-row-scan.png')
 }
 
 .qp-icon-MergeInterval {
-    background-image: url('../assets/ssms-icons-ver17/icon-merge-interval.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-merge-interval.png')
 }
 
 .qp-icon-MergeJoin {
-    background-image: url('../assets/ssms-icons-ver17/icon-merge-join.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-merge-join.png')
 }
 
 .qp-icon-NestedLoops {
-    background-image: url('../assets/ssms-icons-ver17/icon-nested-loops.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nested-loops.png')
 }
 
 .qp-icon-NonclusteredIndexDelete {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-delete.png')
 }
 
 .qp-icon-NonclusteredIndexInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
 }
 
 .qp-icon-IndexScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-scan.png')
 }
 
 .qp-icon-IndexSeek {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-seek.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-seek.png')
 }
 
 .qp-icon-NonclusteredIndexSpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-spool.png')
 }
 
 .qp-icon-NonclusteredIndexUpdate {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-update.png')
 }
 
 .qp-icon-OnlineIndexInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
 }
 
 .qp-icon-ParameterTableScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-parameter-table-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-parameter-table-scan.png')
 }
 
 .qp-icon-PopulateQuery {
-    background-image: url('../assets/ssms-icons-ver17/icon-population-query.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-population-query.png')
 }
 
 .qp-icon-RdiLookup {
-    background-image: url('../assets/ssms-icons-ver17/icon-row-id-nonclustered-locate.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-row-id-nonclustered-locate.png')
 }
 
 .qp-icon-RefreshQuery {
-    background-image: url('../assets/ssms-icons-ver17/icon-refresh-query.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-refresh-query.png')
 }
 
 .qp-icon-RemoteDelete {
-    background-image: url('../assets/ssms-icons-ver17/icon-remote-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-delete.png')
 }
 
 .qp-icon-RemoteInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-remote-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-insert.png')
 }
 
 .qp-icon-RemoteQuery {
-    background-image: url('../assets/ssms-icons-ver17/icon-remote-query.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-query.png')
 }
 
 .qp-icon-RemoteScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-remote-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-scan.png')
 }
 
 .qp-icon-RemoteUpdate {
-    background-image: url('../assets/ssms-icons-ver17/icon-remote-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-update.png')
 }
 
 .qp-icon-RepartitionStreams {
-    background-image: url('../assets/ssms-icons-ver17/icon-parallelism-repartition-streams.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-parallelism-repartition-streams.png')
 }
 
 .qp-icon-Result {
-    background-image: url('../assets/ssms-icons-ver17/icon-result.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-result.png')
 }
 
 .qp-icon-RowCountSpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-remote-count-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-count-spool.png')
 }
 
 .qp-icon-Segment {
-    background-image: url('../assets/ssms-icons-ver17/icon-segment.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-segment.png')
 }
 
 .qp-icon-Sequence {
-    background-image: url('../assets/ssms-icons-ver17/icon-sequence.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-sequence.png')
 }
 
 .qp-icon-SequenceProject {
-    background-image: url('../assets/ssms-icons-ver17/icon-sequence-project.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-sequence-project.png')
 }
 
 .qp-icon-SnapShot {
-    background-image: url('../assets/ssms-icons-ver17/icon-snapshot.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-snapshot.png')
 }
 
 .qp-icon-Sort {
-    background-image: url('../assets/ssms-icons-ver17/icon-sort.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-sort.png')
 }
 
 .qp-icon-Split {
-    background-image: url('../assets/ssms-icons-ver17/icon-split.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-split.png')
 }
 
 .qp-icon-Spool {
-    background-image: url('../assets/ssms-icons-ver17/icon-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-spool.png')
 }
 
 .qp-icon-Statement {
-    background-image: url('../assets/ssms-icons-ver17/icon-result.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-result.png')
 }
 
 .qp-icon-StreamAggregate {
-    background-image: url('../assets/ssms-icons-ver17/icon-stream-aggregate.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-stream-aggregate.png')
 }
 
 .qp-icon-Switch {
-    background-image: url('../assets/ssms-icons-ver17/icon-switch.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-switch.png')
 }
 
 .qp-icon-TableDelete {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-delete.png')
 }
 
 .qp-icon-TableInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-insert.png')
 }
 
 .qp-icon-TableScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-scan.png')
 }
 
 .qp-icon-TableSpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-spool.png')
 }
 
 .qp-icon-WindowSpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-spool.png')
 }
 
 .qp-icon-TableUpdate {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-update.png')
 }
 
 .qp-icon-TableValuedFunction {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-valued-function.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-valued-function.png')
 }
 
 .qp-icon-Top {
-    background-image: url('../assets/ssms-icons-ver17/icon-top.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-top.png')
 }
 
 .qp-icon-UDX {
-    background-image: url('../assets/ssms-icons-ver17/icon-udx-extended-operator.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-udx-extended-operator.png')
 }
 
 .qp-icon-Update {
-    background-image: url('../assets/ssms-icons-ver17/icon-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-update.png')
 }
 
 .qp-icon-While {
-    background-image: url('../assets/ssms-icons-ver17/icon-conditional.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-conditional.png')
 }
 
 .qp-icon-StmtCursor {
-    background-image: url('../assets/ssms-icons-ver17/icon-cursor-catch-all.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-cursor-catch-all.png')
 }
 
 .qp-icon-StmtCond {
-    background-image: url('../assets/ssms-icons-ver17/icon-conditional.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-conditional.png')
 }
 
 .qp-icon-FastForward {
-    background-image: url('../assets/ssms-icons-ver17/icon-cursor-catch-all.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-cursor-catch-all.png')
 }
 
 .qp-icon-WindowAggregate {
-    background-image: url('../assets/ssms-icons-ver17/icon-aggregate.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-aggregate.png')
 }
 
 .qp-icon-AdaptiveJoin {
-    background-image: url('../assets/ssms-icons-ver17/icon-adaptive-join.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-adaptive-join.png')
 }
 
 .qp-icon-IndexSpool {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-spool.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-spool.png')
 }
 
 .qp-icon-IndexInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
 }
 
 .qp-icon-IndexDelete {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-delete.png')
 }
 
 .qp-icon-IndexUpdate {
-    background-image: url('../assets/ssms-icons-ver17/icon-nonclustered-index-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-update.png')
 }
 
 .qp-icon-ColumnStoreIndexScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-columnstore-index-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-scan.png')
 }
 
 .qp-icon-ColumnStoreIndexInsert {
-    background-image: url('../assets/ssms-icons-ver17/icon-columnstore-index-insert.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-insert.png')
 }
 
 .qp-icon-ColumnStoreIndexDelete {
-    background-image: url('../assets/ssms-icons-ver17/icon-columnstore-index-delete.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-delete.png')
 }
 
 .qp-icon-ColumnStoreIndexUpdate {
-    background-image: url('../assets/ssms-icons-ver17/icon-columnstore-index-update.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-update.png')
 }
 
 .qp-icon-ColumnStoreIndexMerge {
-    background-image: url('../assets/ssms-icons-ver17/icon-columnstore-index-merge.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-merge.png')
 }
 
 .qp-icon-DeletedScan {
-    background-image: url('../assets/ssms-icons-ver17/icon-deleted-scan.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-deleted-scan.png')
 }
 
 .qp-icon-TableMerge {
-    background-image: url('../assets/ssms-icons-ver17/icon-table-merge.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-table-merge.png')
 }
 
 .qp-icon-BatchHashTableBuild {
-    background-image: url('../assets/ssms-icons-ver17/icon-batch-hash-table-build.png')
+    background-image: url('/assets/ssms-icons-ver17/icon-batch-hash-table-build.png')
 }
 

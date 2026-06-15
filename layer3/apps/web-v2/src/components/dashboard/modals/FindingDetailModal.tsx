@@ -17,8 +17,8 @@ export function FindingDetailModal({ finding, onClose }: Props) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="w-[min(90vw,860px)]">
-        <DialogHeader>
+      <DialogContent className="w-[min(98vw,1200px)]">
+        <DialogHeader className="px-5 py-3">
           <div className="flex items-center gap-2 flex-wrap pr-8">
             <DialogTitle className="font-code text-[13px]">{finding.finding_id}</DialogTitle>
             <SeverityBadge severity={finding.severity as Severity} />

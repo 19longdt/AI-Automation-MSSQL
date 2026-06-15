@@ -128,11 +128,13 @@ export function BlockingChainModal({ finding, onClose }: { finding: FindingWithA
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(92vw,860px)] overflow-hidden p-0">
-        <DialogHeader className="px-5 pt-4 pb-0">
-          <DialogTitle>
-            Blocking Chain - <span className="font-code text-[var(--color-critical)]">#{headId}</span>
-          </DialogTitle>
+      <DialogContent className="w-[min(98vw,1400px)] overflow-hidden p-0">
+        <DialogHeader className="px-5 py-3">
+          <div className="flex items-center gap-2 flex-wrap pr-8">
+            <DialogTitle>
+              Blocking Chain - <span className="font-code text-[var(--color-critical)]">#{headId}</span>
+            </DialogTitle>
+          </div>
         </DialogHeader>
 
         <KpiStrip

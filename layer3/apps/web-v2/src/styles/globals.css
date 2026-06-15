@@ -34,6 +34,8 @@
   --color-code-text:      #e2e8f0;
   --color-role-primary:   #1d4ed8;
   --color-role-secondary: #6b7280;
+  --color-shadow-sm:      rgba(15, 23, 42, 0.08);
+  --color-shadow-lg:      rgba(15, 23, 42, 0.22);
   --group-color-orientation: #2563eb;
   --group-color-cost:        #7c3aed;
   --group-color-actionable:  #dc2626;
@@ -79,6 +81,8 @@
   --color-code-text:      #e2e8f0;
   --color-role-primary:   #60a5fa;
   --color-role-secondary: #94a3b8;
+  --color-shadow-sm:      rgba(0, 0, 0, 0.28);
+  --color-shadow-lg:      rgba(0, 0, 0, 0.52);
   --group-color-orientation: #3b82f6;
   --group-color-cost:        #a855f7;
   --group-color-actionable:  #ef4444;
@@ -216,7 +220,7 @@
     padding: 0;
     text-transform: none;
     letter-spacing: 0;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 1px 2px var(--color-shadow-sm);
   }
 
   .gl-tip-btn:hover {
@@ -235,7 +239,7 @@
     border-radius: 12px;
     background: var(--color-surface);
     color: var(--color-text);
-    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
+    box-shadow: 0 18px 42px var(--color-shadow-lg);
     white-space: normal;
     line-height: 1.45;
     text-transform: none;
@@ -281,5 +285,48 @@
   .gl-tooltip-formula {
     font-family: var(--font-code);
     color: var(--color-text);
+  }
+
+  .qp-frame {
+    border-radius: 16px;
+    border: 1px solid var(--color-border);
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 34%),
+      linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface-2) 100%);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-surface-3) 65%, transparent);
+  }
+
+  .qp-frame--compact {
+    border-radius: 12px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .qp-frame__inner {
+    padding: 10px;
+  }
+
+  .qp-frame--compact .qp-frame__inner {
+    padding: 0;
+  }
+
+  .qp-frame__canvas {
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--color-border-2) 85%, white 15%);
+    border-radius: 12px;
+    background: var(--color-surface);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.7) inset,
+      0 10px 28px rgba(15, 23, 42, 0.08);
+  }
+
+  [data-theme="dark"] .qp-frame__canvas {
+    border-color: color-mix(in srgb, var(--color-border-2) 55%, white 45%);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, white 8%) 0%, var(--color-surface) 100%);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.08) inset,
+      0 16px 36px rgba(2, 6, 23, 0.36);
   }
 }

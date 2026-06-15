@@ -30,7 +30,7 @@ export function PlanOperators({ operators }: PlanOperatorsProps): ReactNode {
                   {opDisplayName(operator)}
                 </GlossaryTip>
               </span>
-              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white", opTagClass(operator.op_type_tag))}>
+              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-surface)]", opTagClass(operator.op_type_tag))}>
                 {operator.op_type_tag}
               </span>
               {operator.has_row_est_off && (

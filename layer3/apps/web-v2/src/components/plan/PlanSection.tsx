@@ -40,7 +40,7 @@ export function PlanSection({
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-left transition-colors hover:bg-[var(--color-row-hover)]"
+        className="flex w-full items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-left transition-colors hover:bg-[var(--color-row-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] focus-visible:outline-offset-[-2px]"
       >
         <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full", DOT_CLASS[dotColor])} />
         <span className="text-[13px] font-semibold text-[var(--color-text)]">{title}</span>
@@ -51,12 +51,19 @@ export function PlanSection({
         )}
         <ChevronDown
           className={cn(
-            "ml-auto h-4 w-4 text-[var(--color-muted)] transition-transform duration-150",
+            "ml-auto h-4 w-4 text-[var(--color-muted)] transition-transform duration-150 motion-reduce:transition-none",
             open && "rotate-180",
           )}
         />
       </button>
-      {open && <div className="p-3">{children}</div>}
+      <div className={cn(
+        "grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none",
+        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}>
+        <div className="overflow-hidden">
+          <div className="p-3">{children}</div>
+        </div>
+      </div>
     </section>
   );
 }

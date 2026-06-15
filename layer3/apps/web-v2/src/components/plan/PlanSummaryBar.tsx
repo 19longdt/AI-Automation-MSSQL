@@ -13,6 +13,7 @@ interface SummaryItem {
   value: string;
   glossaryKey: string;
   valueClassName?: string;
+  truncate?: boolean;
 }
 
 export function PlanSummaryBar({ s }: PlanSummaryBarProps): ReactNode {
@@ -61,7 +62,7 @@ export function PlanSummaryBar({ s }: PlanSummaryBarProps): ReactNode {
       glossaryKey: "mem_used",
       valueClassName: memCls(s.memory_grant?.max_used_kb, s.memory_grant?.granted_kb),
     },
-    { label: "TOP WAIT", value: top?.type ?? "-", glossaryKey: (top?.type ?? "").toLowerCase() || "wait_stat", valueClassName: waitCls(top?.type) },
+    { label: "TOP WAIT", value: top?.type ?? "-", glossaryKey: (top?.type ?? "").toLowerCase() || "wait_stat", valueClassName: waitCls(top?.type), truncate: true },
     {
       label: "WAIT TIME",
       value: waitTotal > 0 ? formatMs(waitTotal) : "-",
@@ -73,7 +74,7 @@ export function PlanSummaryBar({ s }: PlanSummaryBarProps): ReactNode {
   return (
     <div className="sticky top-0 z-10 border-b border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
       <SummaryRow items={row1} />
-      <div className="mx-auto h-px w-[60%] bg-[var(--color-border)] opacity-50" />
+      <div className="mx-auto h-px w-full bg-[var(--color-border)] opacity-50" />
       <SummaryRow items={row2} />
     </div>
   );
@@ -88,10 +89,14 @@ function SummaryRow({ items }: { items: SummaryItem[] }): ReactNode {
             <span className="mx-2 select-none text-[var(--color-border)]" aria-hidden="true">|</span>
           )}
           <span className="inline-flex flex-col items-center gap-[2px]">
-            <span className={cn("text-[18px] font-extrabold leading-tight tabular", item.valueClassName ?? "text-[var(--color-text)]")}>
+            <span className={cn(
+              "text-[18px] font-extrabold leading-tight tabular",
+              item.truncate && "max-w-[140px] truncate",
+              item.valueClassName ?? "text-[var(--color-text)]",
+            )}>
               {item.value}
             </span>
-            <span className="text-[9px] font-bold uppercase tracking-[0.09em] text-[var(--color-muted)]">
+            <span className="text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--color-muted)]">
               <GlossaryTip glossaryKey={item.glossaryKey}>{item.label}</GlossaryTip>
             </span>
           </span>

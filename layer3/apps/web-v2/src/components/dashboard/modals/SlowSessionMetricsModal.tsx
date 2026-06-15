@@ -8,11 +8,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { QpCanvas } from "@/components/plan/QpCanvas";
 import { PlanAnalysisPanel } from "@/components/plan/PlanAnalysisPanel";
 import { SeverityBadge } from "@/components/shared/SeverityBadge";
 import { useFindingById } from "@/hooks/useFindings";
 import { apiPost } from "@/lib/api-client";
-import { ensureQp, applyHeatColoring, bindQpActions, drawLines } from "@/lib/qp-loader";
 import type { FindingWithAnalysis } from "@/types";
 import type { PlanAnalysisResult } from "@layer3/core";
 import type { Severity } from "@layer3/core";
@@ -21,15 +21,6 @@ interface Props {
   finding: FindingWithAnalysis;
   onClose: () => void;
 }
-
-const PLAN_BOX_STYLE = {
-  background: "#ffffff",
-  colorScheme: "light",
-  borderRadius: 6,
-  padding: "4px",
-  "--qp-block-height": "420px",
-  "--qp-block-height-dvh": "420px",
-} as React.CSSProperties;
 
 function PlanBox({ xml, sqlFallback, onError }: { xml: string; sqlFallback?: string; onError?(msg: string): void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -42,40 +33,36 @@ function PlanBox({ xml, sqlFallback, onError }: { xml: string; sqlFallback?: str
     if (!trimmed) {
       const fb = (sqlFallback ?? "").trim();
       el.innerHTML = fb
-        ? `<div style="padding:8px">
-             <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">SQL Text</div>
-             <pre style="font-family:Consolas,monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;margin:0;color:#1e293b">${fb.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
+        ? `<div style="padding:12px 14px">
+             <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">SQL Text</div>
+             <pre style="font-family:Consolas,monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;margin:0;color:#172033">${fb.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
            </div>`
-        : `<p style="font-size:13px;color:#64748b;padding:8px 0">No execution plan available.</p>`;
+        : `<p style="font-size:13px;color:#64748b;padding:12px 14px;margin:0">No execution plan available.</p>`;
       return;
     }
 
-    let cancelled = false;
-    ensureQp()
-      .then(() => {
-        if (cancelled || !ref.current || !window.QP) return;
-        try {
-          const doc = new DOMParser().parseFromString(trimmed, "application/xml");
-          if (doc.getElementsByTagName("parsererror").length) {
-            onError?.("XML parse error");
-            return;
-          }
-          ref.current.innerHTML = "";
-          window.QP.showPlan(ref.current, trimmed);
-          applyHeatColoring(ref.current);
-          bindQpActions(ref.current, trimmed);
-          setTimeout(() => { if (!cancelled) drawLines(ref.current!); }, 150);
-        } catch (e) {
-          onError?.(e instanceof Error ? e.message : "Render error");
-        }
-      })
-      .catch(e => { if (!cancelled) onError?.(e instanceof Error ? e.message : "Failed to load qp.js"); });
-    return () => { cancelled = true; };
+    return undefined;
   }, [xml, sqlFallback, onError]);
 
   return (
-    <div data-theme="light" style={PLAN_BOX_STYLE}>
-      <div ref={ref} style={{ overflowX: "auto", overflowY: "visible", minHeight: xml.trim() ? 80 : 0 }} />
+    <div>
+      {xml.trim() ? (
+        <QpCanvas
+          xml={xml}
+          compact
+          onError={onError}
+          ariaLabel="Execution plan preview"
+          style={{ "--qp-block-height": "420px", "--qp-block-height-dvh": "420px", minHeight: 80 } as React.CSSProperties}
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+          <div
+            ref={ref}
+            className="min-h-[80px]"
+            aria-label="Execution plan preview"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -283,7 +270,7 @@ export function SlowSessionMetricsModal({ finding, onClose }: Props) {
   return (
     <>
       <Dialog open onOpenChange={o => !o && onClose()}>
-        <DialogContent className="w-[min(95vw,1000px)] max-h-[90vh]">
+        <DialogContent className="w-[min(98vw,1400px)] max-h-[90vh]">
           <DialogHeader className="px-4 py-3">
             <div className="flex w-full items-center justify-between gap-3 pr-8">
               <div className="flex flex-wrap items-center gap-2">
@@ -319,17 +306,17 @@ export function SlowSessionMetricsModal({ finding, onClose }: Props) {
 
                 {(planXml || planSql) && (
                   <div className="rounded-lg border border-[var(--color-border)]">
-                    <div className="flex items-center justify-end px-3 py-1.5">
-                      <div className="flex items-center gap-2">
-                        {analyzeMutation.isPending && (
-                          <span className="text-[11px] text-[var(--color-muted)] animate-pulse">Analyzing...</span>
-                        )}
-                        {planError && (
-                          <span className="text-[11px] text-[var(--color-critical)]">{planError}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto px-2 pb-2">
+                    {/*<div className="flex items-center justify-end px-3 py-1.5">*/}
+                    {/*  <div className="flex items-center gap-2">*/}
+                    {/*    {analyzeMutation.isPending && (*/}
+                    {/*      <span className="text-[11px] text-[var(--color-muted)] animate-pulse">Analyzing...</span>*/}
+                    {/*    )}*/}
+                    {/*    {planError && (*/}
+                    {/*      <span className="text-[11px] text-[var(--color-critical)]">{planError}</span>*/}
+                    {/*    )}*/}
+                    {/*  </div>*/}
+                    {/*</div>*/}
+                    <div className="overflow-x-auto">
                       <PlanBox xml={planXml} sqlFallback={planSql} onError={setPlanError} />
                     </div>
                   </div>

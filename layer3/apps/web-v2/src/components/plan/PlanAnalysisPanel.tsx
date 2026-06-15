@@ -95,8 +95,12 @@ export function PlanAnalysisPanel({ result }: Props): ReactNode {
           return (
             <section key={group.id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
               <header
-                className="cursor-pointer select-none border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2.5"
+                role="button"
+                tabIndex={0}
+                aria-expanded={!isCollapsed}
+                className="cursor-pointer select-none border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] focus-visible:outline-offset-[-2px] focus-visible:rounded-xl"
                 onClick={() => toggleGroup(group.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group.id); } }}
               >
                 <div className="flex items-center gap-2">
                   <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: group.color }} />
@@ -108,13 +112,20 @@ export function PlanAnalysisPanel({ result }: Props): ReactNode {
                   </span>
                   <ChevronDown
                     className={cn(
-                      "ml-auto h-4 w-4 text-[var(--color-muted)] transition-transform duration-150",
+                      "ml-auto h-4 w-4 text-[var(--color-muted)] transition-transform duration-150 motion-reduce:transition-none",
                       !isCollapsed && "rotate-180",
                     )}
                   />
                 </div>
               </header>
-              {!isCollapsed && <div className="space-y-2.5 p-3">{renderGroup(group.id, statement, group.color)}</div>}
+              <div className={cn(
+                "grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none",
+                isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="space-y-2.5 p-3">{renderGroup(group.id, statement, group.color)}</div>
+                </div>
+              </div>
             </section>
           );
         })}

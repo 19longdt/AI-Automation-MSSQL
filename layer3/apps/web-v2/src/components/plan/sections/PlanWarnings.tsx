@@ -20,7 +20,7 @@ export function PlanWarnings({ groups }: PlanWarningsProps): ReactNode {
         >
           <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
             <SeverityPill severity={group.severity} />
-            <span className="rounded-full bg-[var(--color-surface)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <span className="rounded-full bg-[var(--color-surface)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">
               {warnCat(group.type)}
             </span>
             <span className="text-[12px] font-semibold text-[var(--color-text)]">{group.type}</span>
@@ -29,7 +29,7 @@ export function PlanWarnings({ groups }: PlanWarningsProps): ReactNode {
             </span>
           </div>
           <div className="space-y-2 px-3 py-3 text-[13px] text-[var(--color-text-2)]">
-            <p className="text-[10px] font-bold uppercase tracking-[0.05em] text-[var(--color-muted)]">
+            <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-[var(--color-muted)]">
               <GlossaryTip glossaryKey={group.type}>{warnLabel(group.type)}</GlossaryTip>
             </p>
             {group.count === 1 && group.instances.length > 0 && (
@@ -91,7 +91,7 @@ function SeverityPill({ severity }: { severity: FindingGroup["severity"] }): Rea
         : "bg-[var(--color-info-soft)] text-[var(--color-info)]";
 
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${className}`}>
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.12em] ${className}`}>
       {severity}
     </span>
   );

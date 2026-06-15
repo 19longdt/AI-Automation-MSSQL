@@ -48,7 +48,7 @@ export const useDashboardStore = create<DashboardState>()(
       timeAnchorMs: Date.now(),
       refreshNow: () => set({ timeAnchorMs: Date.now() }),
 
-      theme: "light",
+      theme: (document.documentElement.getAttribute("data-theme") as "light" | "dark") ?? "light",
       toggleTheme: () => {
         const next = get().theme === "light" ? "dark" : "light";
         set({ theme: next });

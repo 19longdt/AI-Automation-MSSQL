@@ -13,10 +13,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api":          { target: "http://localhost:3000", changeOrigin: true },
-      "/dist":         { target: "http://localhost:3000", changeOrigin: true },
-      "/css":          { target: "http://localhost:3000", changeOrigin: true },
-      "/qp_icons.png": { target: "http://localhost:3000", changeOrigin: true },
+      "/api":  { target: "http://localhost:3000", changeOrigin: true },
+      "/dist": { target: "http://localhost:3000", changeOrigin: true },
     },
   },
   build: {

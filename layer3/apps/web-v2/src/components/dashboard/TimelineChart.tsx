@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, parseWallClockDate } from "@/lib/format";
+import { useDashboardStore } from "@/store/dashboard.store";
 import type { TimelineResponse, TimelineBucket } from "@/types";
 
 interface Props {
@@ -51,6 +52,7 @@ export function TimelineChart({ data, isLoading }: Props) {
   const svgRef  = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const tipRef  = useRef<HTMLDivElement>(null);
+  const { theme } = useDashboardStore();
 
   // Trigger redraws on resize — don't store width in state to avoid stale initial render
   const [resizeTick, setResizeTick] = useState(0);
@@ -62,7 +64,7 @@ export function TimelineChart({ data, isLoading }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // Cache CSS vars once — never call getComputedStyle in render loop
+  // Re-read CSS vars whenever theme changes so SVG colors stay in sync
   const colors = useMemo(() => {
     const s = getComputedStyle(document.documentElement);
     return {
@@ -73,7 +75,8 @@ export function TimelineChart({ data, isLoading }: Props) {
       info:     s.getPropertyValue("--color-info").trim()      || "#2563eb",
       now:      s.getPropertyValue("--color-critical").trim()  || "#dc2626",
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme]);
 
   const showTip = useCallback((item: TimelineBucket, clientX: number, clientY: number) => {
     const tip  = tipRef.current;

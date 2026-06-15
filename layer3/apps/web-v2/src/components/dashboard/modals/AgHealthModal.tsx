@@ -139,13 +139,15 @@ export function AgHealthModal({ finding, onClose }: { finding: FindingWithAnalys
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-[min(92vw,820px)] overflow-hidden p-0">
-        <DialogHeader className="px-5 pt-4 pb-0">
-          <DialogTitle className="flex items-center gap-2">
-            AG Health -
-            <span className="font-normal text-[var(--color-muted)]">{String(m.replica_server_name ?? finding.node ?? "")}</span>
-            <SeverityBadge severity={finding.severity as Severity} />
-          </DialogTitle>
+      <DialogContent className="w-[min(98vw,1400px)] overflow-hidden p-0">
+        <DialogHeader className="px-5 py-3">
+          <div className="flex items-center gap-2 flex-wrap pr-8">
+            <DialogTitle className="flex items-center gap-2">
+              AG Health -
+              <span className="font-normal text-[var(--color-muted)]">{String(m.replica_server_name ?? finding.node ?? "")}</span>
+              <SeverityBadge severity={finding.severity as Severity} />
+            </DialogTitle>
+          </div>
         </DialogHeader>
 
         {!isCdc && <KpiStrip m={m} />}
