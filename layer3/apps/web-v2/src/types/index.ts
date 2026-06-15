@@ -67,6 +67,11 @@ export interface TimelineResponse {
   buckets: TimelineBucket[];
 }
 
+export interface TopicThresholdConfig {
+  warning?: number;
+  critical?: number;
+}
+
 export interface IssueInsight {
   _id: string;
   issue_type: string;
@@ -84,6 +89,7 @@ export interface MonitorTopic {
   name: string;
   description?: string;
   enabled: boolean;
+  thresholds?: Record<string, TopicThresholdConfig>;
 }
 
 export interface JobHealthEntry {

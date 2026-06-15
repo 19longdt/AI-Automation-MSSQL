@@ -6,6 +6,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { TopicTabs } from "@/components/dashboard/TopicTabs";
 import { FilterBar } from "@/components/dashboard/FilterBar";
 import { KpiCards } from "@/components/dashboard/KpiCards";
+import { AgHealthPreview } from "@/components/dashboard/AgHealthPreview";
 import { AgRedoSecondaryPreview } from "@/components/dashboard/AgRedoSecondaryPreview";
 import { TimelineChart } from "@/components/dashboard/TimelineChart";
 import { FindingsTable } from "@/components/dashboard/FindingsTable";
@@ -24,6 +25,7 @@ export function DashboardPage() {
   }, [topics, activeTopicId, setActiveTopicId]);
 
   const showBlockingFilter = activeTopicId === "slow_sessions";
+  const showAgHealthPreview = activeTopicId === "ag_health";
   const showAgRedoPreview = activeTopicId === "ag_redo_secondary";
 
   return (
@@ -40,6 +42,16 @@ export function DashboardPage() {
             <KpiCards />
             <AgRedoSecondaryPreview />
             <div className="min-h-[420px] shrink-0">
+              <FindingsTable useOuterScroll />
+            </div>
+          </div>
+        </div>
+      ) : showAgHealthPreview ? (
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="flex min-h-full flex-col gap-3 pb-1">
+            <KpiCards />
+            <AgHealthPreview />
+            <div className="min-h-[520px] shrink-0">
               <FindingsTable useOuterScroll />
             </div>
           </div>

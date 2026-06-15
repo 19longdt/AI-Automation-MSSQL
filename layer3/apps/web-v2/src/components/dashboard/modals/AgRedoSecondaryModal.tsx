@@ -8,21 +8,11 @@ import { SyncHealthBadge, SuspendedBadge } from "@/components/shared/AgBadges";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
+import { thresholdTextClass } from "@/lib/topic-thresholds";
 import { cn } from "@/lib/utils";
 import type { FindingWithAnalysis } from "@/types";
 import type { Severity } from "@layer3/core";
-
-function queueCls(kb: number): string {
-  if (kb > 10240) return "text-[var(--color-critical)] font-semibold";
-  if (kb > 1024) return "text-[var(--color-warning)] font-semibold";
-  return "text-[var(--color-text)]";
-}
-
-function lagCls(ms: number): string {
-  if (ms > 5000) return "text-[var(--color-critical)] font-semibold";
-  if (ms > 1000) return "text-[var(--color-warning)] font-semibold";
-  return "text-[var(--color-text)]";
-}
 
 function FieldRow({ label, glossaryKey, children }: { label: string; glossaryKey?: string; children: ReactNode }): React.ReactElement {
   return (
@@ -38,6 +28,14 @@ function FieldRow({ label, glossaryKey, children }: { label: string; glossaryKey
 const SECTION = "text-[11px] font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2 mt-5 first:mt-0";
 
 function KpiStrip({ m }: { m: Record<string, unknown> }): React.ReactElement {
+  const redoQueueThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_queue_size", {
+    warning: 1000,
+    critical: 5000,
+  });
+  const redoLagThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_lag_ms", {
+    warning: 30_000,
+    critical: 120_000,
+  });
   const redoQ = m.redo_queue_size != null ? Number(m.redo_queue_size) : null;
   const redoRate = m.redo_rate != null ? Number(m.redo_rate) : null;
   const redoLag = m.redo_lag_ms != null ? Number(m.redo_lag_ms) : null;
@@ -46,9 +44,9 @@ function KpiStrip({ m }: { m: Record<string, unknown> }): React.ReactElement {
   return (
     <div className="grid grid-cols-4 divide-x divide-[var(--color-border)] border-b border-[var(--color-border)] bg-[var(--color-surface)]">
       {[
-        { icon: <RotateCcw className="h-3.5 w-3.5" />, label: "Redo Queue", glossaryKey: "redo_queue_size", value: redoQ != null ? `${redoQ.toLocaleString()} KB` : "-", cls: cn("font-code font-bold tabular", redoQ != null ? queueCls(redoQ) : "text-[var(--color-muted)]") },
+        { icon: <RotateCcw className="h-3.5 w-3.5" />, label: "Redo Queue", glossaryKey: "redo_queue_size", value: redoQ != null ? `${redoQ.toLocaleString()} KB` : "-", cls: cn("font-code font-bold tabular", redoQ != null ? thresholdTextClass(redoQ, redoQueueThreshold) : "text-[var(--color-muted)]") },
         { icon: <Gauge className="h-3.5 w-3.5" />, label: "Redo Rate", glossaryKey: "redo_rate", value: redoRate != null ? `${redoRate.toLocaleString()} KB/s` : "-", cls: "font-code font-bold tabular text-[var(--color-text)]" },
-        { icon: <Clock className="h-3.5 w-3.5" />, label: "Redo Lag", glossaryKey: "secondary_lag_seconds", value: redoLag != null ? `${redoLag.toLocaleString()} ms` : "-", cls: cn("font-code font-bold tabular", redoLag != null ? lagCls(redoLag) : "text-[var(--color-muted)]") },
+        { icon: <Clock className="h-3.5 w-3.5" />, label: "Redo Lag", glossaryKey: "secondary_lag_seconds", value: redoLag != null ? `${redoLag.toLocaleString()} ms` : "-", cls: cn("font-code font-bold tabular", redoLag != null ? thresholdTextClass(redoLag, redoLagThreshold) : "text-[var(--color-muted)]") },
         { icon: <CalendarClock className="h-3.5 w-3.5" />, label: "Last Commit", glossaryKey: "last_commit_time", value: lastCommit, cls: "font-code font-bold tabular text-[var(--color-text)]" },
       ].map((kpi) => (
         <div key={kpi.label} className="flex flex-col gap-0.5 px-4 py-3">
@@ -64,6 +62,14 @@ function KpiStrip({ m }: { m: Record<string, unknown> }): React.ReactElement {
 }
 
 function RedoDetailBody({ m }: { m: Record<string, unknown> }): React.ReactElement {
+  const redoQueueThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_queue_size", {
+    warning: 1000,
+    critical: 5000,
+  });
+  const redoLagThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_lag_ms", {
+    warning: 30_000,
+    critical: 120_000,
+  });
   const redoQ = m.redo_queue_size != null ? Number(m.redo_queue_size) : null;
   const redoRate = m.redo_rate != null ? Number(m.redo_rate) : null;
   const redoLag = m.redo_lag_ms != null ? Number(m.redo_lag_ms) : null;
@@ -88,18 +94,18 @@ function RedoDetailBody({ m }: { m: Record<string, unknown> }): React.ReactEleme
       <table className="w-full border-collapse">
         <tbody>
           <FieldRow label="Redo Queue" glossaryKey="redo_queue_size">
-            {redoQ != null ? <span className={cn("font-code text-[12px] tabular", queueCls(redoQ))}>{redoQ.toLocaleString()} KB</span> : <span className="text-[var(--color-muted)]">-</span>}
+            {redoQ != null ? <span className={cn("font-code text-[12px] tabular", thresholdTextClass(redoQ, redoQueueThreshold))}>{redoQ.toLocaleString()} KB</span> : <span className="text-[var(--color-muted)]">-</span>}
           </FieldRow>
           <FieldRow label="Redo Rate" glossaryKey="redo_rate">
             {redoRate != null ? <span className="font-code text-[12px] tabular text-[var(--color-text)]">{redoRate.toLocaleString()} KB/s</span> : <span className="text-[var(--color-muted)]">-</span>}
           </FieldRow>
           <FieldRow label="Secondary Lag" glossaryKey="secondary_lag_seconds">
             {lagSec != null
-              ? <span className={cn("font-code text-[12px] tabular", lagSec > 30 ? "text-[var(--color-critical)] font-semibold" : lagSec > 5 ? "text-[var(--color-warning)] font-semibold" : "text-[var(--color-text)]")}>{lagSec} s</span>
+              ? <span className={cn("font-code text-[12px] tabular", thresholdTextClass(lagSec * 1000, redoLagThreshold))}>{lagSec} s</span>
               : <span className="text-[var(--color-muted)]">-</span>}
           </FieldRow>
           <FieldRow label="Redo Lag (ms)">
-            {redoLag != null ? <span className={cn("font-code text-[12px] tabular", lagCls(redoLag))}>{redoLag.toLocaleString()} ms</span> : <span className="text-[var(--color-muted)]">-</span>}
+            {redoLag != null ? <span className={cn("font-code text-[12px] tabular", thresholdTextClass(redoLag, redoLagThreshold))}>{redoLag.toLocaleString()} ms</span> : <span className="text-[var(--color-muted)]">-</span>}
           </FieldRow>
         </tbody>
       </table>

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
 import { cn } from "@/lib/utils";
 import { GLOSSARY } from "./glossary";
 
@@ -21,10 +22,15 @@ const ANCHOR_GAP = 10;
 
 export function GlossaryTip({ glossaryKey, children, className }: GlossaryTipProps): ReactNode {
   const entry = GLOSSARY[glossaryKey];
+  const runtimeThreshold = useTopicMetricThreshold(
+    entry?.thresholdSource?.topicId ?? "",
+    entry?.thresholdSource?.metricKey ?? "",
+  );
   const rootRef = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [popupPos, setPopupPos] = useState<PopupPos | null>(null);
+  const thresholdText = entry?.thresholdSource?.format(runtimeThreshold) ?? entry?.threshold;
 
   useEffect(() => {
     if (!open) return;
@@ -108,10 +114,10 @@ export function GlossaryTip({ glossaryKey, children, className }: GlossaryTipPro
         >
           <span className="gl-tooltip-term">{entry.term}</span>
           <span className="gl-tooltip-def">{entry.definition}</span>
-          {entry.threshold && (
+          {thresholdText && (
             <span className="gl-tooltip-row">
               <span className="gl-tooltip-label">Threshold</span>
-              <span className="gl-tooltip-val">{entry.threshold}</span>
+              <span className="gl-tooltip-val">{thresholdText}</span>
             </span>
           )}
           <span className="gl-tooltip-row">

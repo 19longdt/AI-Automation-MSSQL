@@ -8,15 +8,11 @@ import { SyncHealthBadge, ConnectedBadge, SuspendedBadge, FailoverBadge } from "
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
+import { thresholdTextClass } from "@/lib/topic-thresholds";
 import { cn } from "@/lib/utils";
 import type { FindingWithAnalysis } from "@/types";
 import type { Severity } from "@layer3/core";
-
-function queueCls(kb: number): string {
-  if (kb > 10240) return "text-[var(--color-critical)] font-semibold";
-  if (kb > 1024) return "text-[var(--color-warning)] font-semibold";
-  return "text-[var(--color-text)]";
-}
 
 function FieldRow({ label, glossaryKey, children }: { label: string; glossaryKey?: string; children: ReactNode }): React.ReactElement {
   return (
@@ -32,6 +28,10 @@ function FieldRow({ label, glossaryKey, children }: { label: string; glossaryKey
 const SECTION = "text-[11px] font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2 mt-5 first:mt-0";
 
 function KpiStrip({ m }: { m: Record<string, unknown> }): React.ReactElement {
+  const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
+    warning: 500,
+    critical: 1000,
+  });
   const health = String(m.synchronization_health_desc ?? "-");
   const conn = String(m.connected_state_desc ?? "-");
   const logQ = m.log_send_queue_size != null ? Number(m.log_send_queue_size) : null;
@@ -49,7 +49,7 @@ function KpiStrip({ m }: { m: Record<string, unknown> }): React.ReactElement {
       {[
         { icon: <Activity className="h-3.5 w-3.5" />, label: "Sync Health", glossaryKey: "synchronization_health_desc", value: health, cls: cn("font-bold", healthCls) },
         { icon: <Wifi className="h-3.5 w-3.5" />, label: "Connected", glossaryKey: "connected_state_desc", value: conn, cls: cn("font-bold", connCls) },
-        { icon: <HardDrive className="h-3.5 w-3.5" />, label: "Log Send Q", glossaryKey: "log_send_queue_size", value: logQ != null ? `${logQ.toLocaleString()} KB` : "-", cls: cn("font-code font-bold tabular", logQ != null ? queueCls(logQ) : "text-[var(--color-muted)]") },
+        { icon: <HardDrive className="h-3.5 w-3.5" />, label: "Log Send Q", glossaryKey: "log_send_queue_size", value: logQ != null ? `${logQ.toLocaleString()} KB` : "-", cls: cn("font-code font-bold tabular", logQ != null ? thresholdTextClass(logQ, logSendQueueThreshold) : "text-[var(--color-muted)]") },
         { icon: <Zap className="h-3.5 w-3.5" />, label: "Log Rate", glossaryKey: "log_send_rate", value: logRate != null ? `${logRate.toLocaleString()} KB/s` : "-", cls: "font-code font-bold tabular text-[var(--color-text)]" },
       ].map((kpi) => (
         <div key={kpi.label} className="flex flex-col gap-0.5 px-4 py-3">
@@ -87,6 +87,10 @@ function CdcBody({ m }: { m: Record<string, unknown> }): React.ReactElement {
 }
 
 function AgHealthBody({ m }: { m: Record<string, unknown> }): React.ReactElement {
+  const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
+    warning: 500,
+    critical: 1000,
+  });
   const logQ = m.log_send_queue_size != null ? Number(m.log_send_queue_size) : null;
   const logRate = m.log_send_rate != null ? Number(m.log_send_rate) : null;
 
@@ -109,7 +113,7 @@ function AgHealthBody({ m }: { m: Record<string, unknown> }): React.ReactElement
       <table className="w-full border-collapse">
         <tbody>
           <FieldRow label="Log Send Queue" glossaryKey="log_send_queue_size">
-            {logQ != null ? <span className={cn("font-code text-[12px] tabular", queueCls(logQ))}>{logQ.toLocaleString()} KB</span> : <span className="text-[var(--color-muted)]">-</span>}
+            {logQ != null ? <span className={cn("font-code text-[12px] tabular", thresholdTextClass(logQ, logSendQueueThreshold))}>{logQ.toLocaleString()} KB</span> : <span className="text-[var(--color-muted)]">-</span>}
           </FieldRow>
           <FieldRow label="Log Send Rate" glossaryKey="log_send_rate">
             {logRate != null ? <span className="font-code text-[12px] tabular text-[var(--color-text)]">{logRate.toLocaleString()} KB/s</span> : <span className="text-[var(--color-muted)]">-</span>}

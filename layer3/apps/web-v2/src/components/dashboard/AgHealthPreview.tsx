@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Gauge, RotateCcw, Sparkles } from "lucide-react";
+import { HardDrive, PauseCircle, Zap } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -17,50 +17,43 @@ import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api-client";
 import { buildFindingsQuery } from "@/lib/dashboard-query";
-import { formatDetectedAt, formatMs, formatNumber, parseWallClockDate } from "@/lib/format";
+import { formatNumber, parseWallClockDate } from "@/lib/format";
 import { useTopicMetricThreshold } from "@/hooks/useTopics";
-import { cn } from "@/lib/utils";
-import { getThresholdSeverity } from "@/lib/topic-thresholds";
 import { useTimeRange } from "@/hooks/useTimeRange";
+import { getThresholdSeverity } from "@/lib/topic-thresholds";
+import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/store/dashboard.store";
 import type { FindingWithAnalysis, FindingsQuery, FindingsResponse, TopicThresholdConfig } from "@/types";
 
-interface RedoPoint {
+interface HealthPoint {
   ts: string;
-  redoQueueKb: number | null;
-  redoLagMs: number | null;
-  redoRateKbps: number | null;
-  redoQueueKbCompare?: number | null;
-  redoLagMsCompare?: number | null;
-  redoRateKbpsCompare?: number | null;
+  logSendQueueKb: number | null;
+  logSendRateKbps: number | null;
+  logSendQueueKbCompare?: number | null;
+  logSendRateKbpsCompare?: number | null;
   sampleCount: number;
+  suspendedCount: number;
   latestFinding: FindingWithAnalysis | null;
 }
 
 interface BucketAccumulator {
   sampleCount: number;
+  suspendedCount: number;
   selectedFinding: FindingWithAnalysis;
   selectedQueueKb: number;
-  selectedLagMs: number;
   selectedRateKbps: number;
 }
 
-const REDO_BUCKET_MINUTES = 2;
-const REDO_BUCKET_MS = REDO_BUCKET_MINUTES * 60_000;
+const HEALTH_BUCKET_MINUTES = 2;
+const HEALTH_BUCKET_MS = HEALTH_BUCKET_MINUTES * 60_000;
 const QUEUE_COLOR = "#0f766e";
-const LAG_COLOR = "#4338ca";
 const RATE_COLOR = "#2563eb";
-const SAMPLE_COLOR = "var(--color-primary)";
+const SUSPENDED_COLOR = "#dc2626";
 
 function parseMetricNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function normalizeRedoLagMs(value: number | null): number | null {
-  if (value == null) return null;
-  return Math.max(0, value);
 }
 
 function floorToBucketMs(ts: number, bucketMs: number): number {
@@ -128,38 +121,27 @@ function severityTone(value: number, threshold: TopicThresholdConfig): "good" | 
   return "good";
 }
 
-function compareRedoSeverity(
+function compareHealthSeverity(
   queueKb: number,
-  lagMs: number,
   rateKbps: number,
   current: BucketAccumulator | undefined,
-  redoQueueThreshold: TopicThresholdConfig,
-  redoLagThreshold: TopicThresholdConfig,
+  logSendQueueThreshold: TopicThresholdConfig,
 ): boolean {
   if (!current) return true;
 
   const nextQueueBand =
-    redoQueueThreshold.critical != null && queueKb >= redoQueueThreshold.critical ? 2 :
-    redoQueueThreshold.warning != null && queueKb >= redoQueueThreshold.warning ? 1 : 0;
+    logSendQueueThreshold.critical != null && queueKb >= logSendQueueThreshold.critical ? 2 :
+    logSendQueueThreshold.warning != null && queueKb >= logSendQueueThreshold.warning ? 1 : 0;
   const currentQueueBand =
-    redoQueueThreshold.critical != null && current.selectedQueueKb >= redoQueueThreshold.critical ? 2 :
-    redoQueueThreshold.warning != null && current.selectedQueueKb >= redoQueueThreshold.warning ? 1 : 0;
+    logSendQueueThreshold.critical != null && current.selectedQueueKb >= logSendQueueThreshold.critical ? 2 :
+    logSendQueueThreshold.warning != null && current.selectedQueueKb >= logSendQueueThreshold.warning ? 1 : 0;
 
-  const nextLagBand =
-    redoLagThreshold.critical != null && lagMs >= redoLagThreshold.critical ? 2 :
-    redoLagThreshold.warning != null && lagMs >= redoLagThreshold.warning ? 1 : 0;
-  const currentLagBand =
-    redoLagThreshold.critical != null && current.selectedLagMs >= redoLagThreshold.critical ? 2 :
-    redoLagThreshold.warning != null && current.selectedLagMs >= redoLagThreshold.warning ? 1 : 0;
-
-  if (nextLagBand !== currentLagBand) return nextLagBand > currentLagBand;
   if (nextQueueBand !== currentQueueBand) return nextQueueBand > currentQueueBand;
-  if (lagMs !== current.selectedLagMs) return lagMs > current.selectedLagMs;
   if (queueKb !== current.selectedQueueKb) return queueKb > current.selectedQueueKb;
   return rateKbps < current.selectedRateKbps;
 }
 
-async function fetchAllRedoFindings(params: FindingsQuery): Promise<FindingsResponse> {
+async function fetchAllHealthFindings(params: FindingsQuery): Promise<FindingsResponse> {
   const limit = 200;
   const items: FindingWithAnalysis[] = [];
   let total = 0;
@@ -184,14 +166,13 @@ async function fetchAllRedoFindings(params: FindingsQuery): Promise<FindingsResp
   return { total, items };
 }
 
-function aggregateRedoSeries(
+function aggregateHealthSeries(
   findings: FindingWithAnalysis[],
   from: Date,
   to: Date,
-  redoQueueThreshold: TopicThresholdConfig,
-  redoLagThreshold: TopicThresholdConfig,
+  logSendQueueThreshold: TopicThresholdConfig,
   displayFrom: Date = from,
-): RedoPoint[] {
+): HealthPoint[] {
   const sorted = [...findings].sort((a, b) => {
     const aTs = parseWallClockDate(a.detected_at)?.getTime() ?? 0;
     const bTs = parseWallClockDate(b.detected_at)?.getTime() ?? 0;
@@ -203,53 +184,50 @@ function aggregateRedoSeries(
   sorted.forEach((finding) => {
     if (!finding.detected_at) return;
     const metrics = (finding.metrics ?? {}) as Record<string, unknown>;
-    const redoQueueKb = parseMetricNumber(metrics.redo_queue_size);
-    const redoLagMs = normalizeRedoLagMs(parseMetricNumber(metrics.redo_lag_ms));
-    const redoRateKbps = parseMetricNumber(metrics.redo_rate);
+    const logSendQueueKb = parseMetricNumber(metrics.log_send_queue_size);
+    const logSendRateKbps = parseMetricNumber(metrics.log_send_rate);
+    const isSuspended = Number(metrics.is_suspended ?? 0) === 1 ? 1 : 0;
     const findingTs = parseWallClockDate(finding.detected_at)?.getTime() ?? 0;
 
-    if (redoQueueKb == null && redoLagMs == null && redoRateKbps == null) return;
+    if (logSendQueueKb == null && logSendRateKbps == null && isSuspended === 0) return;
 
-    const bucketTs = floorToBucketMs(findingTs, REDO_BUCKET_MS);
+    const bucketTs = floorToBucketMs(findingTs, HEALTH_BUCKET_MS);
     const key = String(bucketTs);
     const current = buckets.get(key);
-    const queueValue = redoQueueKb ?? 0;
-    const lagValue = redoLagMs ?? 0;
-    const rateValue = redoRateKbps ?? 0;
-    const shouldReplace = compareRedoSeverity(
+    const queueValue = logSendQueueKb ?? 0;
+    const rateValue = logSendRateKbps ?? 0;
+    const shouldReplace = compareHealthSeverity(
       queueValue,
-      lagValue,
       rateValue,
       current,
-      redoQueueThreshold,
-      redoLagThreshold,
+      logSendQueueThreshold,
     );
 
     buckets.set(key, {
       sampleCount: (current?.sampleCount ?? 0) + 1,
+      suspendedCount: (current?.suspendedCount ?? 0) + isSuspended,
       selectedFinding: shouldReplace ? finding : current!.selectedFinding,
       selectedQueueKb: shouldReplace ? queueValue : current!.selectedQueueKb,
-      selectedLagMs: shouldReplace ? lagValue : current!.selectedLagMs,
       selectedRateKbps: shouldReplace ? rateValue : current!.selectedRateKbps,
     });
   });
 
-  const series: RedoPoint[] = [];
-  const start = floorToBucketMs(from.getTime(), REDO_BUCKET_MS);
-  const end = ceilToBucketMs(to.getTime(), REDO_BUCKET_MS);
-  const displayStart = floorToBucketMs(displayFrom.getTime(), REDO_BUCKET_MS);
+  const series: HealthPoint[] = [];
+  const start = floorToBucketMs(from.getTime(), HEALTH_BUCKET_MS);
+  const end = ceilToBucketMs(to.getTime(), HEALTH_BUCKET_MS);
+  const displayStart = floorToBucketMs(displayFrom.getTime(), HEALTH_BUCKET_MS);
 
   let slot = 0;
-  for (let cursor = start; cursor <= end; cursor += REDO_BUCKET_MS, slot += 1) {
+  for (let cursor = start; cursor <= end; cursor += HEALTH_BUCKET_MS, slot += 1) {
     const bucket = buckets.get(String(cursor));
-    const displayCursor = displayStart + slot * REDO_BUCKET_MS;
+    const displayCursor = displayStart + slot * HEALTH_BUCKET_MS;
 
     series.push({
       ts: formatBucketTimeLabel(displayCursor),
-      redoQueueKb: bucket ? bucket.selectedQueueKb : null,
-      redoLagMs: bucket ? bucket.selectedLagMs : null,
-      redoRateKbps: bucket ? bucket.selectedRateKbps : null,
+      logSendQueueKb: bucket ? bucket.selectedQueueKb : null,
+      logSendRateKbps: bucket ? bucket.selectedRateKbps : null,
       sampleCount: bucket ? bucket.sampleCount : 0,
+      suspendedCount: bucket ? bucket.suspendedCount : 0,
       latestFinding: bucket ? bucket.selectedFinding : null,
     });
   }
@@ -257,7 +235,10 @@ function aggregateRedoSeries(
   return series;
 }
 
-function getLatestComparableValue(series: RedoPoint[], key: "redoQueueKb" | "redoLagMs" | "redoRateKbps"): number | null {
+function getLatestComparableValue(
+  series: HealthPoint[],
+  key: "logSendQueueKb" | "logSendRateKbps",
+): number | null {
   for (let i = series.length - 1; i >= 0; i -= 1) {
     const value = series[i][key];
     if (typeof value === "number") return value;
@@ -265,12 +246,11 @@ function getLatestComparableValue(series: RedoPoint[], key: "redoQueueKb" | "red
   return null;
 }
 
-function getLatestPopulatedPoint(series: RedoPoint[]): RedoPoint | null {
+function getLatestPopulatedPoint(series: HealthPoint[]): HealthPoint | null {
   for (let i = series.length - 1; i >= 0; i -= 1) {
     if (
-      typeof series[i].redoQueueKb === "number" ||
-      typeof series[i].redoLagMs === "number" ||
-      typeof series[i].redoRateKbps === "number"
+      typeof series[i].logSendQueueKb === "number" ||
+      typeof series[i].logSendRateKbps === "number"
     ) {
       return series[i];
     }
@@ -278,14 +258,13 @@ function getLatestPopulatedPoint(series: RedoPoint[]): RedoPoint | null {
   return null;
 }
 
-function mergeCompareSeries(current: RedoPoint[], compare: RedoPoint[]): RedoPoint[] {
+function mergeCompareSeries(current: HealthPoint[], compare: HealthPoint[]): HealthPoint[] {
   return current.map((point, index) => {
     const comparePoint = compare[index];
     return {
       ...point,
-      redoQueueKbCompare: comparePoint?.redoQueueKb ?? null,
-      redoLagMsCompare: comparePoint?.redoLagMs ?? null,
-      redoRateKbpsCompare: comparePoint?.redoRateKbps ?? null,
+      logSendQueueKbCompare: comparePoint?.logSendQueueKb ?? null,
+      logSendRateKbpsCompare: comparePoint?.logSendRateKbps ?? null,
     };
   });
 }
@@ -301,30 +280,17 @@ function MetricTooltip({
 }) {
   if (!active || !payload?.length) return null;
 
-  const isLagSeries = (dataKey?: string): boolean =>
-    dataKey === "redoLagMs" || dataKey === "redoLagMsCompare";
-
-  const isRateSeries = (dataKey?: string): boolean =>
-    dataKey === "redoRateKbps" || dataKey === "redoRateKbpsCompare";
-
   const getMetricLabel = (dataKey?: string, fallback?: string): string => {
-    if (dataKey === "redoQueueKb" || dataKey === "redoQueueKbCompare") return "Redo Queue";
-    if (dataKey === "redoLagMs" || dataKey === "redoLagMsCompare") return "Redo Lag";
-    if (dataKey === "redoRateKbps" || dataKey === "redoRateKbpsCompare") return "Redo Rate";
+    if (dataKey === "logSendQueueKb" || dataKey === "logSendQueueKbCompare") return "Log Send Queue";
+    if (dataKey === "logSendRateKbps" || dataKey === "logSendRateKbpsCompare") return "Log Send Rate";
     return fallback ?? "";
   };
 
-  const getMetricKey = (dataKey?: string): "queue" | "lag" | "rate" | "other" => {
-    if (dataKey === "redoQueueKb" || dataKey === "redoQueueKbCompare") return "queue";
-    if (dataKey === "redoLagMs" || dataKey === "redoLagMsCompare") return "lag";
-    if (dataKey === "redoRateKbps" || dataKey === "redoRateKbpsCompare") return "rate";
+  const getMetricKey = (dataKey?: string): "queue" | "rate" | "other" => {
+    if (dataKey === "logSendQueueKb" || dataKey === "logSendQueueKbCompare") return "queue";
+    if (dataKey === "logSendRateKbps" || dataKey === "logSendRateKbpsCompare") return "rate";
     return "other";
   };
-
-  const formatMetricValue = (dataKey: string | undefined, value: number): string =>
-    isLagSeries(dataKey)
-      ? formatMs(value)
-      : `${formatNumber(value)} ${isRateSeries(dataKey) ? "KB/s" : "KB"}`;
 
   const grouped = new Map<
     string,
@@ -344,7 +310,10 @@ function MetricTooltip({
       label: getMetricLabel(entry.dataKey, entry.name),
       color: entry.color ?? "var(--color-text)",
     };
-    const formatted = formatMetricValue(entry.dataKey, value);
+    const formatted =
+      metricKey === "queue"
+        ? `${formatNumber(value)} KB`
+        : `${formatNumber(value)} KB/s`;
     if (entry.dataKey?.endsWith("Compare")) {
       existing.compare = formatted;
     } else {
@@ -359,29 +328,21 @@ function MetricTooltip({
         {label}
       </p>
       <div className="space-y-1">
-        {Array.from(grouped.entries()).map(([key, entry]) => {
-          return (
-            <div key={key} className="text-[12px]">
-              <div className="flex items-center justify-between gap-4">
-                <span className="flex items-center gap-2" style={{ color: entry.color }}>
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: entry.color }}
-                  />
-                  {entry.label}
-                </span>
-                <span className="font-code tabular text-right" style={{ color: entry.color }}>
-                  {entry.compare && (
-                    <span className="mr-2 opacity-45">{entry.compare}</span>
-                  )}
-                  {entry.current && (
-                    <span>{entry.current}</span>
-                  )}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {Array.from(grouped.entries()).map(([key, entry]) => (
+          <div key={key} className="flex items-center justify-between gap-4 text-[12px]">
+            <span className="flex items-center gap-2" style={{ color: entry.color }}>
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              {entry.label}
+            </span>
+            <span className="font-code tabular text-right" style={{ color: entry.color }}>
+              {entry.compare && <span className="mr-2 opacity-45">{entry.compare}</span>}
+              {entry.current && <span>{entry.current}</span>}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -390,18 +351,16 @@ function MetricTooltip({
 function LegendItem({
   color,
   label,
-  dashed = false,
   muted = false,
 }: {
   color: string;
   label: string;
-  dashed?: boolean;
   muted?: boolean;
 }) {
   return (
     <span className={cn("inline-flex items-center gap-2 text-[11px]", muted ? "text-[var(--color-muted)]" : "text-[var(--color-text-2)]")}>
       <span
-        className={cn("inline-block h-0 w-5 border-t-2", dashed && "border-dashed")}
+        className="inline-block h-0 w-5 border-t-2"
         style={{ borderColor: color, opacity: muted ? 0.45 : 1 }}
       />
       {label}
@@ -461,13 +420,11 @@ function ChartFrame({
 }) {
   return (
     <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
-            {eyebrow}
-          </p>
-          <h3 className="text-[16px] font-semibold text-[var(--color-text)]">{title}</h3>
-        </div>
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+          {eyebrow}
+        </p>
+        <h3 className="text-[16px] font-semibold text-[var(--color-text)]">{title}</h3>
       </div>
       {children}
     </section>
@@ -477,29 +434,26 @@ function ChartFrame({
 function LoadingState(): React.ReactElement {
   return (
     <div className="grid gap-3">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
           <Skeleton key={index} className="h-[96px] rounded-lg" />
         ))}
       </div>
-      <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
-        <Skeleton className="h-[380px] rounded-lg" />
-        <Skeleton className="h-[380px] rounded-lg" />
-      </div>
+      <Skeleton className="h-[380px] rounded-lg" />
     </div>
   );
 }
 
-export function AgRedoSecondaryPreview(): React.ReactElement {
+export function AgHealthPreview(): React.ReactElement {
   const { activeTopicId, filters, timeRange } = useDashboardStore();
   const { from, to } = useTimeRange();
-  const redoQueueThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_queue_size", {
-    warning: 1000,
-    critical: 5000,
+  const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
+    warning: 500,
+    critical: 1000,
   });
-  const redoLagThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_lag_ms", {
-    warning: 30_000,
-    critical: 120_000,
+  const suspendedThreshold = useTopicMetricThreshold("ag_health", "is_suspended", {
+    warning: 1,
+    critical: 1,
   });
   const compareRange = useMemo(() => resolveCompareRange(timeRange, from, to), [timeRange, from, to]);
 
@@ -513,37 +467,36 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
   );
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["ag-redo-preview-findings", params],
-    queryFn: () => fetchAllRedoFindings(params),
+    queryKey: ["ag-health-preview-findings", params],
+    queryFn: () => fetchAllHealthFindings(params),
     staleTime: 15_000,
     placeholderData: (prev) => prev,
     retry: 1,
   });
   const { data: compareData } = useQuery({
-    queryKey: ["ag-redo-preview-findings-compare", compareParams],
-    queryFn: () => fetchAllRedoFindings(compareParams),
+    queryKey: ["ag-health-preview-findings-compare", compareParams],
+    queryFn: () => fetchAllHealthFindings(compareParams),
     staleTime: 15_000,
     placeholderData: (prev) => prev,
     retry: 1,
   });
 
   const series = useMemo(
-    () => aggregateRedoSeries(data?.items ?? [], from, to, redoQueueThreshold, redoLagThreshold),
-    [data?.items, from, to, redoQueueThreshold, redoLagThreshold],
+    () => aggregateHealthSeries(data?.items ?? [], from, to, logSendQueueThreshold),
+    [data?.items, from, to, logSendQueueThreshold],
   );
   const compareSeries = useMemo(
-    () => aggregateRedoSeries(compareData?.items ?? [], compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from),
-    [compareData?.items, compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from],
+    () => aggregateHealthSeries(compareData?.items ?? [], compareRange.from, compareRange.to, logSendQueueThreshold, from),
+    [compareData?.items, compareRange.from, compareRange.to, logSendQueueThreshold, from],
   );
   const chartSeries = useMemo(() => mergeCompareSeries(series, compareSeries), [series, compareSeries]);
 
   const current = getLatestPopulatedPoint(chartSeries);
-  const compareQueue = getLatestComparableValue(compareSeries, "redoQueueKb");
-  const compareLag = getLatestComparableValue(compareSeries, "redoLagMs");
-  const compareRate = getLatestComparableValue(compareSeries, "redoRateKbps");
-  const sampleCount = data?.items.length ?? 0;
-  const redoQueueTone = severityTone(current?.redoQueueKb ?? 0, redoQueueThreshold);
-  const redoLagTone = severityTone(current?.redoLagMs ?? 0, redoLagThreshold);
+  const compareQueue = getLatestComparableValue(compareSeries, "logSendQueueKb");
+  const compareRate = getLatestComparableValue(compareSeries, "logSendRateKbps");
+  const compareSuspended = getLatestPopulatedPoint(compareSeries)?.suspendedCount ?? 0;
+  const queueTone = severityTone(current?.logSendQueueKb ?? 0, logSendQueueThreshold);
+  const suspendedTone = severityTone(current?.suspendedCount ?? 0, suspendedThreshold);
 
   if (isLoading && !data) {
     return <LoadingState />;
@@ -552,7 +505,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
   if (error) {
     return (
       <ErrorState
-        message="Không tải được biểu đồ AG redo"
+        message="Không tải được biểu đồ AG health"
         description={error instanceof Error ? error.message : "Unknown error"}
         onRetry={() => void refetch()}
       />
@@ -562,8 +515,8 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
   if (!series.length || !current) {
     return (
       <EmptyState
-        title="Không có dữ liệu AG redo"
-        description="Không tìm thấy findings `ag_redo_secondary` có metric redo trong khoảng thời gian đang chọn."
+        title="Không có dữ liệu AG health"
+        description="Không tìm thấy findings `ag_health` có metric log send trong khoảng thời gian đang chọn."
       />
     );
   }
@@ -572,49 +525,35 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     <div className="grid gap-3">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          icon={<RotateCcw className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="redo_queue_size">Redo Queue</GlossaryTip>}
-          value={`${formatNumber(current.redoQueueKb ?? 0)} KB`}
-          hint={`${formatDeltaPercent(current.redoQueueKb ?? 0, compareQueue ?? 0)} so với ${compareRange.label}`}
-          tone={redoQueueTone}
+          icon={<HardDrive className="h-3.5 w-3.5" />}
+          label={<GlossaryTip glossaryKey="log_send_queue_size">Log Send Queue</GlossaryTip>}
+          value={`${formatNumber(current.logSendQueueKb ?? 0)} KB`}
+          hint={`${formatDeltaPercent(current.logSendQueueKb ?? 0, compareQueue ?? 0)} so với ${compareRange.label}`}
+          tone={queueTone}
           accentColor={QUEUE_COLOR}
         />
         <KpiCard
-          icon={<Activity className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="secondary_lag_seconds">Redo Lag</GlossaryTip>}
-          value={formatMs(current.redoLagMs ?? 0)}
-          hint={`${formatDeltaPercent(current.redoLagMs ?? 0, compareLag ?? 0)} so với ${compareRange.label}`}
-          tone={redoLagTone}
-          accentColor={LAG_COLOR}
-        />
-        <KpiCard
-          icon={<Gauge className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="redo_rate">Redo Rate</GlossaryTip>}
-          value={`${formatNumber(current.redoRateKbps ?? 0)} KB/s`}
-          hint={`${formatDeltaPercent(current.redoRateKbps ?? 0, compareRate ?? 0)} so với ${compareRange.label}`}
+          icon={<Zap className="h-3.5 w-3.5" />}
+          label={<GlossaryTip glossaryKey="log_send_rate">Log Send Rate</GlossaryTip>}
+          value={`${formatNumber(current.logSendRateKbps ?? 0)} KB/s`}
+          hint={`${formatDeltaPercent(current.logSendRateKbps ?? 0, compareRate ?? 0)} so với ${compareRange.label}`}
           tone="good"
           accentColor={RATE_COLOR}
         />
         <KpiCard
-          icon={<Sparkles className="h-3.5 w-3.5" />}
-          label="Số mẫu"
-          value={formatNumber(sampleCount)}
-          hint={`${formatNumber(current.sampleCount)} dòng trong bucket mới nhất`}
-          tone="good"
-          accentColor={SAMPLE_COLOR}
+          icon={<PauseCircle className="h-3.5 w-3.5" />}
+          label={<GlossaryTip glossaryKey="is_suspended">Suspended</GlossaryTip>}
+          value={formatNumber(current.suspendedCount)}
+          hint={`${formatDeltaPercent(current.suspendedCount, compareSuspended)} so với ${compareRange.label}`}
+          tone={suspendedTone}
+          accentColor={SUSPENDED_COLOR}
         />
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
         <ChartFrame
           eyebrow="Tín hiệu chính"
-          title={
-            <>
-              <GlossaryTip glossaryKey="redo_queue_size">Redo Queue</GlossaryTip>
-              {" "}so với{" "}
-              <GlossaryTip glossaryKey="secondary_lag_seconds">Redo Lag</GlossaryTip>
-            </>
-          }
+          title={<GlossaryTip glossaryKey="log_send_queue_size">Log Send Queue</GlossaryTip>}
         >
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -634,27 +573,17 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
                   width={56}
                   tickFormatter={(value: number) => `${Math.round(value / 1000)}k`}
                 />
-                <YAxis
-                  yAxisId="lag"
-                  orientation="right"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={44}
-                  tickFormatter={(value: number) => formatMs(value)}
-                />
                 <Tooltip content={<MetricTooltip />} />
-                {redoQueueThreshold.warning != null && (
-                  <ReferenceLine yAxisId="queue" y={redoQueueThreshold.warning} stroke="var(--color-warning)" strokeDasharray="4 4" />
+                {logSendQueueThreshold.warning != null && (
+                  <ReferenceLine yAxisId="queue" y={logSendQueueThreshold.warning} stroke="var(--color-warning)" strokeDasharray="4 4" />
                 )}
-                {redoLagThreshold.critical != null && (
-                  <ReferenceLine yAxisId="lag" y={redoLagThreshold.critical} stroke="var(--color-critical)" strokeDasharray="4 4" />
+                {logSendQueueThreshold.critical != null && (
+                  <ReferenceLine yAxisId="queue" y={logSendQueueThreshold.critical} stroke="var(--color-critical)" strokeDasharray="4 4" />
                 )}
                 <Line
                   yAxisId="queue"
                   type="monotone"
-                  dataKey="redoQueueKbCompare"
-                  name={`Redo Queue (${compareRange.label})`}
+                  dataKey="logSendQueueKbCompare"
                   stroke={QUEUE_COLOR}
                   strokeWidth={1.5}
                   strokeOpacity={0.3}
@@ -664,33 +593,9 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
                 <Line
                   yAxisId="queue"
                   type="monotone"
-                  dataKey="redoQueueKb"
-                  name="Redo Queue"
+                  dataKey="logSendQueueKb"
                   stroke={QUEUE_COLOR}
                   strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  yAxisId="lag"
-                  type="monotone"
-                  dataKey="redoLagMsCompare"
-                  name={`Redo Lag (${compareRange.label})`}
-                  stroke={LAG_COLOR}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.28}
-                  strokeDasharray="6 6"
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  yAxisId="lag"
-                  type="monotone"
-                  dataKey="redoLagMs"
-                  name="Redo Lag"
-                  stroke={LAG_COLOR}
-                  strokeWidth={2.5}
-                  strokeDasharray="8 6"
                   dot={false}
                   activeDot={{ r: 5 }}
                 />
@@ -698,17 +603,20 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
             </ResponsiveContainer>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
-            <LegendItem color={QUEUE_COLOR} label="Redo Queue" />
-            <LegendItem color={LAG_COLOR} label="Redo Lag" dashed />
-            <LegendItem color={QUEUE_COLOR} label={`${compareRange.label}`} muted />
-            {redoQueueThreshold.warning != null && <LegendItem color="var(--color-warning)" label={`Ngưỡng queue ${formatNumber(redoQueueThreshold.warning)} KB`} />}
-            {redoLagThreshold.critical != null && <LegendItem color="var(--color-critical)" label={`Ngưỡng lag ${formatMs(redoLagThreshold.critical)}`} dashed />}
+            <LegendItem color={QUEUE_COLOR} label="Log Send Queue" />
+            <LegendItem color={QUEUE_COLOR} label={compareRange.label} muted />
+            {logSendQueueThreshold.warning != null && (
+              <LegendItem color="var(--color-warning)" label={`Ngưỡng queue ${formatNumber(logSendQueueThreshold.warning)} KB`} />
+            )}
+            {logSendQueueThreshold.critical != null && (
+              <LegendItem color="var(--color-critical)" label={`Mức nghiêm trọng ${formatNumber(logSendQueueThreshold.critical)} KB`} />
+            )}
           </div>
         </ChartFrame>
 
         <ChartFrame
-          eyebrow="Khả năng bắt kịp"
-          title={<GlossaryTip glossaryKey="redo_rate">Redo Rate</GlossaryTip>}
+          eyebrow="Thông lượng"
+          title={<GlossaryTip glossaryKey="log_send_rate">Log Send Rate</GlossaryTip>}
         >
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -730,8 +638,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
                 <Tooltip content={<MetricTooltip />} />
                 <Line
                   type="monotone"
-                  dataKey="redoRateKbpsCompare"
-                  name={`Redo Rate (${compareRange.label})`}
+                  dataKey="logSendRateKbpsCompare"
                   stroke={RATE_COLOR}
                   strokeWidth={1.5}
                   strokeOpacity={0.28}
@@ -740,8 +647,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
                 />
                 <Line
                   type="monotone"
-                  dataKey="redoRateKbps"
-                  name="Redo Rate"
+                  dataKey="logSendRateKbps"
                   stroke={RATE_COLOR}
                   strokeWidth={2.5}
                   dot={false}
@@ -751,12 +657,11 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
             </ResponsiveContainer>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
-            <LegendItem color={RATE_COLOR} label="Redo Rate" />
-            <LegendItem color={RATE_COLOR} label={`${compareRange.label}`} muted />
+            <LegendItem color={RATE_COLOR} label="Log Send Rate" />
+            <LegendItem color={RATE_COLOR} label={compareRange.label} muted />
           </div>
         </ChartFrame>
       </div>
-
     </div>
   );
 }

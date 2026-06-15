@@ -1,9 +1,29 @@
+import type { TopicThresholdConfig } from "@/types";
+
+interface GlossaryThresholdSource {
+  topicId: string;
+  metricKey: string;
+  format: (threshold: TopicThresholdConfig) => string | null;
+}
+
 export interface GlossaryEntry {
   term: string;
   definition: string;
   threshold?: string;
   impact: string;
   formula?: string;
+  thresholdSource?: GlossaryThresholdSource;
+}
+
+function formatWarningCriticalThreshold(
+  threshold: TopicThresholdConfig,
+  warningUnit: string,
+  criticalUnit: string = warningUnit,
+  transform?: (value: number) => string,
+): string | null {
+  if (threshold.warning == null || threshold.critical == null) return null;
+  const toText = (value: number): string => transform ? transform(value) : value.toLocaleString();
+  return `> ${toText(threshold.warning)} ${warningUnit} cảnh báo, > ${toText(threshold.critical)} ${criticalUnit} nghiêm trọng.`;
 }
 
 export const GLOSSARY: Record<string, GlossaryEntry> = {
@@ -708,6 +728,11 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     definition: "Số KB log primary chưa gửi hết sang secondary. Queue tăng = primary đang ghi log nhanh hơn tốc độ gửi.",
     threshold: "> 500 KB cảnh báo, > 1000 KB nghiêm trọng.",
     impact: "Primary gửi log chậm hoặc secondary nhận log không kịp — tăng độ trễ đồng bộ.",
+    thresholdSource: {
+      topicId: "ag_health",
+      metricKey: "log_send_queue_size",
+      format: (threshold) => formatWarningCriticalThreshold(threshold, "KB"),
+    },
   },
   log_send_rate: {
     term: "Log Send Rate",
@@ -719,6 +744,11 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     definition: "Số KB log secondary đã nhận nhưng chưa redo xong thành data pages.",
     threshold: "> 1000 KB cảnh báo, > 5000 KB nghiêm trọng.",
     impact: "Readable secondary trả data cũ hơn primary. Failover async có nguy cơ mất thêm giao dịch.",
+    thresholdSource: {
+      topicId: "ag_redo_secondary",
+      metricKey: "redo_queue_size",
+      format: (threshold) => formatWarningCriticalThreshold(threshold, "KB"),
+    },
   },
   redo_rate: {
     term: "Redo Rate",
@@ -730,6 +760,11 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     definition: "Số giây secondary đang trễ so với primary — ước lượng RPO khi đọc trên secondary.",
     threshold: "> 30s cảnh báo, > 120s nghiêm trọng.",
     impact: "Read trên secondary thấy dữ liệu cũ. Failover async có thể mất tới gần bằng đó giây giao dịch.",
+    thresholdSource: {
+      topicId: "ag_redo_secondary",
+      metricKey: "redo_lag_ms",
+      format: (threshold) => formatWarningCriticalThreshold(threshold, "s", "s", (value) => `${Math.round(value / 1000)}`),
+    },
   },
   synchronization_state_desc: {
     term: "Synchronization State",
@@ -835,18 +870,33 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     definition: "Tổng số session đang bị block trực tiếp hoặc gián tiếp bởi head blocker.",
     threshold: "> 5 sessions là đáng lo. > 20 sessions = sự cố nghiêm trọng.",
     impact: "Số lượng càng lớn, tác động đến throughput hệ thống càng nặng.",
+    thresholdSource: {
+      topicId: "blocking",
+      metricKey: "blocked_session_count",
+      format: (threshold) => formatWarningCriticalThreshold(threshold, "sessions", "sessions"),
+    },
   },
   chain_depth: {
     term: "Blocking Chain Depth",
     definition: "Số cấp lồng nhau trong chuỗi blocking. Depth = 3 nghĩa là A → B → C → D.",
     threshold: "Depth > 3 cho thấy blocking đang lan truyền sâu.",
     impact: "Depth cao = tác động lan truyền rộng hơn, khó resolve hơn.",
+    thresholdSource: {
+      topicId: "blocking",
+      metricKey: "chain_depth",
+      format: (threshold) => formatWarningCriticalThreshold(threshold, "cấp", "cấp"),
+    },
   },
   max_wait_sec: {
     term: "Max Wait",
     definition: "Thời gian chờ lâu nhất trong chuỗi blocking, tính bằng giây — từ session bị block lâu nhất.",
     threshold: "> 30s là đáng lo. > 120s = sự cố nghiêm trọng cần xử lý ngay.",
     impact: "Giúp ưu tiên mức nghiêm trọng — wait càng lâu, user càng bị ảnh hưởng.",
+    thresholdSource: {
+      topicId: "blocking",
+      metricKey: "wait_sec",
+      format: (threshold) => formatWarningCriticalThreshold(threshold, "s", "s"),
+    },
   },
   idle_txn: {
     term: "Idle Transaction",

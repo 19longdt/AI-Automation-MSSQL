@@ -5,6 +5,8 @@ import { RoleNodeCell } from "@/components/shared/RoleNodeCell";
 import { SyncHealthBadge, SuspendedBadge } from "@/components/shared/AgBadges";
 import { AgRedoSecondaryModal } from "@/components/dashboard/modals/AgRedoSecondaryModal";
 import { formatDetectedAt } from "@/lib/format";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
+import { thresholdTextClass } from "@/lib/topic-thresholds";
 import type { FindingWithAnalysis } from "@/types";
 import type { Severity } from "@layer3/core";
 
@@ -16,17 +18,6 @@ const COLS = [
   "Sync State", "Sync Health", "Suspended",
   "Redo Queue", "Redo Rate", "Redo Lag", "Last Commit", "AI",
 ];
-
-function queueCls(kb: number): string {
-  if (kb > 10240) return "text-[var(--color-critical)] font-semibold";
-  if (kb > 1024)  return "text-[var(--color-warning)] font-semibold";
-  return "text-[var(--color-text-2)]";
-}
-function lagCls(ms: number): string {
-  if (ms > 5000) return "text-[var(--color-critical)] font-semibold";
-  if (ms > 1000) return "text-[var(--color-warning)] font-semibold";
-  return "text-[var(--color-text-2)]";
-}
 
 export function AgRedoSecondaryHeader(): React.ReactElement {
   return (
@@ -45,6 +36,14 @@ export function AgRedoSecondaryRow({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const m = (finding.metrics ?? {}) as Record<string, unknown>;
+  const redoQueueThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_queue_size", {
+    warning: 1000,
+    critical: 5000,
+  });
+  const redoLagThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_lag_ms", {
+    warning: 30_000,
+    critical: 120_000,
+  });
 
   const redoQ    = m.redo_queue_size != null ? Number(m.redo_queue_size) : null;
   const redoRate = m.redo_rate       != null ? Number(m.redo_rate)       : null;
@@ -88,7 +87,12 @@ export function AgRedoSecondaryRow({
         </td>
         <td className={TD}>
           {redoQ != null ? (
-            <span className={cn("tabular font-code text-[12px]", queueCls(redoQ))}>
+            <span
+              className={cn(
+                "tabular font-code text-[12px]",
+                thresholdTextClass(redoQ, redoQueueThreshold, "text-[var(--color-text-2)]"),
+              )}
+            >
               {redoQ.toLocaleString()} KB
             </span>
           ) : <span className="text-[var(--color-muted)]">—</span>}
@@ -102,7 +106,12 @@ export function AgRedoSecondaryRow({
         </td>
         <td className={TD}>
           {redoLag != null ? (
-            <span className={cn("tabular font-code text-[12px]", lagCls(redoLag))}>
+            <span
+              className={cn(
+                "tabular font-code text-[12px]",
+                thresholdTextClass(redoLag, redoLagThreshold, "text-[var(--color-text-2)]"),
+              )}
+            >
               {redoLag.toLocaleString()} ms
             </span>
           ) : <span className="text-[var(--color-muted)]">—</span>}

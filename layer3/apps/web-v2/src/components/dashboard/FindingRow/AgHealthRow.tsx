@@ -5,6 +5,8 @@ import { RoleNodeCell } from "@/components/shared/RoleNodeCell";
 import { SyncHealthBadge, ConnectedBadge, SuspendedBadge, FailoverBadge } from "@/components/shared/AgBadges";
 import { AgHealthModal } from "@/components/dashboard/modals/AgHealthModal";
 import { formatDetectedAt } from "@/lib/format";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
+import { thresholdTextClass } from "@/lib/topic-thresholds";
 import type { FindingWithAnalysis } from "@/types";
 import type { Severity } from "@layer3/core";
 
@@ -16,12 +18,6 @@ const COLS = [
   "Sync State", "Sync Health", "Connected", "Suspended", "Failover",
   "Log Send Q", "Log Rate", "AI",
 ];
-
-function queueCls(kb: number): string {
-  if (kb > 10240) return "text-[var(--color-critical)] font-semibold";
-  if (kb > 1024)  return "text-[var(--color-warning)] font-semibold";
-  return "text-[var(--color-text-2)]";
-}
 
 export function AgHealthHeader(): React.ReactElement {
   return (
@@ -40,6 +36,10 @@ export function AgHealthRow({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const m = (finding.metrics ?? {}) as Record<string, unknown>;
+  const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
+    warning: 500,
+    critical: 1000,
+  });
 
   const logQ    = m.log_send_queue_size != null ? Number(m.log_send_queue_size) : null;
   const logRate = m.log_send_rate       != null ? Number(m.log_send_rate)       : null;
@@ -86,7 +86,12 @@ export function AgHealthRow({
         <td className={TD}><FailoverBadge value={m.is_failover_ready} /></td>
         <td className={TD}>
           {logQ != null ? (
-            <span className={cn("tabular font-code text-[12px]", queueCls(logQ))}>
+            <span
+              className={cn(
+                "tabular font-code text-[12px]",
+                thresholdTextClass(logQ, logSendQueueThreshold, "text-[var(--color-text-2)]"),
+              )}
+            >
               {logQ.toLocaleString()} KB
             </span>
           ) : <span className="text-[var(--color-muted)]">—</span>}

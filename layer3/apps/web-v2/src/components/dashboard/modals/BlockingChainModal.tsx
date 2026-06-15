@@ -6,8 +6,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
+import { getThresholdSeverity } from "@/lib/topic-thresholds";
 import { cn } from "@/lib/utils";
-import type { FindingWithAnalysis } from "@/types";
+import type { FindingWithAnalysis, TopicThresholdConfig } from "@/types";
 
 interface BlockedSession {
   session_id: number | string;
@@ -39,14 +41,23 @@ function lockModeCls(mode: string | null | undefined): string {
   return LOCK_CLS[mode?.toUpperCase() ?? ""] ?? "bg-[var(--color-surface-3)] text-[var(--color-text-2)] border-[var(--color-border)]";
 }
 
-function waitBadgeCls(sec: number | null | undefined): string {
+function waitBadgeCls(sec: number | null | undefined, threshold: TopicThresholdConfig): string {
   if (sec == null) return "bg-[var(--color-surface-3)] text-[var(--color-muted)]";
-  if (sec >= 60) return "bg-[var(--color-critical-soft)] text-[var(--color-critical)]";
-  if (sec >= 10) return "bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
+  const severity = getThresholdSeverity(sec, threshold);
+  if (severity === "critical") return "bg-[var(--color-critical-soft)] text-[var(--color-critical)]";
+  if (severity === "warning") return "bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
   return "bg-[var(--color-surface-3)] text-[var(--color-text-2)]";
 }
 
-function BlockingNode({ session, allVictims }: { session: BlockedSession; allVictims: BlockedSession[] }): React.ReactElement {
+function BlockingNode({
+  session,
+  allVictims,
+  waitThreshold,
+}: {
+  session: BlockedSession;
+  allVictims: BlockedSession[];
+  waitThreshold: TopicThresholdConfig;
+}): React.ReactElement {
   const children = allVictims.filter((victim) => String(victim.blocking_session_id) === String(session.session_id));
   return (
     <li className="mt-2 select-none">
@@ -55,7 +66,7 @@ function BlockingNode({ session, allVictims }: { session: BlockedSession; allVic
         {session.login_name && <span className="text-[13px] text-[var(--color-text)]">{session.login_name}</span>}
         {session.database_name && <span className="font-code text-[11px] text-[var(--color-muted)]">{session.database_name}</span>}
         {session.wait_sec != null && (
-          <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold", waitBadgeCls(session.wait_sec))}>
+          <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold", waitBadgeCls(session.wait_sec, waitThreshold))}>
             <Clock className="h-3 w-3" aria-hidden="true" />{session.wait_sec}s
           </span>
         )}
@@ -73,7 +84,7 @@ function BlockingNode({ session, allVictims }: { session: BlockedSession; allVic
       {children.length > 0 && (
         <ul className="mt-2 space-y-0.5 border-l-2 border-[var(--color-border-2)] pl-4">
           {children.map((child) => (
-            <BlockingNode key={String(child.session_id)} session={child} allVictims={allVictims} />
+            <BlockingNode key={String(child.session_id)} session={child} allVictims={allVictims} waitThreshold={waitThreshold} />
           ))}
         </ul>
       )}
@@ -82,14 +93,31 @@ function BlockingNode({ session, allVictims }: { session: BlockedSession; allVic
 }
 
 function KpiStrip({ headId, blockedCount, depth, maxWaitSec }: { headId: string; blockedCount: number | null; depth: number | null; maxWaitSec: number | null }): React.ReactElement {
-  const waitCls = maxWaitSec == null ? "" : maxWaitSec >= 60 ? "text-[var(--color-critical)]" : maxWaitSec >= 10 ? "text-[var(--color-warning)]" : "";
+  const waitThreshold = useTopicMetricThreshold("blocking", "wait_sec", {
+    warning: 30,
+    critical: 120,
+  });
+  const depthThreshold = useTopicMetricThreshold("blocking", "chain_depth", {
+    warning: 3,
+    critical: 5,
+  });
+  const blockedThreshold = useTopicMetricThreshold("blocking", "blocked_session_count", {
+    warning: 5,
+    critical: 20,
+  });
+  const waitSeverity = maxWaitSec == null ? "normal" : getThresholdSeverity(maxWaitSec, waitThreshold);
+  const depthSeverity = depth == null ? "normal" : getThresholdSeverity(depth, depthThreshold);
+  const blockedSeverity = blockedCount == null ? "normal" : getThresholdSeverity(blockedCount, blockedThreshold);
+  const waitCls = waitSeverity === "critical" ? "text-[var(--color-critical)]" : waitSeverity === "warning" ? "text-[var(--color-warning)]" : "text-[var(--color-text)]";
+  const depthCls = depthSeverity === "critical" ? "text-[var(--color-critical)]" : depthSeverity === "warning" ? "text-[var(--color-warning)]" : "text-[var(--color-text)]";
+  const blockedCls = blockedSeverity === "critical" ? "text-[var(--color-critical)]" : blockedSeverity === "warning" ? "text-[var(--color-warning)]" : "text-[var(--color-text)]";
   return (
     <div className="grid grid-cols-4 divide-x divide-[var(--color-border)] border-b border-[var(--color-border)] bg-[var(--color-surface)]">
       {[
         { icon: <AlertCircle className="h-3.5 w-3.5" />, label: "Head Blocker", glossaryKey: "head_blocker", value: `#${headId}`, cls: "text-[var(--color-critical)] font-code font-bold" },
-        { icon: <Users className="h-3.5 w-3.5" />, label: "Blocked", glossaryKey: "blocked_session_count", value: blockedCount != null ? `${blockedCount}` : "-", cls: "text-[var(--color-text)] font-bold" },
-        { icon: <Link2 className="h-3.5 w-3.5" />, label: "Depth", glossaryKey: "chain_depth", value: depth != null ? `${depth}` : "-", cls: "text-[var(--color-text)] font-bold" },
-        { icon: <Clock className="h-3.5 w-3.5" />, label: "Max Wait", glossaryKey: "max_wait_sec", value: maxWaitSec != null ? `${maxWaitSec}s` : "-", cls: cn("font-code font-bold", waitCls || "text-[var(--color-text)]") },
+        { icon: <Users className="h-3.5 w-3.5" />, label: "Blocked", glossaryKey: "blocked_session_count", value: blockedCount != null ? `${blockedCount}` : "-", cls: cn("font-bold", blockedCls) },
+        { icon: <Link2 className="h-3.5 w-3.5" />, label: "Depth", glossaryKey: "chain_depth", value: depth != null ? `${depth}` : "-", cls: cn("font-bold", depthCls) },
+        { icon: <Clock className="h-3.5 w-3.5" />, label: "Max Wait", glossaryKey: "max_wait_sec", value: maxWaitSec != null ? `${maxWaitSec}s` : "-", cls: cn("font-code font-bold", waitCls) },
       ].map((kpi) => (
         <div key={kpi.label} className="flex flex-col gap-0.5 px-4 py-3">
           <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
@@ -110,6 +138,10 @@ export function BlockingChainModal({ finding, onClose }: { finding: FindingWithA
   const active = full ?? finding;
   const m = (active.metrics ?? {}) as Record<string, unknown>;
   const ai = active.ai_analysis;
+  const waitThreshold = useTopicMetricThreshold("blocking", "wait_sec", {
+    warning: 30,
+    critical: 120,
+  });
 
   const headId = m.head_blocker_session_id != null ? String(m.head_blocker_session_id) : "-";
   const headLogin = m.head_blocker_login ? String(m.head_blocker_login) : null;
@@ -203,10 +235,10 @@ export function BlockingChainModal({ finding, onClose }: { finding: FindingWithA
                       </p>
                       <ul className="space-y-0.5 border-l-2 border-[color:color-mix(in_srgb,var(--color-critical)_30%,transparent)] pl-4">
                         {rootVictims.map((victim) => (
-                          <BlockingNode key={String(victim.session_id)} session={victim} allVictims={victims} />
+                          <BlockingNode key={String(victim.session_id)} session={victim} allVictims={victims} waitThreshold={waitThreshold} />
                         ))}
                         {orphans.map((victim) => (
-                          <BlockingNode key={String(victim.session_id)} session={victim} allVictims={victims} />
+                          <BlockingNode key={String(victim.session_id)} session={victim} allVictims={victims} waitThreshold={waitThreshold} />
                         ))}
                       </ul>
                     </div>

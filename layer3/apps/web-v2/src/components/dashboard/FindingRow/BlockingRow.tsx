@@ -5,9 +5,11 @@ import { RoleNodeCell } from "@/components/shared/RoleNodeCell";
 import { KillSessionConfirm } from "@/components/dashboard/modals/KillSessionConfirm";
 import { BlockingChainModal } from "@/components/dashboard/modals/BlockingChainModal";
 import { Button } from "@/components/ui/button";
+import { useTopicMetricThreshold } from "@/hooks/useTopics";
+import { getThresholdSeverity } from "@/lib/topic-thresholds";
 import { cn } from "@/lib/utils";
 import { formatDetectedAt } from "@/lib/format";
-import type { FindingWithAnalysis } from "@/types";
+import type { FindingWithAnalysis, TopicThresholdConfig } from "@/types";
 import type { Severity } from "@layer3/core";
 
 const TH =
@@ -41,15 +43,17 @@ function asBlockingMetrics(raw: unknown): BlockingMetrics {
   };
 }
 
-function waitSeverityCls(sec: number): string {
-  if (sec >= 60) return "bg-[var(--color-critical-soft)] text-[var(--color-critical)] border border-[color:color-mix(in_srgb,var(--color-critical)_25%,transparent)]";
-  if (sec >= 10) return "bg-[var(--color-warning-soft)] text-[var(--color-warning)] border border-[color:color-mix(in_srgb,var(--color-warning)_25%,transparent)]";
+function waitSeverityCls(sec: number, threshold: TopicThresholdConfig): string {
+  const severity = getThresholdSeverity(sec, threshold);
+  if (severity === "critical") return "bg-[var(--color-critical-soft)] text-[var(--color-critical)] border border-[color:color-mix(in_srgb,var(--color-critical)_25%,transparent)]";
+  if (severity === "warning") return "bg-[var(--color-warning-soft)] text-[var(--color-warning)] border border-[color:color-mix(in_srgb,var(--color-warning)_25%,transparent)]";
   return "bg-[var(--color-surface-3)] text-[var(--color-text-2)] border border-[var(--color-border)]";
 }
 
-function depthSeverityCls(d: number): string {
-  if (d >= 3) return "bg-[var(--color-critical-soft)] text-[var(--color-critical)]";
-  if (d >= 2) return "bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
+function depthSeverityCls(d: number, threshold: TopicThresholdConfig): string {
+  const severity = getThresholdSeverity(d, threshold);
+  if (severity === "critical") return "bg-[var(--color-critical-soft)] text-[var(--color-critical)]";
+  if (severity === "warning") return "bg-[var(--color-warning-soft)] text-[var(--color-warning)]";
   return "bg-[var(--color-info-soft)] text-[var(--color-info)]";
 }
 
@@ -79,6 +83,18 @@ export function BlockingRow({
 }): React.ReactElement {
   const [modal, setModal] = useState<ModalState>(null);
   const m = asBlockingMetrics(finding.metrics);
+  const waitThreshold = useTopicMetricThreshold("blocking", "wait_sec", {
+    warning: 30,
+    critical: 120,
+  });
+  const depthThreshold = useTopicMetricThreshold("blocking", "chain_depth", {
+    warning: 3,
+    critical: 5,
+  });
+  const blockedThreshold = useTopicMetricThreshold("blocking", "blocked_session_count", {
+    warning: 5,
+    critical: 20,
+  });
 
   const headId = Number(m.head_blocker_session_id) || 0;
   const isIdle = !!(m.head_blocker_is_idle);
@@ -156,7 +172,7 @@ export function BlockingRow({
           {depth != null ? (
             <span className={cn(
               "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold tabular",
-              depthSeverityCls(depth),
+              depthSeverityCls(depth, depthThreshold),
             )}>
               <Link2 className="w-3 h-3 shrink-0" aria-hidden="true" />
               {depth}
@@ -169,7 +185,16 @@ export function BlockingRow({
         {/* Blocked count — icon + number */}
         <td className={TD}>
           {blockedCount != null ? (
-            <span className="inline-flex items-center gap-1 text-[13px] font-semibold tabular text-[var(--color-text)]">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 text-[13px] font-semibold tabular",
+                getThresholdSeverity(blockedCount, blockedThreshold) === "critical"
+                  ? "text-[var(--color-critical)]"
+                  : getThresholdSeverity(blockedCount, blockedThreshold) === "warning"
+                    ? "text-[var(--color-warning)]"
+                    : "text-[var(--color-text)]",
+              )}
+            >
               <Users className="w-3.5 h-3.5 text-[var(--color-muted)] shrink-0" aria-hidden="true" />
               {blockedCount}
             </span>
@@ -183,7 +208,7 @@ export function BlockingRow({
           {maxWaitSec != null ? (
             <span className={cn(
               "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold tabular",
-              waitSeverityCls(maxWaitSec),
+              waitSeverityCls(maxWaitSec, waitThreshold),
             )}>
               <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
               {maxWaitSec}s
