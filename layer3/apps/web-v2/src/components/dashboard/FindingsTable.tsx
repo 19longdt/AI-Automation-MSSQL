@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { getTopicRowRenderer } from "@/components/dashboard/FindingRow";
 
-export function FindingsTable() {
+export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boolean }) {
   const { activeTopicId, page, setPage, filters, setFilters } = useDashboardStore();
   const { data, isLoading, error, refetch } = useFindings();
   const Renderer = getTopicRowRenderer(activeTopicId);
@@ -16,7 +16,13 @@ export function FindingsTable() {
   const hasFilters = !!(filters.severity || filters.alertStatus || filters.blockingStatus);
 
   return (
-    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden min-h-0 h-full flex flex-col">
+    <div
+      className={
+        useOuterScroll
+          ? "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden flex flex-col"
+          : "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden min-h-0 h-full flex flex-col"
+      }
+    >
       {hasFilters && (
         <div className="flex justify-end px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface-2)]">
           <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
@@ -25,7 +31,7 @@ export function FindingsTable() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto overscroll-contain">
+      <div className={useOuterScroll ? "overflow-x-auto" : "flex-1 min-h-0 overflow-auto overscroll-contain"}>
         <table className="min-w-full w-max border-collapse text-[12px] leading-tight">
           <thead className="sticky top-0 bg-[var(--color-surface-2)] z-10">
             <Renderer.Header />
