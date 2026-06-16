@@ -26,10 +26,14 @@ ENV API_PORT=3000
 # API runtime deps
 COPY --from=builder /app/package*.json         ./
 COPY --from=builder /app/node_modules          ./node_modules
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/apps/api/dist         ./apps/api/dist
 
 # React frontend (Vite build output)
 COPY --from=builder /app/dist-v2               ./dist-v2
+COPY --from=builder /app/dist                  ./dist
+COPY --from=builder /app/css                   ./css
+COPY --from=builder /app/assets/ssms-icons-ver17 ./assets/ssms-icons-ver17
 
 EXPOSE 3000
 
