@@ -4,11 +4,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { getTopicRowRenderer } from "@/components/dashboard/FindingRow";
 
 export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boolean }) {
   const { activeTopicId, page, setPage, filters, setFilters } = useDashboardStore();
-  const { data, isLoading, error, refetch } = useFindings();
+  const { data, isLoading, isFetching, error, refetch } = useFindings();
   const Renderer = getTopicRowRenderer(activeTopicId);
   const filteredItems = (data?.items ?? []).filter((finding) => {
     if (!filters.replica) return true;
@@ -24,8 +25,8 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
     <div
       className={
         useOuterScroll
-          ? "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden flex flex-col"
-          : "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden min-h-0 h-full flex flex-col"
+          ? "relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden flex flex-col"
+          : "relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden min-h-0 h-full flex flex-col"
       }
     >
       {hasFilters && (
@@ -102,6 +103,8 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
           </div>
         </div>
       )}
+
+      <RefreshingOverlay visible={isFetching && !isLoading && !!data} />
     </div>
   );
 }

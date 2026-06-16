@@ -4,6 +4,7 @@ import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SeverityBadge } from "@/components/shared/SeverityBadge";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
@@ -91,7 +92,7 @@ function DetailBody({ m, status }: { m: Record<string, unknown>; status: CdcStat
 
 export function CdcHealthModal({ finding, onClose }: { finding: FindingWithAnalysis; onClose: () => void }): React.ReactElement {
   const [tab, setTab] = useState("detail");
-  const { data: full, isLoading } = useFindingById(finding.finding_id);
+  const { data: full, isLoading, isFetching } = useFindingById(finding.finding_id);
   const resolved = full ?? finding;
   const m = (resolved.metrics ?? {}) as Record<string, unknown>;
   const ai = resolved.ai_analysis;
@@ -123,8 +124,9 @@ export function CdcHealthModal({ finding, onClose }: { finding: FindingWithAnaly
           </TabsList>
 
           <DialogBody className="pt-4">
-            <TabsContent value="detail" className="mt-0">
+            <TabsContent value="detail" className="relative mt-0">
               {isLoading ? <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8 rounded-lg" />)}</div> : <DetailBody m={m} status={status} />}
+              <RefreshingOverlay visible={isFetching && !isLoading && !!full} tone="modal" />
             </TabsContent>
 
             {resolved.ai_analyzed && (

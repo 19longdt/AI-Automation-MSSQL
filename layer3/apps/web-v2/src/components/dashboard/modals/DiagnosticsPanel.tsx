@@ -1,5 +1,6 @@
 import { useDiagnostics } from "@/hooks/useDiagnostics";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 
 const PHASE_GROUPS = [
   { label: "Phase 1 – DMV Snapshot",     tools: ["get_blocking_chain","get_blocked_victims_snapshot","get_wait_stats","get_memory_grant","get_tempdb_usage","get_ag_status","get_memory_pressure","get_resource_governor_stats","get_cdc_status","get_missing_indexes","get_query_stats","get_query_store_history"] },
@@ -19,7 +20,7 @@ const STATUS_CLS: Record<string, string> = {
 interface Props { findingId: string; }
 
 export function DiagnosticsPanel({ findingId }: Props) {
-  const { data: diag, isLoading, error } = useDiagnostics(findingId);
+  const { data: diag, isLoading, isFetching, error } = useDiagnostics(findingId);
 
   if (isLoading) return <div className="space-y-3 p-1">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>;
   if (error)     return <p className="text-[13px] text-[var(--color-muted)] py-4">Diagnostics not available.</p>;
@@ -29,7 +30,7 @@ export function DiagnosticsPanel({ findingId }: Props) {
   const requested: string[] = (diag as { tools_requested?: string[] }).tools_requested ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4">
       <div className="text-[11px] text-[var(--color-muted)] font-code">
         Captured in {(diag as { capture_duration_ms?: number }).capture_duration_ms ? ((diag as { capture_duration_ms: number }).capture_duration_ms / 1000).toFixed(1) : "?"}s
       </div>
@@ -56,6 +57,7 @@ export function DiagnosticsPanel({ findingId }: Props) {
           </div>
         );
       })}
+      <RefreshingOverlay visible={isFetching && !!diag} tone="modal" />
     </div>
   );
 }

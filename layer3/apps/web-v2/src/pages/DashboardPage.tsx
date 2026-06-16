@@ -13,7 +13,7 @@ import { FindingsTable } from "@/components/dashboard/FindingsTable";
 
 export function DashboardPage() {
   const { data: topics } = useTopics();
-  const { data: timeline, isLoading: timelineLoading } = useTimeline();
+  const { data: timeline, isLoading: timelineLoading, isFetching: timelineFetching } = useTimeline();
   const { activeTopicId, setActiveTopicId } = useDashboardStore();
 
   // Set first topic as default once topics load
@@ -62,7 +62,7 @@ export function DashboardPage() {
           <KpiCards />
 
           {/* Timeline chart */}
-          <TimelineChart data={timeline} isLoading={timelineLoading} />
+          <TimelineChart data={timeline} isLoading={timelineLoading} isFetching={timelineFetching} />
 
           {/* Findings table */}
           <div className="flex-1 min-h-0">

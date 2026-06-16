@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SeverityBadge } from "@/components/shared/SeverityBadge";
 import { SyncHealthBadge, SuspendedBadge } from "@/components/shared/AgBadges";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
@@ -123,7 +124,7 @@ function RedoDetailBody({ m }: { m: Record<string, unknown> }): React.ReactEleme
 
 export function AgRedoSecondaryModal({ finding, onClose }: { finding: FindingWithAnalysis; onClose: () => void }): React.ReactElement {
   const [tab, setTab] = useState("detail");
-  const { data: full, isLoading } = useFindingById(finding.finding_id);
+  const { data: full, isLoading, isFetching } = useFindingById(finding.finding_id);
   const resolved = full ?? finding;
   const m = (resolved.metrics ?? {}) as Record<string, unknown>;
   const ai = resolved.ai_analysis;
@@ -155,8 +156,9 @@ export function AgRedoSecondaryModal({ finding, onClose }: { finding: FindingWit
           </TabsList>
 
           <DialogBody className="pt-4">
-            <TabsContent value="detail" className="mt-0">
+            <TabsContent value="detail" className="relative mt-0">
               {isLoading ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 rounded-lg" />)}</div> : <RedoDetailBody m={m} />}
+              <RefreshingOverlay visible={isFetching && !isLoading && !!full} tone="modal" />
             </TabsContent>
 
             {resolved.ai_analyzed && (
