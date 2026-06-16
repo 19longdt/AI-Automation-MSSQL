@@ -34,7 +34,18 @@ export const useDashboardStore = create<DashboardState>()(
   persist(
     (set, get) => ({
       activeTopicId: "",
-      setActiveTopicId: (id) => set({ activeTopicId: id, page: 0 }),
+      setActiveTopicId: (id) =>
+        set((state) => {
+          if (state.activeTopicId === id) {
+            return { activeTopicId: id, page: 0 };
+          }
+
+          return {
+            activeTopicId: id,
+            filters: {},
+            page: 0,
+          };
+        }),
 
       timeRange: DEFAULT_TIME_RANGE,
       setTimeRange: (timeRange) => set({ timeRange, page: 0 }),

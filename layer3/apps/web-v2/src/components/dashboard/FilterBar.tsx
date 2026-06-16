@@ -1,6 +1,8 @@
 import { useDashboardStore } from "@/store/dashboard.store";
 import { useReplicaOptions } from "@/hooks/useReplicaOptions";
+import { FilterX } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { TimeRangePicker } from "@/components/dashboard/TimeRangePicker";
 import type { FindingFilters } from "@/types";
 
@@ -19,6 +21,7 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
   const showReplicaFilter = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
   const showComparePast = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
   const { data: replicaOptions } = useReplicaOptions(activeTopicId, showReplicaFilter);
+  const hasFilters = !!(filters.severity || filters.alertStatus || filters.blockingStatus || filters.replica);
 
   function update(patch: Partial<FindingFilters>) {
     setFilters({ ...filters, ...patch });
@@ -89,6 +92,20 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
             ))}
           </SelectContent>
         </Select>
+      )}
+
+      {hasFilters && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 rounded-lg"
+          aria-label="Xóa bộ lọc"
+          title="Xóa bộ lọc"
+          onClick={() => setFilters({})}
+        >
+          <FilterX className="h-3.5 w-3.5" />
+        </Button>
       )}
 
       <div className="ml-auto flex items-center gap-3">
