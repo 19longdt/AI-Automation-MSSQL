@@ -8,7 +8,7 @@ import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { getTopicRowRenderer } from "@/components/dashboard/FindingRow";
 
 export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boolean }) {
-  const { activeTopicId, page, setPage, filters, setFilters } = useDashboardStore();
+  const { activeTopicId, page, setPage, filters } = useDashboardStore();
   const { data, isLoading, isFetching, error, refetch } = useFindings();
   const Renderer = getTopicRowRenderer(activeTopicId);
   const filteredItems = (data?.items ?? []).filter((finding) => {
@@ -29,14 +29,6 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
           : "relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg overflow-hidden min-h-0 h-full flex flex-col"
       }
     >
-      {hasFilters && (
-        <div className="flex justify-end px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface-2)]">
-          <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
-            Clear filters
-          </Button>
-        </div>
-      )}
-
       <div className={useOuterScroll ? "overflow-x-auto" : "flex-1 min-h-0 overflow-auto overscroll-contain"}>
         <table className="min-w-full w-max border-collapse text-[12px] leading-tight">
           <thead className="sticky top-0 bg-[var(--color-surface-2)] z-10">
@@ -55,26 +47,29 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
               ))
             ) : error ? (
               <tr>
-                <td colSpan={10}>
-                  <ErrorState
-                    message="Failed to load findings"
-                    description={error instanceof Error ? error.message : "Unknown error"}
-                    onRetry={() => void refetch()}
-                  />
+                <td colSpan={999} className="px-0 py-0">
+                  <div className="min-w-full">
+                    <ErrorState
+                      message="Failed to load findings"
+                      description={error instanceof Error ? error.message : "Unknown error"}
+                      onRetry={() => void refetch()}
+                    />
+                  </div>
                 </td>
               </tr>
             ) : !filteredItems.length ? (
               <tr>
-                <td colSpan={10}>
-                  <EmptyState
-                    title="No findings"
-                    description={
-                      hasFilters
-                        ? "No findings match your current filters and time range."
-                        : "No findings detected in this time range."
-                    }
-                    action={hasFilters ? { label: "Clear filters", onClick: () => setFilters({}) } : undefined}
-                  />
+                <td colSpan={999} className="px-0 py-0">
+                  <div className="min-w-full">
+                    <EmptyState
+                      title="No findings"
+                      description={
+                        hasFilters
+                          ? "No findings match your current filters and time range."
+                          : "No findings detected in this time range."
+                      }
+                    />
+                  </div>
                 </td>
               </tr>
             ) : (

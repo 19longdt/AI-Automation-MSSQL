@@ -48,8 +48,14 @@ export function TimeRangePicker() {
         {rangeText}
       </div>
 
-      <Button variant="ghost" size="icon" onClick={() => shift(-1)} aria-label="Shift range back" className="h-8 w-7">
-        <ChevronLeft className="w-3.5 h-3.5" />
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => shift(-1)}
+        aria-label="Shift range back"
+        className="h-8 w-8 rounded-md"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
       </Button>
 
       <Button
@@ -62,15 +68,21 @@ export function TimeRangePicker() {
         }}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="gap-1.5 max-w-[260px]"
+        className="h-8 gap-1.5 rounded-lg px-2.5 max-w-[260px]"
       >
         <CalendarClock className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
         <span className="truncate text-[12px]">{label}</span>
         <ChevronDown className={cn("w-3 h-3 shrink-0 transition-transform", open && "rotate-180")} />
       </Button>
 
-      <Button variant="ghost" size="icon" onClick={() => shift(1)} aria-label="Shift range forward" className="h-8 w-7">
-        <ChevronRight className="w-3.5 h-3.5" />
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => shift(1)}
+        aria-label="Shift range forward"
+        className="h-8 w-8 rounded-md"
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
       </Button>
 
       <ManualRefreshButton />

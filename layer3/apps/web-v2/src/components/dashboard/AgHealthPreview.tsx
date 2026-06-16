@@ -346,13 +346,13 @@ function LegendItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.75 text-[10px] transition-colors",
         active
           ? "border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-2)]"
           : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)] opacity-60",
       )}
     >
-      <span className="inline-block h-0 w-5 border-t-2" style={{ borderColor: color }} />
+      <span className="inline-block h-0 w-4 border-t-2" style={{ borderColor: color }} />
       {label}
     </button>
   );
@@ -623,7 +623,7 @@ export function AgHealthPreview(): React.ReactElement {
               ];
             })}
           />
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[var(--color-border)] pt-2">
             {replicas.map((replica, index) => (
               <LegendItem
                 key={replica}
@@ -677,7 +677,7 @@ export function AgHealthPreview(): React.ReactElement {
               ];
             })}
           />
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[var(--color-border)] pt-2">
             {replicas.map((replica, index) => (
               <LegendItem
                 key={replica}

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Gauge, RotateCcw, Sparkles } from "lucide-react";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -9,7 +9,7 @@ import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api-client";
 import { buildFindingsQuery } from "@/lib/dashboard-query";
-import { formatDetectedAt, formatMs, formatNumber, parseWallClockDate } from "@/lib/format";
+import { formatMs, formatNumber, parseWallClockDate } from "@/lib/format";
 import { useTopicMetricThreshold } from "@/hooks/useTopics";
 import { cn } from "@/lib/utils";
 import { getThresholdSeverity } from "@/lib/topic-thresholds";
@@ -17,24 +17,39 @@ import { useTimeRange } from "@/hooks/useTimeRange";
 import { useDashboardStore } from "@/store/dashboard.store";
 import type { FindingWithAnalysis, FindingsQuery, FindingsResponse, TopicThresholdConfig } from "@/types";
 
+type ReplicaRedoMetricMap = Record<
+  string,
+  {
+    replica: string;
+    queueKb: number | null;
+    lagMs: number | null;
+    rateKbps: number | null;
+    suspended: boolean;
+  }
+>;
+
 interface RedoPoint {
   ts: string;
-  redoQueueKb: number | null;
-  redoLagMs: number | null;
-  redoRateKbps: number | null;
-  redoQueueKbCompare?: number | null;
-  redoLagMsCompare?: number | null;
-  redoRateKbpsCompare?: number | null;
+  bucketTs: number;
   sampleCount: number;
+  replicas: ReplicaRedoMetricMap;
   latestFinding: FindingWithAnalysis | null;
+  [key: string]: string | number | ReplicaRedoMetricMap | FindingWithAnalysis | null | undefined;
 }
 
 interface BucketAccumulator {
   sampleCount: number;
-  selectedFinding: FindingWithAnalysis;
-  selectedQueueKb: number;
-  selectedLagMs: number;
-  selectedRateKbps: number;
+  latestFinding: FindingWithAnalysis | null;
+  replicas: Map<
+    string,
+    {
+      queueKb: number | null;
+      lagMs: number | null;
+      rateKbps: number | null;
+      suspended: boolean;
+      finding: FindingWithAnalysis;
+    }
+  >;
 }
 
 interface RedoSnapshotSummary {
@@ -53,6 +68,7 @@ const QUEUE_COLOR = "#0f766e";
 const LAG_COLOR = "#4338ca";
 const RATE_COLOR = "#2563eb";
 const SAMPLE_COLOR = "var(--color-primary)";
+const REPLICA_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#ea580c", "#0891b2", "#be123c"];
 
 function parseMetricNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -130,35 +146,8 @@ function severityTone(value: number, threshold: TopicThresholdConfig): "good" | 
   return "good";
 }
 
-function compareRedoSeverity(
-  queueKb: number,
-  lagMs: number,
-  rateKbps: number,
-  current: BucketAccumulator | undefined,
-  redoQueueThreshold: TopicThresholdConfig,
-  redoLagThreshold: TopicThresholdConfig,
-): boolean {
-  if (!current) return true;
-
-  const nextQueueBand =
-    redoQueueThreshold.critical != null && queueKb >= redoQueueThreshold.critical ? 2 :
-    redoQueueThreshold.warning != null && queueKb >= redoQueueThreshold.warning ? 1 : 0;
-  const currentQueueBand =
-    redoQueueThreshold.critical != null && current.selectedQueueKb >= redoQueueThreshold.critical ? 2 :
-    redoQueueThreshold.warning != null && current.selectedQueueKb >= redoQueueThreshold.warning ? 1 : 0;
-
-  const nextLagBand =
-    redoLagThreshold.critical != null && lagMs >= redoLagThreshold.critical ? 2 :
-    redoLagThreshold.warning != null && lagMs >= redoLagThreshold.warning ? 1 : 0;
-  const currentLagBand =
-    redoLagThreshold.critical != null && current.selectedLagMs >= redoLagThreshold.critical ? 2 :
-    redoLagThreshold.warning != null && current.selectedLagMs >= redoLagThreshold.warning ? 1 : 0;
-
-  if (nextLagBand !== currentLagBand) return nextLagBand > currentLagBand;
-  if (nextQueueBand !== currentQueueBand) return nextQueueBand > currentQueueBand;
-  if (lagMs !== current.selectedLagMs) return lagMs > current.selectedLagMs;
-  if (queueKb !== current.selectedQueueKb) return queueKb > current.selectedQueueKb;
-  return rateKbps < current.selectedRateKbps;
+function replicaKey(replica: string): string {
+  return replica.replace(/[^a-zA-Z0-9]+/g, "_");
 }
 
 async function fetchAllRedoFindings(params: FindingsQuery): Promise<FindingsResponse> {
@@ -186,14 +175,12 @@ async function fetchAllRedoFindings(params: FindingsQuery): Promise<FindingsResp
   return { total, items };
 }
 
-function aggregateRedoSeries(
-  findings: FindingWithAnalysis[],
-  from: Date,
-  to: Date,
-  redoQueueThreshold: TopicThresholdConfig,
-  redoLagThreshold: TopicThresholdConfig,
-  displayFrom: Date = from,
-): RedoPoint[] {
+function filterFindingsByReplica(findings: FindingWithAnalysis[], replica: string | undefined): FindingWithAnalysis[] {
+  if (!replica) return findings;
+  return findings.filter((finding) => String((finding.metrics ?? {})?.replica_server_name ?? "") === replica);
+}
+
+function aggregateRedoSeries(findings: FindingWithAnalysis[], from: Date, to: Date): RedoPoint[] {
   const sorted = [...findings].sort((a, b) => {
     const aTs = parseWallClockDate(a.detected_at)?.getTime() ?? 0;
     const bTs = parseWallClockDate(b.detected_at)?.getTime() ?? 0;
@@ -205,147 +192,144 @@ function aggregateRedoSeries(
   sorted.forEach((finding) => {
     if (!finding.detected_at) return;
     const metrics = (finding.metrics ?? {}) as Record<string, unknown>;
-    const redoQueueKb = parseMetricNumber(metrics.redo_queue_size);
-    const redoLagMs = normalizeRedoLagMs(parseMetricNumber(metrics.redo_lag_ms));
-    const redoRateKbps = parseMetricNumber(metrics.redo_rate);
+    const queueKb = parseMetricNumber(metrics.redo_queue_size);
+    const lagMs = normalizeRedoLagMs(parseMetricNumber(metrics.redo_lag_ms));
+    const rateKbps = parseMetricNumber(metrics.redo_rate);
+    const suspended = Number(metrics.is_suspended ?? 0) === 1;
+    const replica = String(metrics.replica_server_name ?? finding.node ?? "unknown");
     const findingTs = parseWallClockDate(finding.detected_at)?.getTime() ?? 0;
 
-    if (redoQueueKb == null && redoLagMs == null && redoRateKbps == null) return;
+    if (queueKb == null && lagMs == null && rateKbps == null && !suspended) return;
 
     const bucketTs = floorToBucketMs(findingTs, REDO_BUCKET_MS);
     const key = String(bucketTs);
-    const current = buckets.get(key);
-    const queueValue = redoQueueKb ?? 0;
-    const lagValue = redoLagMs ?? 0;
-    const rateValue = redoRateKbps ?? 0;
-    const shouldReplace = compareRedoSeverity(
-      queueValue,
-      lagValue,
-      rateValue,
-      current,
-      redoQueueThreshold,
-      redoLagThreshold,
-    );
+    const current = buckets.get(key) ?? {
+      sampleCount: 0,
+      latestFinding: null,
+      replicas: new Map<
+        string,
+        {
+          queueKb: number | null;
+          lagMs: number | null;
+          rateKbps: number | null;
+          suspended: boolean;
+          finding: FindingWithAnalysis;
+        }
+      >(),
+    };
 
-    buckets.set(key, {
-      sampleCount: (current?.sampleCount ?? 0) + 1,
-      selectedFinding: shouldReplace ? finding : current!.selectedFinding,
-      selectedQueueKb: shouldReplace ? queueValue : current!.selectedQueueKb,
-      selectedLagMs: shouldReplace ? lagValue : current!.selectedLagMs,
-      selectedRateKbps: shouldReplace ? rateValue : current!.selectedRateKbps,
+    current.sampleCount += 1;
+    current.latestFinding = finding;
+    current.replicas.set(replica, {
+      queueKb,
+      lagMs,
+      rateKbps,
+      suspended,
+      finding,
     });
+    buckets.set(key, current);
   });
 
   const series: RedoPoint[] = [];
   const start = floorToBucketMs(from.getTime(), REDO_BUCKET_MS);
   const end = ceilToBucketMs(to.getTime(), REDO_BUCKET_MS);
-  const displayStart = floorToBucketMs(displayFrom.getTime(), REDO_BUCKET_MS);
 
-  let slot = 0;
-  for (let cursor = start; cursor <= end; cursor += REDO_BUCKET_MS, slot += 1) {
+  for (let cursor = start; cursor <= end; cursor += REDO_BUCKET_MS) {
     const bucket = buckets.get(String(cursor));
-    const displayCursor = displayStart + slot * REDO_BUCKET_MS;
+    const point: RedoPoint = {
+      ts: formatBucketTimeLabel(cursor),
+      bucketTs: cursor,
+      sampleCount: bucket?.sampleCount ?? 0,
+      replicas: {},
+      latestFinding: bucket?.latestFinding ?? null,
+    };
 
-    series.push({
-      ts: formatBucketTimeLabel(displayCursor),
-      redoQueueKb: bucket ? bucket.selectedQueueKb : null,
-      redoLagMs: bucket ? bucket.selectedLagMs : null,
-      redoRateKbps: bucket ? bucket.selectedRateKbps : null,
-      sampleCount: bucket ? bucket.sampleCount : 0,
-      latestFinding: bucket ? bucket.selectedFinding : null,
+    bucket?.replicas.forEach((value, replica) => {
+      const key = replicaKey(replica);
+      point.replicas[replica] = {
+        replica,
+        queueKb: value.queueKb,
+        lagMs: value.lagMs,
+        rateKbps: value.rateKbps,
+        suspended: value.suspended,
+      };
+      point[`queue__${key}`] = value.queueKb;
+      point[`lag__${key}`] = value.lagMs;
+      point[`rate__${key}`] = value.rateKbps;
     });
+
+    series.push(point);
   }
 
   return series;
 }
 
-function getLatestComparableValue(series: RedoPoint[], key: "redoQueueKb" | "redoLagMs" | "redoRateKbps"): number | null {
-  for (let i = series.length - 1; i >= 0; i -= 1) {
-    const value = series[i][key];
-    if (typeof value === "number") return value;
-  }
-  return null;
-}
-
-function getLatestPopulatedPoint(series: RedoPoint[]): RedoPoint | null {
-  for (let i = series.length - 1; i >= 0; i -= 1) {
-    if (
-      typeof series[i].redoQueueKb === "number" ||
-      typeof series[i].redoLagMs === "number" ||
-      typeof series[i].redoRateKbps === "number"
-    ) {
-      return series[i];
-    }
-  }
-  return null;
-}
-
-function mergeCompareSeries(current: RedoPoint[], compare: RedoPoint[]): RedoPoint[] {
-  return current.map((point, index) => {
-    const comparePoint = compare[index];
-    return {
-      ...point,
-      redoQueueKbCompare: comparePoint?.redoQueueKb ?? null,
-      redoLagMsCompare: comparePoint?.redoLagMs ?? null,
-      redoRateKbpsCompare: comparePoint?.redoRateKbps ?? null,
-    };
-  });
-}
-
-function summarizeLatestRedoSnapshot(
+function aggregateRedoSeriesWithDisplayFrom(
   findings: FindingWithAnalysis[],
+  from: Date,
+  to: Date,
+  displayFrom: Date,
+): RedoPoint[] {
+  const series = aggregateRedoSeries(findings, from, to);
+  const displayStart = floorToBucketMs(displayFrom.getTime(), REDO_BUCKET_MS);
+  return series.map((point, index) => ({
+    ...point,
+    ts: formatBucketTimeLabel(displayStart + index * REDO_BUCKET_MS),
+  }));
+}
+
+function getReplicaNames(series: RedoPoint[]): string[] {
+  const names = new Set<string>();
+  series.forEach((point) => {
+    Object.keys(point.replicas).forEach((replica) => names.add(replica));
+  });
+  return Array.from(names).sort();
+}
+
+function getLatestSnapshot(series: RedoPoint[]): RedoPoint | null {
+  for (let i = series.length - 1; i >= 0; i -= 1) {
+    if (Object.keys(series[i].replicas).length > 0) return series[i];
+  }
+  return null;
+}
+
+function summarizeSnapshot(
+  point: RedoPoint | null,
+  replicas: string[],
   redoQueueThreshold: TopicThresholdConfig,
   redoLagThreshold: TopicThresholdConfig,
 ): RedoSnapshotSummary {
-  let latestTs = 0;
-  const latestItems: FindingWithAnalysis[] = [];
-
-  findings.forEach((finding) => {
-    const ts = parseWallClockDate(finding.detected_at)?.getTime() ?? 0;
-    if (ts > latestTs) {
-      latestTs = ts;
-      latestItems.length = 0;
-      latestItems.push(finding);
-      return;
-    }
-    if (ts === latestTs) {
-      latestItems.push(finding);
-    }
-  });
-
   let maxQueueKb = 0;
   let maxQueueReplica: string | null = null;
   let maxLagMs = 0;
   let maxLagReplica: string | null = null;
   let minRateKbps = Number.POSITIVE_INFINITY;
   let minRateReplica: string | null = null;
-  const laggingReplicas = new Set<string>();
+  let laggingReplicaCount = 0;
 
-  latestItems.forEach((finding) => {
-    const metrics = (finding.metrics ?? {}) as Record<string, unknown>;
-    const replica = String(metrics.replica_server_name ?? finding.node ?? "unknown");
-    const queueKb = parseMetricNumber(metrics.redo_queue_size) ?? 0;
-    const lagMs = normalizeRedoLagMs(parseMetricNumber(metrics.redo_lag_ms)) ?? 0;
-    const rateKbps = parseMetricNumber(metrics.redo_rate);
-    const suspended = Number(metrics.is_suspended ?? 0) === 1;
+  replicas.forEach((replica) => {
+    const metrics = point?.replicas[replica];
+    if (!metrics) return;
 
-    if (queueKb >= maxQueueKb) {
-      maxQueueKb = queueKb;
+    if ((metrics.queueKb ?? 0) >= maxQueueKb) {
+      maxQueueKb = metrics.queueKb ?? 0;
       maxQueueReplica = replica;
     }
-    if (lagMs >= maxLagMs) {
-      maxLagMs = lagMs;
+
+    if ((metrics.lagMs ?? 0) >= maxLagMs) {
+      maxLagMs = metrics.lagMs ?? 0;
       maxLagReplica = replica;
     }
-    if (rateKbps != null && rateKbps <= minRateKbps) {
-      minRateKbps = rateKbps;
+
+    if (metrics.rateKbps != null && metrics.rateKbps <= minRateKbps) {
+      minRateKbps = metrics.rateKbps;
       minRateReplica = replica;
     }
 
-    const queueWarn = redoQueueThreshold.warning != null && queueKb >= redoQueueThreshold.warning;
-    const lagWarn = redoLagThreshold.warning != null && lagMs >= redoLagThreshold.warning;
-    if (queueWarn || lagWarn || suspended) {
-      laggingReplicas.add(replica);
+    const queueWarn = redoQueueThreshold.warning != null && (metrics.queueKb ?? 0) >= redoQueueThreshold.warning;
+    const lagWarn = redoLagThreshold.warning != null && (metrics.lagMs ?? 0) >= redoLagThreshold.warning;
+    if (queueWarn || lagWarn || metrics.suspended) {
+      laggingReplicaCount += 1;
     }
   });
 
@@ -356,102 +340,105 @@ function summarizeLatestRedoSnapshot(
     maxLagReplica,
     minRateKbps: Number.isFinite(minRateKbps) ? minRateKbps : 0,
     minRateReplica,
-    laggingReplicaCount: laggingReplicas.size,
+    laggingReplicaCount,
   };
+}
+
+function mergeCompareSeries(current: RedoPoint[], compare: RedoPoint[]): RedoPoint[] {
+  return current.map((point, index) => {
+    const comparePoint = compare[index];
+    const merged: RedoPoint = { ...point };
+
+    Object.keys(comparePoint?.replicas ?? {}).forEach((replica) => {
+      const key = replicaKey(replica);
+      merged[`queue_compare__${key}`] = comparePoint?.replicas[replica]?.queueKb ?? null;
+      merged[`lag_compare__${key}`] = comparePoint?.replicas[replica]?.lagMs ?? null;
+      merged[`rate_compare__${key}`] = comparePoint?.replicas[replica]?.rateKbps ?? null;
+    });
+
+    return merged;
+  });
 }
 
 function MetricTooltip({
   active,
   payload,
   label,
+  unit,
 }: {
   active?: boolean;
-  payload?: Array<{ dataKey?: string; value?: number; color?: string; name?: string }>;
+  payload?: Array<{ value?: number; color?: string; name?: string }>;
   label?: string;
+  unit: "KB" | "KB/s" | "mixed";
 }) {
   if (!active || !payload?.length) return null;
 
-  const isLagSeries = (dataKey?: string): boolean =>
-    dataKey === "redoLagMs" || dataKey === "redoLagMsCompare";
+  const entries = payload.filter((entry) => typeof entry.value === "number");
 
-  const isRateSeries = (dataKey?: string): boolean =>
-    dataKey === "redoRateKbps" || dataKey === "redoRateKbpsCompare";
+  if (unit === "mixed") {
+    const grouped = new Map<
+      string,
+      {
+        color: string;
+        queue?: string;
+        lag?: string;
+      }
+    >();
 
-  const getMetricLabel = (dataKey?: string, fallback?: string): string => {
-    if (dataKey === "redoQueueKb" || dataKey === "redoQueueKbCompare") return "Redo Queue";
-    if (dataKey === "redoLagMs" || dataKey === "redoLagMsCompare") return "Redo Lag";
-    if (dataKey === "redoRateKbps" || dataKey === "redoRateKbpsCompare") return "Redo Rate";
-    return fallback ?? "";
-  };
+    entries.forEach((entry) => {
+      const [replica = entry.name ?? "-", metricPart = ""] = String(entry.name ?? "").split(" • ");
+      const current = grouped.get(replica) ?? {
+        color: entry.color ?? "var(--color-text)",
+      };
 
-  const getMetricKey = (dataKey?: string): "queue" | "lag" | "rate" | "other" => {
-    if (dataKey === "redoQueueKb" || dataKey === "redoQueueKbCompare") return "queue";
-    if (dataKey === "redoLagMs" || dataKey === "redoLagMsCompare") return "lag";
-    if (dataKey === "redoRateKbps" || dataKey === "redoRateKbpsCompare") return "rate";
-    return "other";
-  };
+      if (metricPart.includes("Redo Lag")) {
+        current.lag = formatMs(Number(entry.value ?? 0));
+      } else {
+        current.queue = `${formatNumber(Number(entry.value ?? 0))} KB`;
+      }
 
-  const formatMetricValue = (dataKey: string | undefined, value: number): string =>
-    isLagSeries(dataKey)
-      ? formatMs(value)
-      : `${formatNumber(value)} ${isRateSeries(dataKey) ? "KB/s" : "KB"}`;
+      grouped.set(replica, current);
+    });
 
-  const grouped = new Map<
-    string,
-    {
-      label: string;
-      color: string;
-      current?: string;
-      compare?: string;
-    }
-  >();
+    return (
+      <div className="min-w-[220px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-[0_12px_28px_var(--color-shadow-lg)]">
+        <p className="mb-2 text-[11px] font-semibold text-[var(--color-muted)]">{label}</p>
+        <div className="space-y-1">
+          {Array.from(grouped.entries()).map(([replica, entry]) => (
+            <div key={replica} className="flex items-center justify-between gap-4 text-[12px]">
+              <span className="flex items-center gap-2" style={{ color: entry.color }}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                {replica}
+              </span>
+              <span className="font-code tabular text-right" style={{ color: entry.color }}>
+                {entry.queue ?? "-"}
+                <span className="mx-1.5 opacity-45">/</span>
+                {entry.lag ?? "-"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  payload.forEach((entry) => {
-    const value = Number(entry.value ?? 0);
-    const metricKey = getMetricKey(entry.dataKey);
-    if (metricKey === "other") return;
-    const existing = grouped.get(metricKey) ?? {
-      label: getMetricLabel(entry.dataKey, entry.name),
-      color: entry.color ?? "var(--color-text)",
-    };
-    const formatted = formatMetricValue(entry.dataKey, value);
-    if (entry.dataKey?.endsWith("Compare")) {
-      existing.compare = formatted;
-    } else {
-      existing.current = formatted;
-    }
-    grouped.set(metricKey, existing);
-  });
+  const sortedEntries = entries.sort((a, b) => Number(b.value ?? 0) - Number(a.value ?? 0));
 
   return (
     <div className="min-w-[180px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-[0_12px_28px_var(--color-shadow-lg)]">
-      <p className="mb-2 text-[11px] font-semibold text-[var(--color-muted)]">
-        {label}
-      </p>
+      <p className="mb-2 text-[11px] font-semibold text-[var(--color-muted)]">{label}</p>
       <div className="space-y-1">
-        {Array.from(grouped.entries()).map(([key, entry]) => {
-          return (
-            <div key={key} className="text-[12px]">
-              <div className="flex items-center justify-between gap-4">
-                <span className="flex items-center gap-2" style={{ color: entry.color }}>
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: entry.color }}
-                  />
-                  {entry.label}
-                </span>
-                <span className="font-code tabular text-right" style={{ color: entry.color }}>
-                  {entry.compare && (
-                    <span className="mr-2 opacity-45">{entry.compare}</span>
-                  )}
-                  {entry.current && (
-                    <span>{entry.current}</span>
-                  )}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {sortedEntries.map((entry) => (
+          <div key={entry.name} className="flex items-center justify-between gap-4 text-[12px]">
+            <span className="flex items-center gap-2" style={{ color: entry.color }}>
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+              {entry.name}
+            </span>
+            <span className="font-code tabular" style={{ color: entry.color }}>
+              {`${formatNumber(Number(entry.value ?? 0))} ${unit}`}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -460,22 +447,28 @@ function MetricTooltip({
 function LegendItem({
   color,
   label,
-  dashed = false,
-  muted = false,
+  active = true,
+  onClick,
 }: {
   color: string;
   label: string;
-  dashed?: boolean;
-  muted?: boolean;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2 text-[11px]", muted ? "text-[var(--color-muted)]" : "text-[var(--color-text-2)]")}>
-      <span
-        className={cn("inline-block h-0 w-5 border-t-2", dashed && "border-dashed")}
-        style={{ borderColor: color, opacity: muted ? 0.45 : 1 }}
-      />
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.75 text-[10px] transition-colors",
+        active
+          ? "border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-2)]"
+          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)] opacity-60",
+      )}
+    >
+      <span className="inline-block h-0 w-4 border-t-2" style={{ borderColor: color }} />
       {label}
-    </span>
+    </button>
   );
 }
 
@@ -560,6 +553,11 @@ function LoadingState(): React.ReactElement {
   );
 }
 
+function buildReplicaHint(replica: string | null, compareEnabled: boolean, current: number, previous: number, compareLabel: string): string {
+  if (!compareEnabled) return replica ?? "-";
+  return `${replica ?? "-"} • ${formatDeltaPercent(current, previous)} so với ${compareLabel}`;
+}
+
 export function AgRedoSecondaryPreview(): React.ReactElement {
   const { activeTopicId, filters, timeRange, comparePastEnabled } = useDashboardStore();
   const { from, to } = useTimeRange();
@@ -598,37 +596,58 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     retry: 1,
   });
 
-  const series = useMemo(
-    () => aggregateRedoSeries(data?.items ?? [], from, to, redoQueueThreshold, redoLagThreshold),
-    [data?.items, from, to, redoQueueThreshold, redoLagThreshold],
+  const [hiddenReplicas, setHiddenReplicas] = useState<string[]>([]);
+
+  const filteredItems = useMemo(
+    () => filterFindingsByReplica(data?.items ?? [], filters.replica),
+    [data?.items, filters.replica],
   );
+  const filteredCompareItems = useMemo(
+    () => filterFindingsByReplica(compareData?.items ?? [], filters.replica),
+    [compareData?.items, filters.replica],
+  );
+
+  const series = useMemo(() => aggregateRedoSeries(filteredItems, from, to), [filteredItems, from, to]);
   const compareSeries = useMemo(
     () => comparePastEnabled
-      ? aggregateRedoSeries(compareData?.items ?? [], compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from)
+      ? aggregateRedoSeriesWithDisplayFrom(filteredCompareItems, compareRange.from, compareRange.to, from)
       : [],
-    [compareData?.items, compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from, comparePastEnabled],
+    [filteredCompareItems, compareRange.from, compareRange.to, from, comparePastEnabled],
   );
   const chartSeries = useMemo(
     () => comparePastEnabled ? mergeCompareSeries(series, compareSeries) : series,
     [series, compareSeries, comparePastEnabled],
   );
 
-  const current = getLatestPopulatedPoint(chartSeries);
+  const replicas = useMemo(() => getReplicaNames(series), [series]);
+  const visibleReplicas = useMemo(
+    () => replicas.filter((replica) => !hiddenReplicas.includes(replica)),
+    [replicas, hiddenReplicas],
+  );
+
+  useEffect(() => {
+    setHiddenReplicas((prev) => prev.filter((replica) => replicas.includes(replica)));
+  }, [replicas]);
+
+  const latestPoint = useMemo(() => getLatestSnapshot(series), [series]);
+  const latestComparePoint = useMemo(() => getLatestSnapshot(compareSeries), [compareSeries]);
   const currentSummary = useMemo(
-    () => summarizeLatestRedoSnapshot(data?.items ?? [], redoQueueThreshold, redoLagThreshold),
-    [data?.items, redoQueueThreshold, redoLagThreshold],
+    () => summarizeSnapshot(latestPoint, replicas, redoQueueThreshold, redoLagThreshold),
+    [latestPoint, replicas, redoQueueThreshold, redoLagThreshold],
   );
   const compareSummary = useMemo(
-    () => summarizeLatestRedoSnapshot(compareData?.items ?? [], redoQueueThreshold, redoLagThreshold),
-    [compareData?.items, redoQueueThreshold, redoLagThreshold],
+    () => summarizeSnapshot(latestComparePoint, replicas, redoQueueThreshold, redoLagThreshold),
+    [latestComparePoint, replicas, redoQueueThreshold, redoLagThreshold],
   );
-  const compareQueue = getLatestComparableValue(compareSeries, "redoQueueKb");
-  const compareLag = getLatestComparableValue(compareSeries, "redoLagMs");
-  const compareRate = getLatestComparableValue(compareSeries, "redoRateKbps");
   const sampleCount = data?.items.length ?? 0;
   const redoQueueTone = severityTone(currentSummary.maxQueueKb, redoQueueThreshold);
   const redoLagTone = severityTone(currentSummary.maxLagMs, redoLagThreshold);
-  const laggingTone: "good" | "warn" = currentSummary.laggingReplicaCount > 0 ? "warn" : "good";
+
+  const toggleReplica = (replica: string): void => {
+    setHiddenReplicas((prev) =>
+      prev.includes(replica) ? prev.filter((item) => item !== replica) : [...prev, replica],
+    );
+  };
 
   if (isLoading && !data) {
     return <LoadingState />;
@@ -644,7 +663,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     );
   }
 
-  if (!series.length || !current) {
+  if (!series.length || !latestPoint || !replicas.length) {
     return (
       <EmptyState
         title="Không có dữ liệu AG redo"
@@ -660,23 +679,41 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
           icon={<RotateCcw className="h-3.5 w-3.5" />}
           label={<GlossaryTip glossaryKey="redo_queue_size">Redo Queue cao nhất</GlossaryTip>}
           value={`${formatNumber(currentSummary.maxQueueKb)} KB`}
-          hint={`${formatDeltaPercent(current.redoQueueKb ?? 0, compareQueue ?? 0)} so với ${compareRange.label}`}
+          hint={buildReplicaHint(
+            currentSummary.maxQueueReplica,
+            comparePastEnabled,
+            currentSummary.maxQueueKb,
+            compareSummary.maxQueueKb,
+            compareRange.label,
+          )}
           tone={redoQueueTone}
           accentColor={QUEUE_COLOR}
         />
         <KpiCard
           icon={<Activity className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="secondary_lag_seconds">Redo Lag</GlossaryTip>}
-          value={formatMs(current.redoLagMs ?? 0)}
-          hint={`${formatDeltaPercent(current.redoLagMs ?? 0, compareLag ?? 0)} so với ${compareRange.label}`}
+          label={<GlossaryTip glossaryKey="secondary_lag_seconds">Redo Lag cao nhất</GlossaryTip>}
+          value={formatMs(currentSummary.maxLagMs)}
+          hint={buildReplicaHint(
+            currentSummary.maxLagReplica,
+            comparePastEnabled,
+            currentSummary.maxLagMs,
+            compareSummary.maxLagMs,
+            compareRange.label,
+          )}
           tone={redoLagTone}
           accentColor={LAG_COLOR}
         />
         <KpiCard
           icon={<Gauge className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="redo_rate">Redo Rate</GlossaryTip>}
-          value={`${formatNumber(current.redoRateKbps ?? 0)} KB/s`}
-          hint={`${formatDeltaPercent(current.redoRateKbps ?? 0, compareRate ?? 0)} so với ${compareRange.label}`}
+          label={<GlossaryTip glossaryKey="redo_rate">Redo Rate thấp nhất</GlossaryTip>}
+          value={`${formatNumber(currentSummary.minRateKbps)} KB/s`}
+          hint={buildReplicaHint(
+            currentSummary.minRateReplica,
+            comparePastEnabled,
+            currentSummary.minRateKbps,
+            compareSummary.minRateKbps,
+            compareRange.label,
+          )}
           tone="good"
           accentColor={RATE_COLOR}
         />
@@ -684,7 +721,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
           icon={<Sparkles className="h-3.5 w-3.5" />}
           label="Số mẫu"
           value={formatNumber(sampleCount)}
-          hint={`${formatNumber(current.sampleCount)} dòng trong bucket mới nhất`}
+          hint={`${formatNumber(latestPoint.sampleCount)} dòng trong bucket mới nhất`}
           tone="good"
           accentColor={SAMPLE_COLOR}
         />
@@ -692,7 +729,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
 
       <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
         <ChartFrame
-          eyebrow="Tín hiệu chính"
+          eyebrow="Theo replica"
           title={
             <>
               <GlossaryTip glossaryKey="redo_queue_size">Redo Queue</GlossaryTip>
@@ -704,7 +741,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
           <BaseMetricChart
             data={chartSeries}
             margin={{ top: 8, right: 10, left: 4, bottom: 0 }}
-            tooltip={<MetricTooltip />}
+            tooltip={<MetricTooltip unit="mixed" />}
             yAxes={[
               {
                 id: "queue",
@@ -723,87 +760,132 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
               ...(redoQueueThreshold.warning != null
                 ? [{ yAxisId: "queue", y: redoQueueThreshold.warning, stroke: "var(--color-warning)" }]
                 : []),
+              ...(redoQueueThreshold.critical != null
+                ? [{ yAxisId: "queue", y: redoQueueThreshold.critical, stroke: "var(--color-critical)" }]
+                : []),
               ...(redoLagThreshold.critical != null
-                ? [{ yAxisId: "lag", y: redoLagThreshold.critical, stroke: "var(--color-critical)" }]
+                ? [{ yAxisId: "lag", y: redoLagThreshold.critical, stroke: LAG_COLOR }]
                 : []),
             ]}
-            lines={[
-              ...(comparePastEnabled ? [{
-                yAxisId: "queue" as const,
-                dataKey: "redoQueueKbCompare",
-                name: `Redo Queue (${compareRange.label})`,
-                stroke: QUEUE_COLOR,
-                strokeWidth: 1.5,
-                strokeOpacity: 0.3,
-              }] : []),
-              {
-                yAxisId: "queue",
-                dataKey: "redoQueueKb",
-                name: "Redo Queue",
-                stroke: QUEUE_COLOR,
-                strokeWidth: 2.5,
-              },
-              ...(comparePastEnabled ? [{
-                yAxisId: "lag" as const,
-                dataKey: "redoLagMsCompare",
-                name: `Redo Lag (${compareRange.label})`,
-                stroke: LAG_COLOR,
-                strokeWidth: 1.5,
-                strokeOpacity: 0.28,
-                strokeDasharray: "6 6",
-              }] : []),
-              {
-                yAxisId: "lag",
-                dataKey: "redoLagMs",
-                name: "Redo Lag",
-                stroke: LAG_COLOR,
-                strokeWidth: 2.5,
-                strokeDasharray: "8 6",
-              },
-            ]}
+            lines={replicas.flatMap((replica, index) => {
+              const color = REPLICA_COLORS[index % REPLICA_COLORS.length];
+              const key = replicaKey(replica);
+              return [
+                ...(comparePastEnabled
+                  ? [{
+                      yAxisId: "queue",
+                      dataKey: `queue_compare__${key}`,
+                      name: `${replica} • Redo Queue (${compareRange.label})`,
+                      stroke: color,
+                      strokeWidth: 1.4,
+                      strokeOpacity: 0.28,
+                      hide: !visibleReplicas.includes(replica),
+                    }]
+                  : []),
+                {
+                  yAxisId: "queue",
+                  dataKey: `queue__${key}`,
+                  name: `${replica} • Redo Queue`,
+                  stroke: color,
+                  hide: !visibleReplicas.includes(replica),
+                },
+                ...(comparePastEnabled
+                  ? [{
+                      yAxisId: "lag",
+                      dataKey: `lag_compare__${key}`,
+                      name: `${replica} • Redo Lag (${compareRange.label})`,
+                      stroke: color,
+                      strokeWidth: 1.4,
+                      strokeOpacity: 0.28,
+                      strokeDasharray: "6 6",
+                      hide: !visibleReplicas.includes(replica),
+                    }]
+                  : []),
+                {
+                  yAxisId: "lag",
+                  dataKey: `lag__${key}`,
+                  name: `${replica} • Redo Lag`,
+                  stroke: color,
+                  strokeDasharray: "8 6",
+                  hide: !visibleReplicas.includes(replica),
+                },
+              ];
+            })}
           />
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
-            <LegendItem color={QUEUE_COLOR} label="Redo Queue" />
-            <LegendItem color={LAG_COLOR} label="Redo Lag" dashed />
-            {comparePastEnabled && <LegendItem color={QUEUE_COLOR} label={`${compareRange.label}`} muted />}
-            {redoQueueThreshold.warning != null && <LegendItem color="var(--color-warning)" label={`Ngưỡng queue ${formatNumber(redoQueueThreshold.warning)} KB`} />}
-            {redoLagThreshold.critical != null && <LegendItem color="var(--color-critical)" label={`Ngưỡng lag ${formatMs(redoLagThreshold.critical)}`} dashed />}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[var(--color-border)] pt-2">
+            {replicas.map((replica, index) => (
+              <LegendItem
+                key={replica}
+                color={REPLICA_COLORS[index % REPLICA_COLORS.length]}
+                label={replica}
+                active={!hiddenReplicas.includes(replica)}
+                onClick={() => toggleReplica(replica)}
+              />
+            ))}
+            <LegendItem color="var(--color-text-2)" label="Redo Queue: nét liền" />
+            <LegendItem color="var(--color-text-2)" label="Redo Lag: nét đứt" />
+            {redoQueueThreshold.warning != null && (
+              <LegendItem
+                color="var(--color-warning)"
+                label={`Ngưỡng queue ${formatNumber(redoQueueThreshold.warning)} KB`}
+              />
+            )}
+            {redoLagThreshold.critical != null && (
+              <LegendItem
+                color={LAG_COLOR}
+                label={`Ngưỡng lag ${formatMs(redoLagThreshold.critical)}`}
+              />
+            )}
           </div>
         </ChartFrame>
 
         <ChartFrame
-          eyebrow="Khả năng bắt kịp"
+          eyebrow="Theo replica"
           title={<GlossaryTip glossaryKey="redo_rate">Redo Rate</GlossaryTip>}
         >
           <BaseMetricChart
             data={chartSeries}
             margin={{ top: 8, right: 10, left: 2, bottom: 0 }}
-            tooltip={<MetricTooltip />}
+            tooltip={<MetricTooltip unit="KB/s" />}
             yAxes={[
               {
                 width: 60,
                 tickFormatter: (value: number) => `${Math.round(value)}`,
               },
             ]}
-            lines={[
-              ...(comparePastEnabled ? [{
-                dataKey: "redoRateKbpsCompare",
-                name: `Redo Rate (${compareRange.label})`,
-                stroke: RATE_COLOR,
-                strokeWidth: 1.5,
-                strokeOpacity: 0.28,
-              }] : []),
-              {
-                dataKey: "redoRateKbps",
-                name: "Redo Rate",
-                stroke: RATE_COLOR,
-                strokeWidth: 2.5,
-              },
-            ]}
+            lines={replicas.flatMap((replica, index) => {
+              const color = REPLICA_COLORS[index % REPLICA_COLORS.length];
+              const key = replicaKey(replica);
+              return [
+                ...(comparePastEnabled
+                  ? [{
+                      dataKey: `rate_compare__${key}`,
+                      name: `${replica} (${compareRange.label})`,
+                      stroke: color,
+                      strokeWidth: 1.4,
+                      strokeOpacity: 0.28,
+                      hide: !visibleReplicas.includes(replica),
+                    }]
+                  : []),
+                {
+                  dataKey: `rate__${key}`,
+                  name: replica,
+                  stroke: color,
+                  hide: !visibleReplicas.includes(replica),
+                },
+              ];
+            })}
           />
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
-            <LegendItem color={RATE_COLOR} label="Redo Rate" />
-            {comparePastEnabled && <LegendItem color={RATE_COLOR} label={`${compareRange.label}`} muted />}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-t border-[var(--color-border)] pt-2">
+            {replicas.map((replica, index) => (
+              <LegendItem
+                key={replica}
+                color={REPLICA_COLORS[index % REPLICA_COLORS.length]}
+                label={replica}
+                active={!hiddenReplicas.includes(replica)}
+                onClick={() => toggleReplica(replica)}
+              />
+            ))}
           </div>
         </ChartFrame>
       </div>
