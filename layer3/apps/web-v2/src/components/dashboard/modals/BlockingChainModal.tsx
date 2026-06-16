@@ -3,6 +3,7 @@ import { AlertCircle, BrainCircuit, Clock, Link2, Lock, Users } from "lucide-rea
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
@@ -133,7 +134,7 @@ function KpiStrip({ headId, blockedCount, depth, maxWaitSec }: { headId: string;
 
 export function BlockingChainModal({ finding, onClose }: { finding: FindingWithAnalysis; onClose: () => void }): React.ReactElement {
   const [tab, setTab] = useState("chain");
-  const { data: full, isLoading } = useFindingById(finding.finding_id);
+  const { data: full, isLoading, isFetching } = useFindingById(finding.finding_id);
 
   const active = full ?? finding;
   const m = (active.metrics ?? {}) as Record<string, unknown>;
@@ -192,7 +193,7 @@ export function BlockingChainModal({ finding, onClose }: { finding: FindingWithA
           </TabsList>
 
           <DialogBody className="pt-4">
-            <TabsContent value="chain" className="mt-0">
+            <TabsContent value="chain" className="relative mt-0">
               {isLoading ? (
                 <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)}</div>
               ) : (
@@ -247,6 +248,7 @@ export function BlockingChainModal({ finding, onClose }: { finding: FindingWithA
                   )}
                 </div>
               )}
+              <RefreshingOverlay visible={isFetching && !isLoading && !!full} tone="modal" />
             </TabsContent>
 
             <TabsContent value="locks" className="mt-0">

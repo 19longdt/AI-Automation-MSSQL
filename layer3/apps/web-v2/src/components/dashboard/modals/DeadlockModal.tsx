@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { SeverityBadge } from "@/components/shared/SeverityBadge";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
@@ -114,7 +115,7 @@ function AiTabBody({ finding }: { finding: FindingWithAnalysis }): React.ReactEl
 
 export function DeadlockModal({ finding, onClose }: { finding: FindingWithAnalysis; onClose: () => void }): React.ReactElement {
   const [tab, setTab] = useState("summary");
-  const { data: full, isLoading } = useFindingById(finding.finding_id);
+  const { data: full, isLoading, isFetching } = useFindingById(finding.finding_id);
   const resolved = full ?? finding;
   const m = (resolved.metrics ?? {}) as Record<string, unknown>;
 
@@ -150,8 +151,9 @@ export function DeadlockModal({ finding, onClose }: { finding: FindingWithAnalys
           </TabsList>
 
           <DialogBody className="pt-4">
-            <TabsContent value="summary" className="mt-0">
+            <TabsContent value="summary" className="relative mt-0">
               {isLoading ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 rounded-lg" />)}</div> : <SummaryBody finding={resolved} m={m} />}
+              <RefreshingOverlay visible={isFetching && !isLoading && !!full} tone="modal" />
             </TabsContent>
             <TabsContent value="victim_query" className="mt-0 space-y-3">
               <pre className="min-h-[80px] overflow-x-auto whitespace-pre-wrap rounded-lg bg-[var(--color-code-bg)] p-3 font-code text-[11px] text-[var(--color-code-text)]">

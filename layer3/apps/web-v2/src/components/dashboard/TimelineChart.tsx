@@ -1,5 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { formatDateTime, parseWallClockDate } from "@/lib/format";
 import { useDashboardStore } from "@/store/dashboard.store";
 import type { TimelineResponse, TimelineBucket } from "@/types";
@@ -7,6 +8,7 @@ import type { TimelineResponse, TimelineBucket } from "@/types";
 interface Props {
   data: TimelineResponse | null | undefined;
   isLoading: boolean;
+  isFetching?: boolean;
 }
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
@@ -48,7 +50,7 @@ function chooseXAxisLabelMinutes(intervalMin: number, rangeMin: number, plotWidt
   return choices.find((c) => c >= rawStep) ?? rawStep;
 }
 
-export function TimelineChart({ data, isLoading }: Props) {
+export function TimelineChart({ data, isLoading, isFetching = false }: Props) {
   const svgRef  = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const tipRef  = useRef<HTMLDivElement>(null);
@@ -258,7 +260,7 @@ export function TimelineChart({ data, isLoading }: Props) {
   if (isLoading) return <Skeleton className="h-[160px] w-full rounded-lg" />;
 
   return (
-    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-3">
+    <div className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-3">
       <div className="flex items-center justify-between mb-2 text-[11px] text-[var(--color-muted)]">
         <span>Findings over time</span>
         {data && (
@@ -291,6 +293,7 @@ export function TimelineChart({ data, isLoading }: Props) {
           style={{ backdropFilter: "blur(8px)" }}
         />
       </div>
+      <RefreshingOverlay visible={isFetching && !!data} />
     </div>
   );
 }

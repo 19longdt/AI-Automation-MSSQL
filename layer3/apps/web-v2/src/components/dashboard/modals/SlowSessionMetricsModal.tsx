@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { QpCanvas } from "@/components/plan/QpCanvas";
 import { PlanAnalysisPanel } from "@/components/plan/PlanAnalysisPanel";
@@ -210,7 +211,7 @@ const SESSION_FIELDS = ["session_id", "query_hash", "elapsed_seconds", "cpu_time
 const BLOCKING_FIELDS = ["blocking_session_id", "wait_type", "wait_seconds", "blocker_login", "blocker_host", "blocker_status", "blocker_open_txn", "wait_resource", "blocker_plan_xml"];
 
 export function SlowSessionMetricsModal({ finding, onClose }: Props) {
-  const { data: full, isLoading } = useFindingById(finding.finding_id);
+  const { data: full, isLoading, isFetching } = useFindingById(finding.finding_id);
   const resolved = full ?? finding;
   const m = (resolved.metrics ?? {}) as Record<string, unknown>;
 
@@ -281,7 +282,7 @@ export function SlowSessionMetricsModal({ finding, onClose }: Props) {
             </div>
           </DialogHeader>
 
-          <DialogBody className="space-y-3 p-4">
+          <DialogBody className="relative space-y-3 p-4">
             {isLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
@@ -362,6 +363,7 @@ export function SlowSessionMetricsModal({ finding, onClose }: Props) {
                 )}
               </>
             )}
+            <RefreshingOverlay visible={isFetching && !isLoading && !!full} tone="modal" />
           </DialogBody>
         </DialogContent>
       </Dialog>

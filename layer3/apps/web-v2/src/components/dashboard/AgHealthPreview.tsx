@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { HardDrive, PauseCircle, Zap } from "lucide-react";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BaseMetricChart } from "@/components/dashboard/BaseMetricChart";
@@ -463,14 +464,14 @@ export function AgHealthPreview(): React.ReactElement {
     [activeTopicId, filters, compareRange.from, compareRange.to],
   );
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["ag-health-preview-findings", params],
     queryFn: () => fetchAllHealthFindings(params),
     staleTime: 15_000,
     placeholderData: (prev) => prev,
     retry: 1,
   });
-  const { data: compareData } = useQuery({
+  const { data: compareData, isFetching: compareFetching } = useQuery({
     queryKey: ["ag-health-preview-findings-compare", compareParams],
     queryFn: () => fetchAllHealthFindings(compareParams),
     enabled: comparePastEnabled,
@@ -549,7 +550,7 @@ export function AgHealthPreview(): React.ReactElement {
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="relative grid gap-3">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           icon={<HardDrive className="h-3.5 w-3.5" />}
@@ -689,6 +690,7 @@ export function AgHealthPreview(): React.ReactElement {
           </div>
         </ChartFrame>
       </div>
+      <RefreshingOverlay visible={(isFetching || compareFetching) && !!data} />
     </div>
   );
 }

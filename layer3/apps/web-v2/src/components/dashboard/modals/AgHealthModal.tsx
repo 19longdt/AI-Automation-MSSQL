@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SeverityBadge } from "@/components/shared/SeverityBadge";
 import { SyncHealthBadge, ConnectedBadge, SuspendedBadge, FailoverBadge } from "@/components/shared/AgBadges";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { useFindingById } from "@/hooks/useFindings";
@@ -135,7 +136,7 @@ function AgHealthBody({ m }: { m: Record<string, unknown> }): React.ReactElement
 
 export function AgHealthModal({ finding, onClose }: { finding: FindingWithAnalysis; onClose: () => void }): React.ReactElement {
   const [tab, setTab] = useState("detail");
-  const { data: full, isLoading } = useFindingById(finding.finding_id);
+  const { data: full, isLoading, isFetching } = useFindingById(finding.finding_id);
   const resolved = full ?? finding;
   const m = (resolved.metrics ?? {}) as Record<string, unknown>;
   const ai = resolved.ai_analysis;
@@ -168,10 +169,11 @@ export function AgHealthModal({ finding, onClose }: { finding: FindingWithAnalys
           </TabsList>
 
           <DialogBody className="pt-4">
-            <TabsContent value="detail" className="mt-0">
+            <TabsContent value="detail" className="relative mt-0">
               {isLoading
                 ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 rounded-lg" />)}</div>
                 : isCdc ? <CdcBody m={m} /> : <AgHealthBody m={m} />}
+              <RefreshingOverlay visible={isFetching && !isLoading && !!full} tone="modal" />
             </TabsContent>
 
             {resolved.ai_analyzed && (

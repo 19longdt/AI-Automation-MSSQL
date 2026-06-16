@@ -4,6 +4,7 @@ import { Activity, Gauge, RotateCcw, Sparkles } from "lucide-react";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { BaseMetricChart } from "@/components/dashboard/BaseMetricChart";
+import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api-client";
@@ -581,14 +582,14 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     [activeTopicId, filters, compareRange.from, compareRange.to],
   );
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["ag-redo-preview-findings", params],
     queryFn: () => fetchAllRedoFindings(params),
     staleTime: 15_000,
     placeholderData: (prev) => prev,
     retry: 1,
   });
-  const { data: compareData } = useQuery({
+  const { data: compareData, isFetching: compareFetching } = useQuery({
     queryKey: ["ag-redo-preview-findings-compare", compareParams],
     queryFn: () => fetchAllRedoFindings(compareParams),
     enabled: comparePastEnabled,
@@ -653,7 +654,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="relative grid gap-3">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={<RotateCcw className="h-3.5 w-3.5" />}
@@ -807,6 +808,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
         </ChartFrame>
       </div>
 
+      <RefreshingOverlay visible={(isFetching || compareFetching) && !!data} />
     </div>
   );
 }
