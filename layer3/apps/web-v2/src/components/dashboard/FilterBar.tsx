@@ -9,8 +9,15 @@ interface Props {
 }
 
 export function FilterBar({ showBlockingFilter = false }: Props) {
-  const { activeTopicId, filters, setFilters } = useDashboardStore();
+  const {
+    activeTopicId,
+    filters,
+    setFilters,
+    comparePastEnabled,
+    setComparePastEnabled,
+  } = useDashboardStore();
   const showReplicaFilter = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
+  const showComparePast = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
   const { data: replicaOptions } = useReplicaOptions(activeTopicId, showReplicaFilter);
 
   function update(patch: Partial<FindingFilters>) {
@@ -18,8 +25,7 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {/* Severity */}
+    <div className="flex flex-wrap items-center gap-2">
       <Select
         value={filters.severity || "_all"}
         onValueChange={(v) => update({ severity: v === "_all" ? undefined : v as FindingFilters["severity"] })}
@@ -35,7 +41,6 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
         </SelectContent>
       </Select>
 
-      {/* Alert status */}
       <Select
         value={filters.alertStatus || "_all"}
         onValueChange={(v) => update({ alertStatus: v === "_all" ? undefined : v as FindingFilters["alertStatus"] })}
@@ -51,7 +56,6 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
         </SelectContent>
       </Select>
 
-      {/* Blocking filter — only for slow_sessions */}
       {showBlockingFilter && (
         <Select
           value={filters.blockingStatus || "_all"}
@@ -68,7 +72,6 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
         </Select>
       )}
 
-      {/* Time range — right side */}
       {showReplicaFilter && (
         <Select
           value={filters.replica || "_all"}
@@ -88,7 +91,33 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
         </Select>
       )}
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-3">
+        {showComparePast && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={comparePastEnabled}
+            onClick={() => setComparePastEnabled(!comparePastEnabled)}
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-[12px] text-[var(--color-text-2)] transition-colors hover:bg-[var(--color-surface-2)]"
+          >
+            <span
+              className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+              style={{
+                backgroundColor: comparePastEnabled
+                  ? "var(--color-primary)"
+                  : "var(--color-surface-3)",
+              }}
+            >
+              <span
+                className="inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform"
+                style={{
+                  transform: comparePastEnabled ? "translateX(18px)" : "translateX(2px)",
+                }}
+              />
+            </span>
+            <span>So sánh cùng kỳ</span>
+          </button>
+        )}
         <TimeRangePicker />
       </div>
     </div>

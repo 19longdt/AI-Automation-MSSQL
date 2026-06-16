@@ -15,6 +15,8 @@ interface DashboardState {
 
   filters: FindingFilters;
   setFilters: (filters: FindingFilters) => void;
+  comparePastEnabled: boolean;
+  setComparePastEnabled: (enabled: boolean) => void;
 
   page: number;
   setPage: (p: number) => void;
@@ -39,6 +41,8 @@ export const useDashboardStore = create<DashboardState>()(
 
       filters: {},
       setFilters: (filters) => set({ filters, page: 0 }),
+      comparePastEnabled: false,
+      setComparePastEnabled: (comparePastEnabled) => set({ comparePastEnabled }),
 
       page: 0,
       setPage: (page) => set({ page }),
@@ -61,6 +65,7 @@ export const useDashboardStore = create<DashboardState>()(
       partialize: (s) => ({
         activeTopicId: s.activeTopicId,
         timeRange: s.timeRange,
+        comparePastEnabled: s.comparePastEnabled,
         autoRefresh: s.autoRefresh,
         theme: s.theme,
       }),

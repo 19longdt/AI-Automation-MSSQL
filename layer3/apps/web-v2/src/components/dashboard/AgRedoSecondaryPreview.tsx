@@ -119,7 +119,7 @@ function resolveCompareRange(
   }
 
   const shifted = shiftRange(from, to, -durationMs);
-  return { ...shifted, label: "cùng kỳ trước" };
+  return { ...shifted, label: "cùng kỳ" };
 }
 
 function severityTone(value: number, threshold: TopicThresholdConfig): "good" | "warn" | "bad" {
@@ -560,7 +560,7 @@ function LoadingState(): React.ReactElement {
 }
 
 export function AgRedoSecondaryPreview(): React.ReactElement {
-  const { activeTopicId, filters, timeRange } = useDashboardStore();
+  const { activeTopicId, filters, timeRange, comparePastEnabled } = useDashboardStore();
   const { from, to } = useTimeRange();
   const redoQueueThreshold = useTopicMetricThreshold("ag_redo_secondary", "redo_queue_size", {
     warning: 1000,
@@ -591,6 +591,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
   const { data: compareData } = useQuery({
     queryKey: ["ag-redo-preview-findings-compare", compareParams],
     queryFn: () => fetchAllRedoFindings(compareParams),
+    enabled: comparePastEnabled,
     staleTime: 15_000,
     placeholderData: (prev) => prev,
     retry: 1,
@@ -601,10 +602,15 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     [data?.items, from, to, redoQueueThreshold, redoLagThreshold],
   );
   const compareSeries = useMemo(
-    () => aggregateRedoSeries(compareData?.items ?? [], compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from),
-    [compareData?.items, compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from],
+    () => comparePastEnabled
+      ? aggregateRedoSeries(compareData?.items ?? [], compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from)
+      : [],
+    [compareData?.items, compareRange.from, compareRange.to, redoQueueThreshold, redoLagThreshold, from, comparePastEnabled],
   );
-  const chartSeries = useMemo(() => mergeCompareSeries(series, compareSeries), [series, compareSeries]);
+  const chartSeries = useMemo(
+    () => comparePastEnabled ? mergeCompareSeries(series, compareSeries) : series,
+    [series, compareSeries, comparePastEnabled],
+  );
 
   const current = getLatestPopulatedPoint(chartSeries);
   const currentSummary = useMemo(
@@ -720,14 +726,14 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
                 : []),
             ]}
             lines={[
-              {
-                yAxisId: "queue",
+              ...(comparePastEnabled ? [{
+                yAxisId: "queue" as const,
                 dataKey: "redoQueueKbCompare",
                 name: `Redo Queue (${compareRange.label})`,
                 stroke: QUEUE_COLOR,
                 strokeWidth: 1.5,
                 strokeOpacity: 0.3,
-              },
+              }] : []),
               {
                 yAxisId: "queue",
                 dataKey: "redoQueueKb",
@@ -735,15 +741,15 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
                 stroke: QUEUE_COLOR,
                 strokeWidth: 2.5,
               },
-              {
-                yAxisId: "lag",
+              ...(comparePastEnabled ? [{
+                yAxisId: "lag" as const,
                 dataKey: "redoLagMsCompare",
                 name: `Redo Lag (${compareRange.label})`,
                 stroke: LAG_COLOR,
                 strokeWidth: 1.5,
                 strokeOpacity: 0.28,
                 strokeDasharray: "6 6",
-              },
+              }] : []),
               {
                 yAxisId: "lag",
                 dataKey: "redoLagMs",
@@ -757,7 +763,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
             <LegendItem color={QUEUE_COLOR} label="Redo Queue" />
             <LegendItem color={LAG_COLOR} label="Redo Lag" dashed />
-            <LegendItem color={QUEUE_COLOR} label={`${compareRange.label}`} muted />
+            {comparePastEnabled && <LegendItem color={QUEUE_COLOR} label={`${compareRange.label}`} muted />}
             {redoQueueThreshold.warning != null && <LegendItem color="var(--color-warning)" label={`Ngưỡng queue ${formatNumber(redoQueueThreshold.warning)} KB`} />}
             {redoLagThreshold.critical != null && <LegendItem color="var(--color-critical)" label={`Ngưỡng lag ${formatMs(redoLagThreshold.critical)}`} dashed />}
           </div>
@@ -778,13 +784,13 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
               },
             ]}
             lines={[
-              {
+              ...(comparePastEnabled ? [{
                 dataKey: "redoRateKbpsCompare",
                 name: `Redo Rate (${compareRange.label})`,
                 stroke: RATE_COLOR,
                 strokeWidth: 1.5,
                 strokeOpacity: 0.28,
-              },
+              }] : []),
               {
                 dataKey: "redoRateKbps",
                 name: "Redo Rate",
@@ -795,7 +801,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
           />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
             <LegendItem color={RATE_COLOR} label="Redo Rate" />
-            <LegendItem color={RATE_COLOR} label={`${compareRange.label}`} muted />
+            {comparePastEnabled && <LegendItem color={RATE_COLOR} label={`${compareRange.label}`} muted />}
           </div>
         </ChartFrame>
       </div>

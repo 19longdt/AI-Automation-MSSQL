@@ -104,7 +104,7 @@ function resolveCompareRange(
   }
 
   const shifted = shiftRange(from, to, -durationMs);
-  return { ...shifted, label: "cùng kỳ trước" };
+  return { ...shifted, label: "cùng kỳ" };
 }
 
 function severityTone(value: number, threshold: TopicThresholdConfig): "good" | "warn" | "bad" {
@@ -213,6 +213,20 @@ function aggregateHealthSeries(findings: FindingWithAnalysis[], from: Date, to: 
   return series;
 }
 
+function aggregateHealthSeriesWithDisplayFrom(
+  findings: FindingWithAnalysis[],
+  from: Date,
+  to: Date,
+  displayFrom: Date,
+): HealthPoint[] {
+  const series = aggregateHealthSeries(findings, from, to);
+  const displayStart = floorToBucketMs(displayFrom.getTime(), HEALTH_BUCKET_MS);
+  return series.map((point, index) => ({
+    ...point,
+    ts: formatBucketTimeLabel(displayStart + index * HEALTH_BUCKET_MS),
+  }));
+}
+
 function getReplicaNames(series: HealthPoint[]): string[] {
   const names = new Set<string>();
   series.forEach((point) => {
@@ -261,6 +275,21 @@ function summarizeSnapshot(point: HealthPoint | null, replicas: string[]): Snaps
     minRateReplica,
     suspendedCount: point?.suspendedCount ?? 0,
   };
+}
+
+function mergeCompareSeries(current: HealthPoint[], compare: HealthPoint[]): HealthPoint[] {
+  return current.map((point, index) => {
+    const comparePoint = compare[index];
+    const merged: HealthPoint = { ...point };
+
+    Object.keys(comparePoint?.replicas ?? {}).forEach((replica) => {
+      const key = replicaKey(replica);
+      merged[`queue_compare__${key}`] = comparePoint?.replicas[replica]?.queueKb ?? null;
+      merged[`rate_compare__${key}`] = comparePoint?.replicas[replica]?.rateKbps ?? null;
+    });
+
+    return merged;
+  });
 }
 
 function MetricTooltip({
@@ -413,7 +442,7 @@ function LoadingState(): React.ReactElement {
 }
 
 export function AgHealthPreview(): React.ReactElement {
-  const { activeTopicId, filters, timeRange } = useDashboardStore();
+  const { activeTopicId, filters, timeRange, comparePastEnabled } = useDashboardStore();
   const { from, to } = useTimeRange();
   const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
     warning: 500,
@@ -444,6 +473,7 @@ export function AgHealthPreview(): React.ReactElement {
   const { data: compareData } = useQuery({
     queryKey: ["ag-health-preview-findings-compare", compareParams],
     queryFn: () => fetchAllHealthFindings(compareParams),
+    enabled: comparePastEnabled,
     staleTime: 15_000,
     placeholderData: (prev) => prev,
     retry: 1,
@@ -462,8 +492,14 @@ export function AgHealthPreview(): React.ReactElement {
 
   const series = useMemo(() => aggregateHealthSeries(filteredItems, from, to), [filteredItems, from, to]);
   const compareSeries = useMemo(
-    () => aggregateHealthSeries(filteredCompareItems, compareRange.from, compareRange.to),
-    [filteredCompareItems, compareRange.from, compareRange.to],
+    () => comparePastEnabled
+      ? aggregateHealthSeriesWithDisplayFrom(filteredCompareItems, compareRange.from, compareRange.to, from)
+      : [],
+    [filteredCompareItems, compareRange.from, compareRange.to, from, comparePastEnabled],
+  );
+  const chartSeries = useMemo(
+    () => comparePastEnabled ? mergeCompareSeries(series, compareSeries) : series,
+    [series, compareSeries, comparePastEnabled],
   );
 
   const replicas = useMemo(() => getReplicaNames(series), [series]);
@@ -547,13 +583,14 @@ export function AgHealthPreview(): React.ReactElement {
           title={<GlossaryTip glossaryKey="log_send_queue_size">Log Send Queue</GlossaryTip>}
         >
           <BaseMetricChart
-            data={series}
+            data={chartSeries}
             margin={{ top: 8, right: 10, left: 4, bottom: 0 }}
             tooltip={<MetricTooltip unit="KB" />}
             yAxes={[
               {
                 width: 56,
-                tickFormatter: (value: number) => `${Math.round(value / 1000)}k`,
+                tickFormatter: (value: number) =>
+                  value >= 1000 ? `${Math.round(value / 1000)}k` : `${Math.round(value)}`,
               },
             ]}
             referenceLines={[
@@ -564,12 +601,26 @@ export function AgHealthPreview(): React.ReactElement {
                 ? [{ y: logSendQueueThreshold.critical, stroke: QUEUE_CRITICAL_COLOR }]
                 : []),
             ]}
-            lines={replicas.map((replica, index) => ({
-              dataKey: `queue__${replicaKey(replica)}`,
-              name: replica,
-              stroke: REPLICA_COLORS[index % REPLICA_COLORS.length],
-              hide: !visibleReplicas.includes(replica),
-            }))}
+            lines={replicas.flatMap((replica, index) => {
+              const color = REPLICA_COLORS[index % REPLICA_COLORS.length];
+              const key = replicaKey(replica);
+              return [
+                ...(comparePastEnabled ? [{
+                  dataKey: `queue_compare__${key}`,
+                  name: `${replica} (${compareRange.label})`,
+                  stroke: color,
+                  strokeWidth: 1.4,
+                  strokeOpacity: 0.28,
+                  hide: !visibleReplicas.includes(replica),
+                }] : []),
+                {
+                  dataKey: `queue__${key}`,
+                  name: replica,
+                  stroke: color,
+                  hide: !visibleReplicas.includes(replica),
+                },
+              ];
+            })}
           />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
             {replicas.map((replica, index) => (
@@ -595,7 +646,7 @@ export function AgHealthPreview(): React.ReactElement {
           title={<GlossaryTip glossaryKey="log_send_rate">Log Send Rate</GlossaryTip>}
         >
           <BaseMetricChart
-            data={series}
+            data={chartSeries}
             margin={{ top: 8, right: 10, left: 2, bottom: 0 }}
             tooltip={<MetricTooltip unit="KB/s" />}
             yAxes={[
@@ -604,12 +655,26 @@ export function AgHealthPreview(): React.ReactElement {
                 tickFormatter: (value: number) => `${Math.round(value)}`,
               },
             ]}
-            lines={replicas.map((replica, index) => ({
-              dataKey: `rate__${replicaKey(replica)}`,
-              name: replica,
-              stroke: REPLICA_COLORS[index % REPLICA_COLORS.length],
-              hide: !visibleReplicas.includes(replica),
-            }))}
+            lines={replicas.flatMap((replica, index) => {
+              const color = REPLICA_COLORS[index % REPLICA_COLORS.length];
+              const key = replicaKey(replica);
+              return [
+                ...(comparePastEnabled ? [{
+                  dataKey: `rate_compare__${key}`,
+                  name: `${replica} (${compareRange.label})`,
+                  stroke: color,
+                  strokeWidth: 1.4,
+                  strokeOpacity: 0.28,
+                  hide: !visibleReplicas.includes(replica),
+                }] : []),
+                {
+                  dataKey: `rate__${key}`,
+                  name: replica,
+                  stroke: color,
+                  hide: !visibleReplicas.includes(replica),
+                },
+              ];
+            })}
           />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
             {replicas.map((replica, index) => (
