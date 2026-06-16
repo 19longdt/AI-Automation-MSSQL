@@ -105,6 +105,7 @@ export interface FindingFilters {
   severity?: Severity | "";
   alertStatus?: "sent" | "suppressed" | "pending" | "";
   blockingStatus?: "blocked" | "not_blocked" | "";
+  replica?: string;
 }
 
 export interface AutoRefreshConfig {

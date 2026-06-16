@@ -1,18 +1,9 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Gauge, RotateCcw, Sparkles } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { BaseMetricChart } from "@/components/dashboard/BaseMetricChart";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet } from "@/lib/api-client";
@@ -43,6 +34,16 @@ interface BucketAccumulator {
   selectedQueueKb: number;
   selectedLagMs: number;
   selectedRateKbps: number;
+}
+
+interface RedoSnapshotSummary {
+  maxQueueKb: number;
+  maxQueueReplica: string | null;
+  maxLagMs: number;
+  maxLagReplica: string | null;
+  minRateKbps: number;
+  minRateReplica: string | null;
+  laggingReplicaCount: number;
 }
 
 const REDO_BUCKET_MINUTES = 2;
@@ -288,6 +289,74 @@ function mergeCompareSeries(current: RedoPoint[], compare: RedoPoint[]): RedoPoi
       redoRateKbpsCompare: comparePoint?.redoRateKbps ?? null,
     };
   });
+}
+
+function summarizeLatestRedoSnapshot(
+  findings: FindingWithAnalysis[],
+  redoQueueThreshold: TopicThresholdConfig,
+  redoLagThreshold: TopicThresholdConfig,
+): RedoSnapshotSummary {
+  let latestTs = 0;
+  const latestItems: FindingWithAnalysis[] = [];
+
+  findings.forEach((finding) => {
+    const ts = parseWallClockDate(finding.detected_at)?.getTime() ?? 0;
+    if (ts > latestTs) {
+      latestTs = ts;
+      latestItems.length = 0;
+      latestItems.push(finding);
+      return;
+    }
+    if (ts === latestTs) {
+      latestItems.push(finding);
+    }
+  });
+
+  let maxQueueKb = 0;
+  let maxQueueReplica: string | null = null;
+  let maxLagMs = 0;
+  let maxLagReplica: string | null = null;
+  let minRateKbps = Number.POSITIVE_INFINITY;
+  let minRateReplica: string | null = null;
+  const laggingReplicas = new Set<string>();
+
+  latestItems.forEach((finding) => {
+    const metrics = (finding.metrics ?? {}) as Record<string, unknown>;
+    const replica = String(metrics.replica_server_name ?? finding.node ?? "unknown");
+    const queueKb = parseMetricNumber(metrics.redo_queue_size) ?? 0;
+    const lagMs = normalizeRedoLagMs(parseMetricNumber(metrics.redo_lag_ms)) ?? 0;
+    const rateKbps = parseMetricNumber(metrics.redo_rate);
+    const suspended = Number(metrics.is_suspended ?? 0) === 1;
+
+    if (queueKb >= maxQueueKb) {
+      maxQueueKb = queueKb;
+      maxQueueReplica = replica;
+    }
+    if (lagMs >= maxLagMs) {
+      maxLagMs = lagMs;
+      maxLagReplica = replica;
+    }
+    if (rateKbps != null && rateKbps <= minRateKbps) {
+      minRateKbps = rateKbps;
+      minRateReplica = replica;
+    }
+
+    const queueWarn = redoQueueThreshold.warning != null && queueKb >= redoQueueThreshold.warning;
+    const lagWarn = redoLagThreshold.warning != null && lagMs >= redoLagThreshold.warning;
+    if (queueWarn || lagWarn || suspended) {
+      laggingReplicas.add(replica);
+    }
+  });
+
+  return {
+    maxQueueKb,
+    maxQueueReplica,
+    maxLagMs,
+    maxLagReplica,
+    minRateKbps: Number.isFinite(minRateKbps) ? minRateKbps : 0,
+    minRateReplica,
+    laggingReplicaCount: laggingReplicas.size,
+  };
 }
 
 function MetricTooltip({
@@ -538,12 +607,21 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
   const chartSeries = useMemo(() => mergeCompareSeries(series, compareSeries), [series, compareSeries]);
 
   const current = getLatestPopulatedPoint(chartSeries);
+  const currentSummary = useMemo(
+    () => summarizeLatestRedoSnapshot(data?.items ?? [], redoQueueThreshold, redoLagThreshold),
+    [data?.items, redoQueueThreshold, redoLagThreshold],
+  );
+  const compareSummary = useMemo(
+    () => summarizeLatestRedoSnapshot(compareData?.items ?? [], redoQueueThreshold, redoLagThreshold),
+    [compareData?.items, redoQueueThreshold, redoLagThreshold],
+  );
   const compareQueue = getLatestComparableValue(compareSeries, "redoQueueKb");
   const compareLag = getLatestComparableValue(compareSeries, "redoLagMs");
   const compareRate = getLatestComparableValue(compareSeries, "redoRateKbps");
   const sampleCount = data?.items.length ?? 0;
-  const redoQueueTone = severityTone(current?.redoQueueKb ?? 0, redoQueueThreshold);
-  const redoLagTone = severityTone(current?.redoLagMs ?? 0, redoLagThreshold);
+  const redoQueueTone = severityTone(currentSummary.maxQueueKb, redoQueueThreshold);
+  const redoLagTone = severityTone(currentSummary.maxLagMs, redoLagThreshold);
+  const laggingTone: "good" | "warn" = currentSummary.laggingReplicaCount > 0 ? "warn" : "good";
 
   if (isLoading && !data) {
     return <LoadingState />;
@@ -573,8 +651,8 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={<RotateCcw className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="redo_queue_size">Redo Queue</GlossaryTip>}
-          value={`${formatNumber(current.redoQueueKb ?? 0)} KB`}
+          label={<GlossaryTip glossaryKey="redo_queue_size">Redo Queue cao nhất</GlossaryTip>}
+          value={`${formatNumber(currentSummary.maxQueueKb)} KB`}
           hint={`${formatDeltaPercent(current.redoQueueKb ?? 0, compareQueue ?? 0)} so với ${compareRange.label}`}
           tone={redoQueueTone}
           accentColor={QUEUE_COLOR}
@@ -616,87 +694,66 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
             </>
           }
         >
-          <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartSeries} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
-                <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 4" vertical={false} />
-                <XAxis
-                  dataKey="ts"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={{ stroke: "var(--color-border)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  yAxisId="queue"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={56}
-                  tickFormatter={(value: number) => `${Math.round(value / 1000)}k`}
-                />
-                <YAxis
-                  yAxisId="lag"
-                  orientation="right"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={44}
-                  tickFormatter={(value: number) => formatMs(value)}
-                />
-                <Tooltip content={<MetricTooltip />} />
-                {redoQueueThreshold.warning != null && (
-                  <ReferenceLine yAxisId="queue" y={redoQueueThreshold.warning} stroke="var(--color-warning)" strokeDasharray="4 4" />
-                )}
-                {redoLagThreshold.critical != null && (
-                  <ReferenceLine yAxisId="lag" y={redoLagThreshold.critical} stroke="var(--color-critical)" strokeDasharray="4 4" />
-                )}
-                <Line
-                  yAxisId="queue"
-                  type="monotone"
-                  dataKey="redoQueueKbCompare"
-                  name={`Redo Queue (${compareRange.label})`}
-                  stroke={QUEUE_COLOR}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.3}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  yAxisId="queue"
-                  type="monotone"
-                  dataKey="redoQueueKb"
-                  name="Redo Queue"
-                  stroke={QUEUE_COLOR}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  yAxisId="lag"
-                  type="monotone"
-                  dataKey="redoLagMsCompare"
-                  name={`Redo Lag (${compareRange.label})`}
-                  stroke={LAG_COLOR}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.28}
-                  strokeDasharray="6 6"
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  yAxisId="lag"
-                  type="monotone"
-                  dataKey="redoLagMs"
-                  name="Redo Lag"
-                  stroke={LAG_COLOR}
-                  strokeWidth={2.5}
-                  strokeDasharray="8 6"
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <BaseMetricChart
+            data={chartSeries}
+            margin={{ top: 8, right: 10, left: 4, bottom: 0 }}
+            tooltip={<MetricTooltip />}
+            yAxes={[
+              {
+                id: "queue",
+                width: 56,
+                tickFormatter: (value: number) => `${Math.round(value / 1000)}k`,
+              },
+              {
+                id: "lag",
+                orientation: "right",
+                width: 44,
+                tickFormatter: (value: number) => formatMs(value),
+              },
+            ]}
+            referenceLines={[
+              ...(redoQueueThreshold.warning != null
+                ? [{ yAxisId: "queue", y: redoQueueThreshold.warning, stroke: "var(--color-warning)" }]
+                : []),
+              ...(redoLagThreshold.critical != null
+                ? [{ yAxisId: "lag", y: redoLagThreshold.critical, stroke: "var(--color-critical)" }]
+                : []),
+            ]}
+            lines={[
+              {
+                yAxisId: "queue",
+                dataKey: "redoQueueKbCompare",
+                name: `Redo Queue (${compareRange.label})`,
+                stroke: QUEUE_COLOR,
+                strokeWidth: 1.5,
+                strokeOpacity: 0.3,
+              },
+              {
+                yAxisId: "queue",
+                dataKey: "redoQueueKb",
+                name: "Redo Queue",
+                stroke: QUEUE_COLOR,
+                strokeWidth: 2.5,
+              },
+              {
+                yAxisId: "lag",
+                dataKey: "redoLagMsCompare",
+                name: `Redo Lag (${compareRange.label})`,
+                stroke: LAG_COLOR,
+                strokeWidth: 1.5,
+                strokeOpacity: 0.28,
+                strokeDasharray: "6 6",
+              },
+              {
+                yAxisId: "lag",
+                dataKey: "redoLagMs",
+                name: "Redo Lag",
+                stroke: LAG_COLOR,
+                strokeWidth: 2.5,
+                strokeDasharray: "8 6",
+              },
+            ]}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
             <LegendItem color={QUEUE_COLOR} label="Redo Queue" />
             <LegendItem color={LAG_COLOR} label="Redo Lag" dashed />
@@ -710,46 +767,32 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
           eyebrow="Khả năng bắt kịp"
           title={<GlossaryTip glossaryKey="redo_rate">Redo Rate</GlossaryTip>}
         >
-          <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartSeries} margin={{ top: 8, right: 10, left: 2, bottom: 0 }}>
-                <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 4" vertical={false} />
-                <XAxis
-                  dataKey="ts"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={{ stroke: "var(--color-border)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={60}
-                  tickFormatter={(value: number) => `${Math.round(value)}`}
-                />
-                <Tooltip content={<MetricTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="redoRateKbpsCompare"
-                  name={`Redo Rate (${compareRange.label})`}
-                  stroke={RATE_COLOR}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.28}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="redoRateKbps"
-                  name="Redo Rate"
-                  stroke={RATE_COLOR}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <BaseMetricChart
+            data={chartSeries}
+            margin={{ top: 8, right: 10, left: 2, bottom: 0 }}
+            tooltip={<MetricTooltip />}
+            yAxes={[
+              {
+                width: 60,
+                tickFormatter: (value: number) => `${Math.round(value)}`,
+              },
+            ]}
+            lines={[
+              {
+                dataKey: "redoRateKbpsCompare",
+                name: `Redo Rate (${compareRange.label})`,
+                stroke: RATE_COLOR,
+                strokeWidth: 1.5,
+                strokeOpacity: 0.28,
+              },
+              {
+                dataKey: "redoRateKbps",
+                name: "Redo Rate",
+                stroke: RATE_COLOR,
+                strokeWidth: 2.5,
+              },
+            ]}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
             <LegendItem color={RATE_COLOR} label="Redo Rate" />
             <LegendItem color={RATE_COLOR} label={`${compareRange.label}`} muted />

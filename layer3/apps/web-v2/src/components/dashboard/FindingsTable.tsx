@@ -10,10 +10,15 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
   const { activeTopicId, page, setPage, filters, setFilters } = useDashboardStore();
   const { data, isLoading, error, refetch } = useFindings();
   const Renderer = getTopicRowRenderer(activeTopicId);
-  const total = data?.total ?? 0;
+  const filteredItems = (data?.items ?? []).filter((finding) => {
+    if (!filters.replica) return true;
+    const replica = String((finding.metrics ?? {})?.replica_server_name ?? "");
+    return replica === filters.replica;
+  });
+  const total = filters.replica ? filteredItems.length : (data?.total ?? 0);
   const limit = 15;
   const pages = Math.max(1, Math.ceil(total / limit));
-  const hasFilters = !!(filters.severity || filters.alertStatus || filters.blockingStatus);
+  const hasFilters = !!(filters.severity || filters.alertStatus || filters.blockingStatus || filters.replica);
 
   return (
     <div
@@ -57,7 +62,7 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
                   />
                 </td>
               </tr>
-            ) : !data?.items.length ? (
+            ) : !filteredItems.length ? (
               <tr>
                 <td colSpan={10}>
                   <EmptyState
@@ -72,7 +77,7 @@ export function FindingsTable({ useOuterScroll = false }: { useOuterScroll?: boo
                 </td>
               </tr>
             ) : (
-              data.items.map((finding) => (
+              filteredItems.map((finding) => (
                 <Renderer.Row
                   key={finding.finding_id}
                   finding={finding}

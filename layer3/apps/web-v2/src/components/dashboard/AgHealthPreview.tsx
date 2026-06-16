@@ -1,20 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { HardDrive, PauseCircle, Zap } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { GlossaryTip } from "@/components/plan/GlossaryTip";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BaseMetricChart } from "@/components/dashboard/BaseMetricChart";
 import { apiGet } from "@/lib/api-client";
 import { buildFindingsQuery } from "@/lib/dashboard-query";
 import { formatNumber, parseWallClockDate } from "@/lib/format";
@@ -25,30 +16,38 @@ import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/store/dashboard.store";
 import type { FindingWithAnalysis, FindingsQuery, FindingsResponse, TopicThresholdConfig } from "@/types";
 
+type ReplicaMetricMap = Record<string, { replica: string; queueKb: number | null; rateKbps: number | null }>;
+
 interface HealthPoint {
   ts: string;
-  logSendQueueKb: number | null;
-  logSendRateKbps: number | null;
-  logSendQueueKbCompare?: number | null;
-  logSendRateKbpsCompare?: number | null;
+  bucketTs: number;
   sampleCount: number;
   suspendedCount: number;
+  replicas: ReplicaMetricMap;
   latestFinding: FindingWithAnalysis | null;
+  [key: string]: string | number | ReplicaMetricMap | FindingWithAnalysis | null | undefined;
 }
 
 interface BucketAccumulator {
   sampleCount: number;
   suspendedCount: number;
-  selectedFinding: FindingWithAnalysis;
-  selectedQueueKb: number;
-  selectedRateKbps: number;
+  latestFinding: FindingWithAnalysis | null;
+  replicas: Map<string, { queueKb: number | null; rateKbps: number | null; finding: FindingWithAnalysis }>;
+}
+
+interface SnapshotSummary {
+  maxQueueKb: number;
+  maxQueueReplica: string | null;
+  minRateKbps: number;
+  minRateReplica: string | null;
+  suspendedCount: number;
 }
 
 const HEALTH_BUCKET_MINUTES = 2;
 const HEALTH_BUCKET_MS = HEALTH_BUCKET_MINUTES * 60_000;
-const QUEUE_COLOR = "#0f766e";
-const RATE_COLOR = "#2563eb";
-const SUSPENDED_COLOR = "#dc2626";
+const QUEUE_THRESHOLD_COLOR = "#f59e0b";
+const QUEUE_CRITICAL_COLOR = "#dc2626";
+const REPLICA_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#ea580c", "#0891b2", "#be123c"];
 
 function parseMetricNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -70,12 +69,6 @@ function formatBucketTimeLabel(ts: number): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
-}
-
-function kpiTone(mode: "good" | "warn" | "bad"): string {
-  if (mode === "bad") return "text-[var(--color-critical)]";
-  if (mode === "warn") return "text-[var(--color-warning)]";
-  return "text-[var(--color-text)]";
 }
 
 function formatDeltaPercent(current: number, previous: number): string {
@@ -121,24 +114,14 @@ function severityTone(value: number, threshold: TopicThresholdConfig): "good" | 
   return "good";
 }
 
-function compareHealthSeverity(
-  queueKb: number,
-  rateKbps: number,
-  current: BucketAccumulator | undefined,
-  logSendQueueThreshold: TopicThresholdConfig,
-): boolean {
-  if (!current) return true;
+function kpiTone(mode: "good" | "warn" | "bad"): string {
+  if (mode === "bad") return "text-[var(--color-critical)]";
+  if (mode === "warn") return "text-[var(--color-warning)]";
+  return "text-[var(--color-text)]";
+}
 
-  const nextQueueBand =
-    logSendQueueThreshold.critical != null && queueKb >= logSendQueueThreshold.critical ? 2 :
-    logSendQueueThreshold.warning != null && queueKb >= logSendQueueThreshold.warning ? 1 : 0;
-  const currentQueueBand =
-    logSendQueueThreshold.critical != null && current.selectedQueueKb >= logSendQueueThreshold.critical ? 2 :
-    logSendQueueThreshold.warning != null && current.selectedQueueKb >= logSendQueueThreshold.warning ? 1 : 0;
-
-  if (nextQueueBand !== currentQueueBand) return nextQueueBand > currentQueueBand;
-  if (queueKb !== current.selectedQueueKb) return queueKb > current.selectedQueueKb;
-  return rateKbps < current.selectedRateKbps;
+function replicaKey(replica: string): string {
+  return replica.replace(/[^a-zA-Z0-9]+/g, "_");
 }
 
 async function fetchAllHealthFindings(params: FindingsQuery): Promise<FindingsResponse> {
@@ -166,13 +149,7 @@ async function fetchAllHealthFindings(params: FindingsQuery): Promise<FindingsRe
   return { total, items };
 }
 
-function aggregateHealthSeries(
-  findings: FindingWithAnalysis[],
-  from: Date,
-  to: Date,
-  logSendQueueThreshold: TopicThresholdConfig,
-  displayFrom: Date = from,
-): HealthPoint[] {
+function aggregateHealthSeries(findings: FindingWithAnalysis[], from: Date, to: Date): HealthPoint[] {
   const sorted = [...findings].sort((a, b) => {
     const aTs = parseWallClockDate(a.detected_at)?.getTime() ?? 0;
     const bTs = parseWallClockDate(b.detected_at)?.getTime() ?? 0;
@@ -184,162 +161,137 @@ function aggregateHealthSeries(
   sorted.forEach((finding) => {
     if (!finding.detected_at) return;
     const metrics = (finding.metrics ?? {}) as Record<string, unknown>;
-    const logSendQueueKb = parseMetricNumber(metrics.log_send_queue_size);
-    const logSendRateKbps = parseMetricNumber(metrics.log_send_rate);
-    const isSuspended = Number(metrics.is_suspended ?? 0) === 1 ? 1 : 0;
+    const queueKb = parseMetricNumber(metrics.log_send_queue_size);
+    const rateKbps = parseMetricNumber(metrics.log_send_rate);
+    const replica = String(metrics.replica_server_name ?? finding.node ?? "unknown");
+    const suspended = Number(metrics.is_suspended ?? 0) === 1 ? 1 : 0;
     const findingTs = parseWallClockDate(finding.detected_at)?.getTime() ?? 0;
 
-    if (logSendQueueKb == null && logSendRateKbps == null && isSuspended === 0) return;
+    if (queueKb == null && rateKbps == null && suspended === 0) return;
 
     const bucketTs = floorToBucketMs(findingTs, HEALTH_BUCKET_MS);
     const key = String(bucketTs);
-    const current = buckets.get(key);
-    const queueValue = logSendQueueKb ?? 0;
-    const rateValue = logSendRateKbps ?? 0;
-    const shouldReplace = compareHealthSeverity(
-      queueValue,
-      rateValue,
-      current,
-      logSendQueueThreshold,
-    );
+    const current = buckets.get(key) ?? {
+      sampleCount: 0,
+      suspendedCount: 0,
+      latestFinding: null,
+      replicas: new Map<string, { queueKb: number | null; rateKbps: number | null; finding: FindingWithAnalysis }>(),
+    };
 
-    buckets.set(key, {
-      sampleCount: (current?.sampleCount ?? 0) + 1,
-      suspendedCount: (current?.suspendedCount ?? 0) + isSuspended,
-      selectedFinding: shouldReplace ? finding : current!.selectedFinding,
-      selectedQueueKb: shouldReplace ? queueValue : current!.selectedQueueKb,
-      selectedRateKbps: shouldReplace ? rateValue : current!.selectedRateKbps,
-    });
+    current.sampleCount += 1;
+    current.suspendedCount += suspended;
+    current.latestFinding = finding;
+    current.replicas.set(replica, { queueKb, rateKbps, finding });
+    buckets.set(key, current);
   });
 
   const series: HealthPoint[] = [];
   const start = floorToBucketMs(from.getTime(), HEALTH_BUCKET_MS);
   const end = ceilToBucketMs(to.getTime(), HEALTH_BUCKET_MS);
-  const displayStart = floorToBucketMs(displayFrom.getTime(), HEALTH_BUCKET_MS);
 
-  let slot = 0;
-  for (let cursor = start; cursor <= end; cursor += HEALTH_BUCKET_MS, slot += 1) {
+  for (let cursor = start; cursor <= end; cursor += HEALTH_BUCKET_MS) {
     const bucket = buckets.get(String(cursor));
-    const displayCursor = displayStart + slot * HEALTH_BUCKET_MS;
+    const point: HealthPoint = {
+      ts: formatBucketTimeLabel(cursor),
+      bucketTs: cursor,
+      sampleCount: bucket?.sampleCount ?? 0,
+      suspendedCount: bucket?.suspendedCount ?? 0,
+      replicas: {},
+      latestFinding: bucket?.latestFinding ?? null,
+    };
 
-    series.push({
-      ts: formatBucketTimeLabel(displayCursor),
-      logSendQueueKb: bucket ? bucket.selectedQueueKb : null,
-      logSendRateKbps: bucket ? bucket.selectedRateKbps : null,
-      sampleCount: bucket ? bucket.sampleCount : 0,
-      suspendedCount: bucket ? bucket.suspendedCount : 0,
-      latestFinding: bucket ? bucket.selectedFinding : null,
+    bucket?.replicas.forEach((value, replica) => {
+      const key = replicaKey(replica);
+      point.replicas[replica] = { replica, queueKb: value.queueKb, rateKbps: value.rateKbps };
+      point[`queue__${key}`] = value.queueKb;
+      point[`rate__${key}`] = value.rateKbps;
     });
+
+    series.push(point);
   }
 
   return series;
 }
 
-function getLatestComparableValue(
-  series: HealthPoint[],
-  key: "logSendQueueKb" | "logSendRateKbps",
-): number | null {
-  for (let i = series.length - 1; i >= 0; i -= 1) {
-    const value = series[i][key];
-    if (typeof value === "number") return value;
-  }
-  return null;
-}
-
-function getLatestPopulatedPoint(series: HealthPoint[]): HealthPoint | null {
-  for (let i = series.length - 1; i >= 0; i -= 1) {
-    if (
-      typeof series[i].logSendQueueKb === "number" ||
-      typeof series[i].logSendRateKbps === "number"
-    ) {
-      return series[i];
-    }
-  }
-  return null;
-}
-
-function mergeCompareSeries(current: HealthPoint[], compare: HealthPoint[]): HealthPoint[] {
-  return current.map((point, index) => {
-    const comparePoint = compare[index];
-    return {
-      ...point,
-      logSendQueueKbCompare: comparePoint?.logSendQueueKb ?? null,
-      logSendRateKbpsCompare: comparePoint?.logSendRateKbps ?? null,
-    };
+function getReplicaNames(series: HealthPoint[]): string[] {
+  const names = new Set<string>();
+  series.forEach((point) => {
+    Object.keys(point.replicas).forEach((replica) => names.add(replica));
   });
+  return Array.from(names).sort();
+}
+
+function getLatestSnapshot(series: HealthPoint[]): HealthPoint | null {
+  for (let i = series.length - 1; i >= 0; i -= 1) {
+    if (Object.keys(series[i].replicas).length > 0) return series[i];
+  }
+  return null;
+}
+
+function filterFindingsByReplica(findings: FindingWithAnalysis[], replica: string | undefined): FindingWithAnalysis[] {
+  if (!replica) return findings;
+  return findings.filter((finding) => String((finding.metrics ?? {})?.replica_server_name ?? "") === replica);
+}
+
+function summarizeSnapshot(point: HealthPoint | null, replicas: string[]): SnapshotSummary {
+  let maxQueueKb = 0;
+  let maxQueueReplica: string | null = null;
+  let minRateKbps = Number.POSITIVE_INFINITY;
+  let minRateReplica: string | null = null;
+
+  replicas.forEach((replica) => {
+    const metrics = point?.replicas[replica];
+    if (!metrics) return;
+
+    if ((metrics.queueKb ?? 0) >= maxQueueKb) {
+      maxQueueKb = metrics.queueKb ?? 0;
+      maxQueueReplica = replica;
+    }
+
+    if (metrics.rateKbps != null && metrics.rateKbps <= minRateKbps) {
+      minRateKbps = metrics.rateKbps;
+      minRateReplica = replica;
+    }
+  });
+
+  return {
+    maxQueueKb,
+    maxQueueReplica,
+    minRateKbps: Number.isFinite(minRateKbps) ? minRateKbps : 0,
+    minRateReplica,
+    suspendedCount: point?.suspendedCount ?? 0,
+  };
 }
 
 function MetricTooltip({
   active,
   payload,
   label,
+  unit,
 }: {
   active?: boolean;
-  payload?: Array<{ dataKey?: string; value?: number; color?: string; name?: string }>;
+  payload?: Array<{ value?: number; color?: string; name?: string }>;
   label?: string;
+  unit: "KB" | "KB/s";
 }) {
   if (!active || !payload?.length) return null;
 
-  const getMetricLabel = (dataKey?: string, fallback?: string): string => {
-    if (dataKey === "logSendQueueKb" || dataKey === "logSendQueueKbCompare") return "Log Send Queue";
-    if (dataKey === "logSendRateKbps" || dataKey === "logSendRateKbpsCompare") return "Log Send Rate";
-    return fallback ?? "";
-  };
-
-  const getMetricKey = (dataKey?: string): "queue" | "rate" | "other" => {
-    if (dataKey === "logSendQueueKb" || dataKey === "logSendQueueKbCompare") return "queue";
-    if (dataKey === "logSendRateKbps" || dataKey === "logSendRateKbpsCompare") return "rate";
-    return "other";
-  };
-
-  const grouped = new Map<
-    string,
-    {
-      label: string;
-      color: string;
-      current?: string;
-      compare?: string;
-    }
-  >();
-
-  payload.forEach((entry) => {
-    const value = Number(entry.value ?? 0);
-    const metricKey = getMetricKey(entry.dataKey);
-    if (metricKey === "other") return;
-    const existing = grouped.get(metricKey) ?? {
-      label: getMetricLabel(entry.dataKey, entry.name),
-      color: entry.color ?? "var(--color-text)",
-    };
-    const formatted =
-      metricKey === "queue"
-        ? `${formatNumber(value)} KB`
-        : `${formatNumber(value)} KB/s`;
-    if (entry.dataKey?.endsWith("Compare")) {
-      existing.compare = formatted;
-    } else {
-      existing.current = formatted;
-    }
-    grouped.set(metricKey, existing);
-  });
+  const entries = payload
+    .filter((entry) => typeof entry.value === "number")
+    .sort((a, b) => Number(b.value ?? 0) - Number(a.value ?? 0));
 
   return (
     <div className="min-w-[180px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-[0_12px_28px_var(--color-shadow-lg)]">
-      <p className="mb-2 text-[11px] font-semibold text-[var(--color-muted)]">
-        {label}
-      </p>
+      <p className="mb-2 text-[11px] font-semibold text-[var(--color-muted)]">{label}</p>
       <div className="space-y-1">
-        {Array.from(grouped.entries()).map(([key, entry]) => (
-          <div key={key} className="flex items-center justify-between gap-4 text-[12px]">
+        {entries.map((entry) => (
+          <div key={entry.name} className="flex items-center justify-between gap-4 text-[12px]">
             <span className="flex items-center gap-2" style={{ color: entry.color }}>
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: entry.color }}
-              />
-              {entry.label}
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+              {entry.name}
             </span>
-            <span className="font-code tabular text-right" style={{ color: entry.color }}>
-              {entry.compare && <span className="mr-2 opacity-45">{entry.compare}</span>}
-              {entry.current && <span>{entry.current}</span>}
+            <span className="font-code tabular" style={{ color: entry.color }}>
+              {formatNumber(Number(entry.value ?? 0))} {unit}
             </span>
           </div>
         ))}
@@ -351,20 +303,28 @@ function MetricTooltip({
 function LegendItem({
   color,
   label,
-  muted = false,
+  active = true,
+  onClick,
 }: {
   color: string;
   label: string;
-  muted?: boolean;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2 text-[11px]", muted ? "text-[var(--color-muted)]" : "text-[var(--color-text-2)]")}>
-      <span
-        className="inline-block h-0 w-5 border-t-2"
-        style={{ borderColor: color, opacity: muted ? 0.45 : 1 }}
-      />
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+        active
+          ? "border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-2)]"
+          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)] opacity-60",
+      )}
+    >
+      <span className="inline-block h-0 w-5 border-t-2" style={{ borderColor: color }} />
       {label}
-    </span>
+    </button>
   );
 }
 
@@ -412,19 +372,24 @@ function KpiCard({
 function ChartFrame({
   title,
   eyebrow,
+  actions,
   children,
 }: {
   title: React.ReactNode;
   eyebrow: string;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
-          {eyebrow}
-        </p>
-        <h3 className="text-[16px] font-semibold text-[var(--color-text)]">{title}</h3>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+            {eyebrow}
+          </p>
+          <h3 className="text-[16px] font-semibold text-[var(--color-text)]">{title}</h3>
+        </div>
+        {actions}
       </div>
       {children}
     </section>
@@ -439,7 +404,10 @@ function LoadingState(): React.ReactElement {
           <Skeleton key={index} className="h-[96px] rounded-lg" />
         ))}
       </div>
-      <Skeleton className="h-[380px] rounded-lg" />
+      <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
+        <Skeleton className="h-[380px] rounded-lg" />
+        <Skeleton className="h-[380px] rounded-lg" />
+      </div>
     </div>
   );
 }
@@ -481,22 +449,45 @@ export function AgHealthPreview(): React.ReactElement {
     retry: 1,
   });
 
-  const series = useMemo(
-    () => aggregateHealthSeries(data?.items ?? [], from, to, logSendQueueThreshold),
-    [data?.items, from, to, logSendQueueThreshold],
-  );
-  const compareSeries = useMemo(
-    () => aggregateHealthSeries(compareData?.items ?? [], compareRange.from, compareRange.to, logSendQueueThreshold, from),
-    [compareData?.items, compareRange.from, compareRange.to, logSendQueueThreshold, from],
-  );
-  const chartSeries = useMemo(() => mergeCompareSeries(series, compareSeries), [series, compareSeries]);
+  const [hiddenReplicas, setHiddenReplicas] = useState<string[]>([]);
 
-  const current = getLatestPopulatedPoint(chartSeries);
-  const compareQueue = getLatestComparableValue(compareSeries, "logSendQueueKb");
-  const compareRate = getLatestComparableValue(compareSeries, "logSendRateKbps");
-  const compareSuspended = getLatestPopulatedPoint(compareSeries)?.suspendedCount ?? 0;
-  const queueTone = severityTone(current?.logSendQueueKb ?? 0, logSendQueueThreshold);
-  const suspendedTone = severityTone(current?.suspendedCount ?? 0, suspendedThreshold);
+  const filteredItems = useMemo(
+    () => filterFindingsByReplica(data?.items ?? [], filters.replica),
+    [data?.items, filters.replica],
+  );
+  const filteredCompareItems = useMemo(
+    () => filterFindingsByReplica(compareData?.items ?? [], filters.replica),
+    [compareData?.items, filters.replica],
+  );
+
+  const series = useMemo(() => aggregateHealthSeries(filteredItems, from, to), [filteredItems, from, to]);
+  const compareSeries = useMemo(
+    () => aggregateHealthSeries(filteredCompareItems, compareRange.from, compareRange.to),
+    [filteredCompareItems, compareRange.from, compareRange.to],
+  );
+
+  const replicas = useMemo(() => getReplicaNames(series), [series]);
+  const visibleReplicas = useMemo(
+    () => replicas.filter((replica) => !hiddenReplicas.includes(replica)),
+    [replicas, hiddenReplicas],
+  );
+
+  useEffect(() => {
+    setHiddenReplicas((prev) => prev.filter((replica) => replicas.includes(replica)));
+  }, [replicas]);
+
+  const latestPoint = useMemo(() => getLatestSnapshot(series), [series]);
+  const latestComparePoint = useMemo(() => getLatestSnapshot(compareSeries), [compareSeries]);
+  const currentSummary = useMemo(() => summarizeSnapshot(latestPoint, replicas), [latestPoint, replicas]);
+  const compareSummary = useMemo(() => summarizeSnapshot(latestComparePoint, replicas), [latestComparePoint, replicas]);
+  const queueTone = severityTone(currentSummary.maxQueueKb, logSendQueueThreshold);
+  const suspendedTone = severityTone(currentSummary.suspendedCount, suspendedThreshold);
+
+  const toggleReplica = (replica: string): void => {
+    setHiddenReplicas((prev) =>
+      prev.includes(replica) ? prev.filter((item) => item !== replica) : [...prev, replica],
+    );
+  };
 
   if (isLoading && !data) {
     return <LoadingState />;
@@ -512,7 +503,7 @@ export function AgHealthPreview(): React.ReactElement {
     );
   }
 
-  if (!series.length || !current) {
+  if (!series.length || !latestPoint || !replicas.length) {
     return (
       <EmptyState
         title="Không có dữ liệu AG health"
@@ -523,142 +514,113 @@ export function AgHealthPreview(): React.ReactElement {
 
   return (
     <div className="grid gap-3">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           icon={<HardDrive className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="log_send_queue_size">Log Send Queue</GlossaryTip>}
-          value={`${formatNumber(current.logSendQueueKb ?? 0)} KB`}
-          hint={`${formatDeltaPercent(current.logSendQueueKb ?? 0, compareQueue ?? 0)} so với ${compareRange.label}`}
+          label={<GlossaryTip glossaryKey="log_send_queue_size">Log Send Queue cao nhất</GlossaryTip>}
+          value={`${formatNumber(currentSummary.maxQueueKb)} KB`}
+          hint={`${currentSummary.maxQueueReplica ?? "-"} • ${formatDeltaPercent(currentSummary.maxQueueKb, compareSummary.maxQueueKb)} so với ${compareRange.label}`}
           tone={queueTone}
-          accentColor={QUEUE_COLOR}
+          accentColor={REPLICA_COLORS[0]}
         />
         <KpiCard
           icon={<Zap className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="log_send_rate">Log Send Rate</GlossaryTip>}
-          value={`${formatNumber(current.logSendRateKbps ?? 0)} KB/s`}
-          hint={`${formatDeltaPercent(current.logSendRateKbps ?? 0, compareRate ?? 0)} so với ${compareRange.label}`}
+          label={<GlossaryTip glossaryKey="log_send_rate">Log Send Rate thấp nhất</GlossaryTip>}
+          value={`${formatNumber(currentSummary.minRateKbps)} KB/s`}
+          hint={`${currentSummary.minRateReplica ?? "-"} • ${formatDeltaPercent(currentSummary.minRateKbps, compareSummary.minRateKbps)} so với ${compareRange.label}`}
           tone="good"
-          accentColor={RATE_COLOR}
+          accentColor={REPLICA_COLORS[1]}
         />
         <KpiCard
           icon={<PauseCircle className="h-3.5 w-3.5" />}
-          label={<GlossaryTip glossaryKey="is_suspended">Suspended</GlossaryTip>}
-          value={formatNumber(current.suspendedCount)}
-          hint={`${formatDeltaPercent(current.suspendedCount, compareSuspended)} so với ${compareRange.label}`}
+          label={<GlossaryTip glossaryKey="is_suspended">Replica Suspended</GlossaryTip>}
+          value={formatNumber(currentSummary.suspendedCount)}
+          hint={`${formatDeltaPercent(currentSummary.suspendedCount, compareSummary.suspendedCount)} so với ${compareRange.label}`}
           tone={suspendedTone}
-          accentColor={SUSPENDED_COLOR}
+          accentColor={QUEUE_CRITICAL_COLOR}
         />
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
         <ChartFrame
-          eyebrow="Tín hiệu chính"
+          eyebrow="Theo replica"
           title={<GlossaryTip glossaryKey="log_send_queue_size">Log Send Queue</GlossaryTip>}
         >
-          <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartSeries} margin={{ top: 8, right: 10, left: 4, bottom: 0 }}>
-                <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 4" vertical={false} />
-                <XAxis
-                  dataKey="ts"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={{ stroke: "var(--color-border)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  yAxisId="queue"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={56}
-                  tickFormatter={(value: number) => `${Math.round(value / 1000)}k`}
-                />
-                <Tooltip content={<MetricTooltip />} />
-                {logSendQueueThreshold.warning != null && (
-                  <ReferenceLine yAxisId="queue" y={logSendQueueThreshold.warning} stroke="var(--color-warning)" strokeDasharray="4 4" />
-                )}
-                {logSendQueueThreshold.critical != null && (
-                  <ReferenceLine yAxisId="queue" y={logSendQueueThreshold.critical} stroke="var(--color-critical)" strokeDasharray="4 4" />
-                )}
-                <Line
-                  yAxisId="queue"
-                  type="monotone"
-                  dataKey="logSendQueueKbCompare"
-                  stroke={QUEUE_COLOR}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.3}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  yAxisId="queue"
-                  type="monotone"
-                  dataKey="logSendQueueKb"
-                  stroke={QUEUE_COLOR}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <BaseMetricChart
+            data={series}
+            margin={{ top: 8, right: 10, left: 4, bottom: 0 }}
+            tooltip={<MetricTooltip unit="KB" />}
+            yAxes={[
+              {
+                width: 56,
+                tickFormatter: (value: number) => `${Math.round(value / 1000)}k`,
+              },
+            ]}
+            referenceLines={[
+              ...(logSendQueueThreshold.warning != null
+                ? [{ y: logSendQueueThreshold.warning, stroke: QUEUE_THRESHOLD_COLOR }]
+                : []),
+              ...(logSendQueueThreshold.critical != null
+                ? [{ y: logSendQueueThreshold.critical, stroke: QUEUE_CRITICAL_COLOR }]
+                : []),
+            ]}
+            lines={replicas.map((replica, index) => ({
+              dataKey: `queue__${replicaKey(replica)}`,
+              name: replica,
+              stroke: REPLICA_COLORS[index % REPLICA_COLORS.length],
+              hide: !visibleReplicas.includes(replica),
+            }))}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
-            <LegendItem color={QUEUE_COLOR} label="Log Send Queue" />
-            <LegendItem color={QUEUE_COLOR} label={compareRange.label} muted />
+            {replicas.map((replica, index) => (
+              <LegendItem
+                key={replica}
+                color={REPLICA_COLORS[index % REPLICA_COLORS.length]}
+                label={replica}
+                active={!hiddenReplicas.includes(replica)}
+                onClick={() => toggleReplica(replica)}
+              />
+            ))}
             {logSendQueueThreshold.warning != null && (
-              <LegendItem color="var(--color-warning)" label={`Ngưỡng queue ${formatNumber(logSendQueueThreshold.warning)} KB`} />
+              <LegendItem color={QUEUE_THRESHOLD_COLOR} label={`Ngưỡng queue ${formatNumber(logSendQueueThreshold.warning)} KB`} />
             )}
             {logSendQueueThreshold.critical != null && (
-              <LegendItem color="var(--color-critical)" label={`Mức nghiêm trọng ${formatNumber(logSendQueueThreshold.critical)} KB`} />
+              <LegendItem color={QUEUE_CRITICAL_COLOR} label={`Mức nghiêm trọng ${formatNumber(logSendQueueThreshold.critical)} KB`} />
             )}
           </div>
         </ChartFrame>
 
         <ChartFrame
-          eyebrow="Thông lượng"
+          eyebrow="Theo replica"
           title={<GlossaryTip glossaryKey="log_send_rate">Log Send Rate</GlossaryTip>}
         >
-          <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartSeries} margin={{ top: 8, right: 10, left: 2, bottom: 0 }}>
-                <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 4" vertical={false} />
-                <XAxis
-                  dataKey="ts"
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={{ stroke: "var(--color-border)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={60}
-                  tickFormatter={(value: number) => `${Math.round(value)}`}
-                />
-                <Tooltip content={<MetricTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="logSendRateKbpsCompare"
-                  stroke={RATE_COLOR}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.28}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="logSendRateKbps"
-                  stroke={RATE_COLOR}
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <BaseMetricChart
+            data={series}
+            margin={{ top: 8, right: 10, left: 2, bottom: 0 }}
+            tooltip={<MetricTooltip unit="KB/s" />}
+            yAxes={[
+              {
+                width: 60,
+                tickFormatter: (value: number) => `${Math.round(value)}`,
+              },
+            ]}
+            lines={replicas.map((replica, index) => ({
+              dataKey: `rate__${replicaKey(replica)}`,
+              name: replica,
+              stroke: REPLICA_COLORS[index % REPLICA_COLORS.length],
+              hide: !visibleReplicas.includes(replica),
+            }))}
+          />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] pt-2">
-            <LegendItem color={RATE_COLOR} label="Log Send Rate" />
-            <LegendItem color={RATE_COLOR} label={compareRange.label} muted />
+            {replicas.map((replica, index) => (
+              <LegendItem
+                key={replica}
+                color={REPLICA_COLORS[index % REPLICA_COLORS.length]}
+                label={replica}
+                active={!hiddenReplicas.includes(replica)}
+                onClick={() => toggleReplica(replica)}
+              />
+            ))}
           </div>
         </ChartFrame>
       </div>

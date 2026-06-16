@@ -1,4 +1,5 @@
 import { useDashboardStore } from "@/store/dashboard.store";
+import { useReplicaOptions } from "@/hooks/useReplicaOptions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TimeRangePicker } from "@/components/dashboard/TimeRangePicker";
 import type { FindingFilters } from "@/types";
@@ -8,7 +9,9 @@ interface Props {
 }
 
 export function FilterBar({ showBlockingFilter = false }: Props) {
-  const { filters, setFilters } = useDashboardStore();
+  const { activeTopicId, filters, setFilters } = useDashboardStore();
+  const showReplicaFilter = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
+  const { data: replicaOptions } = useReplicaOptions(activeTopicId, showReplicaFilter);
 
   function update(patch: Partial<FindingFilters>) {
     setFilters({ ...filters, ...patch });
@@ -66,6 +69,25 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
       )}
 
       {/* Time range — right side */}
+      {showReplicaFilter && (
+        <Select
+          value={filters.replica || "_all"}
+          onValueChange={(v) => update({ replica: v === "_all" ? undefined : v })}
+        >
+          <SelectTrigger className="w-[180px]" aria-label="Filter by replica">
+            <SelectValue placeholder="All replicas" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">All replicas</SelectItem>
+            {replicaOptions.map((replica) => (
+              <SelectItem key={replica} value={replica}>
+                {replica}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
       <div className="ml-auto">
         <TimeRangePicker />
       </div>
