@@ -708,7 +708,8 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
               {
                 id: "queue",
                 width: 56,
-                tickFormatter: (value: number) => `${Math.round(value / 1000)}k`,
+                tickFormatter: (value: number) =>
+                  value >= 1000 ? `${Math.round(value / 1000)}k` : `${Math.round(value)}`,
               },
               {
                 id: "lag",
