@@ -1,7 +1,19 @@
+import fs from "node:fs";
 import path from "node:path";
 import { config as loadDotenv } from "dotenv";
 
-loadDotenv({ path: path.resolve(process.cwd(), ".env") });
+const dotenvCandidates = [
+  path.resolve(__dirname, "..", "..", "..", ".env"),
+  path.resolve(__dirname, "..", "..", "..", "..", ".env"),
+  path.resolve(process.cwd(), ".env"),
+  path.resolve(__dirname, "..", ".env"),
+];
+
+for (const dotenvPath of dotenvCandidates) {
+  if (!fs.existsSync(dotenvPath)) continue;
+  loadDotenv({ path: dotenvPath, override: false });
+  break;
+}
 
 export interface AppConfig {
   mongodbUri: string;

@@ -5,7 +5,7 @@ import { fetchJsonWithTimeout } from "../proxy/l2-proxy";
 export async function getInsightsSummary(db: Db, l2ApiUrl?: string, days = 30) {
   if (l2ApiUrl) {
     try {
-      return await fetchJsonWithTimeout(`${l2ApiUrl}/api/insights/summary?days=${days}`);
+      return await fetchJsonWithTimeout(`${l2ApiUrl}/api/insights/summary?days=${days}`, 10_000);
     } catch {
       // fallback below
     }
@@ -24,7 +24,7 @@ export async function getInsights(db: Db, l2ApiUrl?: string, queryString = "") {
   if (l2ApiUrl) {
     try {
       const suffix = queryString ? `?${queryString}` : "";
-      return await fetchJsonWithTimeout(`${l2ApiUrl}/api/insights${suffix}`);
+      return await fetchJsonWithTimeout(`${l2ApiUrl}/api/insights${suffix}`, 10_000);
     } catch {
       // fallback below
     }

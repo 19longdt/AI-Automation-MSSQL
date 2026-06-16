@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import { Db } from "mongodb";
@@ -24,7 +25,18 @@ declare module "fastify" {
 }
 
 export async function createServer(config: AppConfig, db: Db | null, mongoReady: boolean) {
-  const app = Fastify({ logger: { level: config.logLevel } });
+  const app = Fastify({
+    logger: {
+      level: config.logLevel,
+      serializers: {
+        req(req) {
+          return { method: req.method, url: req.url, reqId: req.id };
+        }
+      }
+    },
+    requestIdHeader: "x-request-id",
+    requestIdLogLabel: "reqId"
+  });
   app.decorate("config", config);
   app.decorate("mongoReady", mongoReady);
   app.decorate("getDb", () => {
@@ -42,51 +54,50 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   });
 
   await app.register(cors, { origin: true });
+  await app.register(rateLimit, { global: false });
 
   // __dirname = layer3/apps/api/dist at runtime
+  // repoRoot = layer3/
   const repoRoot = path.resolve(__dirname, "../../..");
+  const dist2Root = path.join(repoRoot, "dist-v2");
 
   await app.register(fastifyStatic, {
-    root: path.join(repoRoot, "dist"),
-    prefix: "/dist/"
+    root: path.join(repoRoot, "assets", "ssms-icons-ver17"),
+    prefix: "/assets/ssms-icons-ver17/",
+    decorateReply: false,
   });
+
+  // Vite build output: dist-v2/assets/ → served at /assets/*
+  // decorateReply defaults to true → attaches reply.sendFile to all handlers below.
   await app.register(fastifyStatic, {
-    root: path.join(repoRoot, "examples"),
-    prefix: "/examples/",
-    decorateReply: false
+    root: path.join(dist2Root, "assets"),
+    prefix: "/assets/",
+  });
+
+  // Legacy static assets — qp.js diagram library + qp.css + qp_icons.png
+  await app.register(fastifyStatic, {
+    root: path.join(repoRoot, "dist"),
+    prefix: "/dist/",
+    decorateReply: false,
   });
   await app.register(fastifyStatic, {
     root: path.join(repoRoot, "css"),
     prefix: "/css/",
-    decorateReply: false
+    decorateReply: false,
   });
-  await app.register(fastifyStatic, {
-    root: path.join(repoRoot, "apps/web/css"),
-    prefix: "/apps/web/css/",
-    decorateReply: false
-  });
-  await app.register(fastifyStatic, {
-    root: path.join(repoRoot, "apps/web/pages"),
-    prefix: "/apps/web/pages/",
-    decorateReply: false
-  });
-  await app.register(fastifyStatic, {
-    root: path.join(repoRoot, "assets"),
-    prefix: "/assets/",
-    decorateReply: false
-  });
-  await app.register(fastifyStatic, {
-    root: path.join(repoRoot, "images"),
-    prefix: "/images/",
-    decorateReply: false
+  // qp_icons.png is referenced by qp.css as a relative url — also expose at root level
+  // so both /css/qp_icons.png and /qp_icons.png resolve correctly
+  app.get("/qp_icons.png", async (_req, reply) => {
+    return reply.sendFile("qp_icons.png", path.join(repoRoot, "css"));
   });
 
-  app.get("/", async (_req, reply) => reply.sendFile("index.html", path.join(repoRoot, "examples")));
-  app.get("/history", async (_req, reply) => reply.sendFile("index.html", path.join(repoRoot, "examples")));
-  app.get("/extract-query-plan", async (_req, reply) => reply.sendFile("query-plan.html", path.join(repoRoot, "apps/web/pages")));
-  app.get("/query-plan", async (_req, reply) => reply.sendFile("query-plan.html", path.join(repoRoot, "apps/web/pages")));
-  app.get("/dashboard", async (_req, reply) => reply.sendFile("dashboard.html", path.join(repoRoot, "apps/web/pages")));
-  app.get("/insights", async (_req, reply) => reply.sendFile("insights.html", path.join(repoRoot, "apps/web/pages")));
+  // React SPA — all page routes serve the same index.html
+  app.get("/",                   async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/dashboard",          async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/insights",           async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/query-plan",         async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/extract-query-plan", async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/history",            async (_req, reply) => reply.sendFile("index.html", dist2Root));
 
   await registerHealthRoutes(app);
   await registerFindingRoutes(app);

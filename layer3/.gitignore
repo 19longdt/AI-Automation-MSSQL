@@ -1,3 +1,10 @@
 node_modules/
 dist/
+dist-v2/
+.npm-cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.codex/
 *.log

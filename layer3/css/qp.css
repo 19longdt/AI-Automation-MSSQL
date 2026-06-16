@@ -1,25 +1,30 @@
 :root {
     --qp-color-surface: var(--color-surface, #ffffff);
-    --qp-color-surface-soft: var(--color-surface-soft, #f8fafc);
+    --qp-color-surface-soft: var(--color-surface-2, #f8fafc);
+    --qp-color-surface-strong: var(--color-surface-3, #e2e8f0);
     --qp-color-border: var(--color-border, #c8c8c8);
-    --qp-color-border-strong: var(--color-border-strong, #8d8d8d);
+    --qp-color-border-strong: var(--color-border-2, #8d8d8d);
     --qp-color-text: var(--color-text, #0f172a);
+    --qp-color-text-muted: var(--color-text-2, #334155);
     --qp-color-primary: var(--color-primary, #2563eb);
     --qp-color-row-hover: var(--color-row-hover, #e7e7e7);
     --qp-color-info-soft: var(--color-info-soft, #e8f1ff);
     --qp-color-success-soft: var(--color-success-soft, #dcfce7);
     --qp-color-warning-soft: var(--color-warning-soft, #fef3c7);
+    --qp-color-node-bg: color-mix(in srgb, var(--qp-color-surface) 90%, var(--qp-color-warning-soft) 10%);
     --qp-color-missing-index: #166534;
 }
 
 :root[data-theme="dark"] {
+    --qp-color-node-bg: color-mix(in srgb, var(--qp-color-surface) 88%, #31210b 12%);
     --qp-color-missing-index: #86efac;
 }
 div.qp-node {
-    background-color: var(--qp-color-warning-soft);
+    background-color: var(--qp-color-node-bg);
     margin: 2px;
     padding: 2px;
     border: 1px solid var(--qp-color-border-strong);
+    color: var(--qp-color-text);
 }
 
 div.qp-node,
@@ -32,6 +37,7 @@ div.qp-tt {
     border-color: var(--qp-color-border-strong);
     border-style: solid;
     border-width: 1px 0px 1px 0px;
+    background: var(--qp-color-surface-soft);
     padding: 0.3em;
     margin-bottom: 0;
     display: flex;
@@ -54,6 +60,7 @@ div.qp-tt {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    background: var(--qp-color-surface-soft);
 }
 
 .qp-statement-query-panel .qp-statement-header-row {
@@ -75,6 +82,7 @@ div.qp-tt {
     padding: 2px 8px;
     cursor: pointer;
     font-size: 11px;
+    color: var(--qp-color-text);
 }
 
 .qp-query-tab.active {
@@ -84,13 +92,13 @@ div.qp-tt {
 }
 
 .qp-query-tab.qp-query-action {
-    background: var(--qp-color-info-soft);
+    background: var(--qp-color-surface);
     border-color: var(--qp-color-border-strong);
 }
 
 .qp-open-beautify {
     margin-left: auto;
-    background: var(--qp-color-info-soft);
+    background: var(--qp-color-surface);
     border-color: var(--qp-color-border-strong);
 }
 
@@ -102,7 +110,7 @@ div.qp-tt {
 }
 
 .qp-open-ai-assist {
-    background: var(--qp-color-success-soft);
+    background: color-mix(in srgb, var(--qp-color-surface) 82%, var(--qp-color-primary) 18%);
     border-color: var(--qp-color-border-strong);
 }
 
@@ -122,7 +130,7 @@ div.qp-tt {
 
 .qp-query-copy-btn:hover,
 .qp-query-expand-btn:hover {
-    background: var(--qp-color-surface);
+    background: var(--qp-color-surface-strong);
     border-color: var(--qp-color-border-strong);
 }
 
@@ -132,6 +140,7 @@ div.qp-tt {
     min-height: 0;
     overflow: hidden;
     position: relative;
+    background: var(--qp-color-surface-soft);
 }
 
 .qp-query-pane.active {
@@ -752,6 +761,7 @@ div.qp-node:hover .qp-tt {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
+    background: var(--qp-color-surface-soft);
 }
 
 .qp-statement-block {
@@ -772,6 +782,9 @@ div.qp-node:hover .qp-tt {
     max-height: calc(var(--qp-block-height-dvh) * 0.38);
     min-height: 92px;
     overflow: hidden;
+    background: var(--qp-color-surface-soft);
+    border: 1px solid var(--qp-color-border);
+    border-bottom: 0;
 }
 
 .qp-diagram-panel {
@@ -784,6 +797,7 @@ div.qp-node:hover .qp-tt {
     background-color: var(--qp-color-surface-soft);
     box-sizing: border-box;
     cursor: grab;
+    color: var(--qp-color-text);
 }
 
 .qp-statement-block.qp-no-missing-index .qp-statement-header-panel {
@@ -811,6 +825,7 @@ div.qp-node:hover .qp-tt {
     padding: 8px 12px 12px 8px;
     box-sizing: border-box;
     transform-origin: top left;
+    background: var(--qp-color-surface-soft);
 }
 
 .qp-diagram-panel.qp-dragging {
@@ -826,7 +841,7 @@ div.qp-node:hover .qp-tt {
     align-items: center;
     gap: 4px;
     padding: 4px;
-    background: color-mix(in srgb, var(--qp-color-surface-soft) 92%, transparent);
+    background: color-mix(in srgb, var(--qp-color-surface-soft) 94%, transparent);
     border-bottom: 1px solid var(--qp-color-border);
     z-index: 4;
 }
@@ -840,6 +855,7 @@ div.qp-node:hover .qp-tt {
     cursor: pointer;
     font-size: 11px;
     line-height: 18px;
+    color: var(--qp-color-text);
 }
 
 .qp-diagram-toolbar .qp-zoom-level {
@@ -848,6 +864,7 @@ div.qp-node:hover .qp-tt {
     text-align: right;
     font-family: var(--font-code);
     font-size: 10px;
+    color: var(--qp-color-text-muted);
 }
 
 .qp-diagram-toolbar .qp-plan-mode {
@@ -862,6 +879,50 @@ div.qp-node:hover .qp-tt {
     line-height: 16px;
     letter-spacing: 0.1px;
     user-select: none;
+}
+
+:root[data-theme="dark"] .qp-statement-header,
+:root[data-theme="dark"] .qp-statement-header-panel,
+:root[data-theme="dark"] .qp-statement-query-panel,
+:root[data-theme="dark"] .qp-statement-header-row > div,
+:root[data-theme="dark"] .qp-query-pane,
+:root[data-theme="dark"] .qp-root,
+:root[data-theme="dark"] .qp-diagram-canvas,
+:root[data-theme="dark"] .qp-diagram-panel,
+:root[data-theme="dark"] .qp-diagram-toolbar,
+:root[data-theme="dark"] .qp-query-tab,
+:root[data-theme="dark"] .qp-diagram-toolbar button,
+:root[data-theme="dark"] .qp-tt {
+    color: var(--qp-color-text);
+}
+
+:root[data-theme="dark"] .qp-query-tab.qp-query-action,
+:root[data-theme="dark"] .qp-open-beautify,
+:root[data-theme="dark"] .qp-diagram-toolbar button {
+    background: color-mix(in srgb, var(--qp-color-surface) 72%, var(--qp-color-surface-strong) 28%);
+}
+
+:root[data-theme="dark"] .qp-query-tab.active,
+:root[data-theme="dark"] button.is-active {
+    background: var(--qp-color-surface);
+}
+
+:root[data-theme="dark"] .qp-query-copy-btn,
+:root[data-theme="dark"] .qp-query-expand-btn {
+    background: color-mix(in srgb, var(--qp-color-surface) 76%, var(--qp-color-warning-soft) 24%);
+}
+
+:root[data-theme="dark"] .qp-open-ai-assist {
+    background: color-mix(in srgb, var(--qp-color-surface) 68%, var(--qp-color-primary) 32%);
+}
+
+:root[data-theme="dark"] .qp-diagram-toolbar .qp-plan-mode {
+    background: var(--qp-color-surface);
+}
+
+:root[data-theme="dark"] .qp-statement-header-panel,
+:root[data-theme="dark"] .qp-diagram-panel {
+    border-color: var(--qp-color-border);
 }
 
 .qp-diagram-toolbar .qp-plan-mode.runtime {

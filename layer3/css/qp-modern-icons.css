@@ -1,0 +1,1389 @@
+:root {
+    --qp-color-surface: var(--color-surface, #ffffff);
+    --qp-color-surface-soft: var(--color-surface-2, #f8fafc);
+    --qp-color-surface-strong: var(--color-surface-3, #e2e8f0);
+    --qp-color-border: var(--color-border, #c8c8c8);
+    --qp-color-border-strong: var(--color-border-2, #8d8d8d);
+    --qp-color-text: var(--color-text, #0f172a);
+    --qp-color-text-muted: var(--color-text-2, #334155);
+    --qp-color-primary: var(--color-primary, #2563eb);
+    --qp-color-row-hover: var(--color-row-hover, #e7e7e7);
+    --qp-color-info-soft: var(--color-info-soft, #e8f1ff);
+    --qp-color-success-soft: var(--color-success-soft, #dcfce7);
+    --qp-color-warning-soft: var(--color-warning-soft, #fef3c7);
+    --qp-color-node-bg: color-mix(in srgb, var(--qp-color-surface) 90%, var(--qp-color-warning-soft) 10%);
+    --qp-color-missing-index: #166534;
+}
+
+:root[data-theme="dark"] {
+    --qp-color-node-bg: color-mix(in srgb, var(--qp-color-surface) 88%, #31210b 12%);
+    --qp-color-missing-index: #86efac;
+}
+div.qp-node {
+    background-color: var(--qp-color-node-bg);
+    margin: 2px;
+    padding: 2px;
+    border: 1px solid var(--qp-color-border-strong);
+    color: var(--qp-color-text);
+}
+
+div.qp-node,
+div.qp-tt {
+    font-size: 11px;
+    line-height: normal;
+}
+
+.qp-statement-header {
+    border-color: var(--qp-color-border-strong);
+    border-style: solid;
+    border-width: 1px 0px 1px 0px;
+    background: var(--qp-color-surface-soft);
+    padding: 0.3em;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+}
+
+.qp-statement-header-row {
+    width: 100%;
+    height: auto;
+    margin-bottom: 0.3em;
+}
+
+.qp-statement-query-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--qp-color-surface-soft);
+}
+
+.qp-statement-query-panel .qp-statement-header-row {
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
+    margin-bottom: 0;
+}
+
+.qp-query-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.qp-query-tab {
+    border: 1px solid var(--qp-color-border);
+    background: var(--qp-color-surface-soft);
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--qp-color-text);
+}
+
+.qp-query-tab.active {
+    background: var(--qp-color-surface);
+    border-color: var(--qp-color-border-strong);
+    font-weight: bold;
+}
+
+.qp-query-tab.qp-query-action {
+    background: var(--qp-color-surface);
+    border-color: var(--qp-color-border-strong);
+}
+
+.qp-open-beautify {
+    margin-left: auto;
+    background: var(--qp-color-surface);
+    border-color: var(--qp-color-border-strong);
+}
+
+.qp-open-query-popup {
+    min-width: 28px;
+    padding: 2px 6px;
+    background: var(--qp-color-surface-soft);
+    border-color: var(--qp-color-border);
+}
+
+.qp-open-ai-assist {
+    background: color-mix(in srgb, var(--qp-color-surface) 82%, var(--qp-color-primary) 18%);
+    border-color: var(--qp-color-border-strong);
+}
+
+.qp-query-copy-btn,
+.qp-query-expand-btn {
+    background: var(--qp-color-warning-soft);
+    border-color: var(--qp-color-border-strong);
+    color: var(--qp-color-text);
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+    text-align: center;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: bold;
+}
+
+.qp-query-copy-btn:hover,
+.qp-query-expand-btn:hover {
+    background: var(--qp-color-surface-strong);
+    border-color: var(--qp-color-border-strong);
+}
+
+.qp-query-pane {
+    display: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+    background: var(--qp-color-surface-soft);
+}
+
+.qp-query-pane.active {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.qp-statement-query-panel .qp-statement-header-row.qp-query-pane.active {
+    display: flex;
+}
+
+.qp-missing-index-panel {
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: min(140px, 34%);
+    overflow: auto;
+    margin-top: 0;
+}
+
+.qp-missing-index-panel .qp-statement-header-row {
+    margin-bottom: 0;
+}
+
+.qp-statement-header-row>div {
+    width: 100%;
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border: 1px solid var(--qp-color-border);
+    background-color: var(--qp-color-surface-soft);
+    overflow: auto;
+    text-overflow: clip;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-height: 100%;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--qp-color-text);
+}
+
+.qp-real-query,
+.qp-resolved-query {
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    position: relative;
+    font-size: 12px !important;
+    line-height: 1.45;
+    font-family: var(--font-code);
+}
+
+.missing-index {
+    font-size: 12px;
+    line-height: 1.45;
+    font-family: var(--font-code);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.missing-index>div {
+    color: var(--qp-color-missing-index) !important;
+}
+
+.qp-statement-header,
+.qp-node>div {
+    font-family: var(--font-code);
+}
+
+.qp-node>div {
+    text-align: center;
+}
+
+div[class|='qp-icon'] {
+    height: 32px;
+    width: 32px;
+    margin-left: auto;
+    margin-right: auto;
+    background-repeat: no-repeat;
+    position: relative;
+}
+
+.qp-tt {
+    position: absolute;
+    top: 4em;
+    left: 2em;
+    z-index: 99999;
+    border: 1px solid var(--qp-color-border-strong);
+    background-color: var(--qp-color-surface);
+    padding: 2px;
+    width: 30em;
+}
+
+.qp-tt div,
+.qp-tt table {
+    font-family: var(--font-ui);
+    text-align: left;
+}
+
+.qp-tt table {
+    border-width: 0px;
+    border-spacing: 0px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    width: 100%;
+}
+
+.qp-tt td,
+.qp-tt th {
+    font-size: 11px;
+    border-bottom: solid 1px var(--qp-color-border);
+    padding: 1px;
+}
+
+/* Shared table row hover highlight (readability) */
+table tr {
+    transition: background-color .12s ease;
+}
+
+table tbody tr:hover,
+table tr:hover {
+    background-color: var(--qp-color-row-hover);
+}
+
+.qp-tt td {
+    text-align: right;
+    padding-left: 10px;
+}
+
+.qp-tt th {
+    text-align: left;
+}
+
+.qp-bold,
+.qp-tt-header {
+    font-weight: bold;
+}
+
+.qp-tt-header {
+    text-align: center;
+}
+
+/* Icons */
+.qp-icon-Catchall {
+    background: url('qp_icons.png') -96px -256px
+}
+
+.qp-icon-ArithmeticExpression {
+    background: url('qp_icons.png') -0px -0px
+}
+
+.qp-icon-Assert {
+    background: url('qp_icons.png') -32px -0px
+}
+
+.qp-icon-Assign {
+    background: url('qp_icons.png') -64px -0px
+}
+
+.qp-icon-Bitmap {
+    background: url('qp_icons.png') -256px -192px
+}
+
+.qp-icon-BookmarkLookup {
+    background: url('qp_icons.png') -128px -0px
+}
+
+.qp-icon-ClusteredIndexDelete {
+    background: url('qp_icons.png') -160px -0px
+}
+
+.qp-icon-ClusteredIndexInsert {
+    background: url('qp_icons.png') -192px -0px
+}
+
+.qp-icon-ClusteredIndexScan {
+    background: url('qp_icons.png') -224px -0px
+}
+
+.qp-icon-ClusteredIndexSeek {
+    background: url('qp_icons.png') -256px -0px
+}
+
+.qp-icon-ClusteredIndexMerge {
+    background: url('qp_icons.png') -0px -256px
+}
+
+.qp-icon-KeyLookup {
+    background: url('qp_icons.png') -256px -0px
+}
+
+.qp-icon-ClusteredIndexUpdate {
+    background: url('qp_icons.png') -288px -0px
+}
+
+.qp-icon-Collapse {
+    background: url('qp_icons.png') -0px -32px
+}
+
+.qp-icon-ComputeScalar {
+    background: url('qp_icons.png') -32px -32px
+}
+
+.qp-icon-Concatenation {
+    background: url('qp_icons.png') -64px -32px
+}
+
+.qp-icon-ConstantScan {
+    background: url('qp_icons.png') -96px -32px
+}
+
+.qp-icon-Convert {
+    background: url('qp_icons.png') -128px -32px
+}
+
+.qp-icon-CursorCatchall {
+    background: url('qp_icons.png') -96px -0px
+}
+
+.qp-icon-Declare {
+    background: url('qp_icons.png') -160px -32px
+}
+
+.qp-icon-Delete {
+    background: url('qp_icons.png') -288px -160px
+}
+
+.qp-icon-DistributeStreams {
+    background: url('qp_icons.png') -224px -32px
+}
+
+.qp-icon-Dynamic {
+    background: url('qp_icons.png') -256px -32px
+}
+
+.qp-icon-EagerSpool {
+    background: url('qp_icons.png') -192px -160px
+}
+
+.qp-icon-FetchQuery {
+    background: url('qp_icons.png') -288px -32px
+}
+
+.qp-icon-Filter {
+    background: url('qp_icons.png') -0px -64px
+}
+
+.qp-icon-GatherStreams {
+    background: url('qp_icons.png') -32px -64px
+}
+
+.qp-icon-HashMatch {
+    background: url('qp_icons.png') -64px -64px
+}
+
+.qp-icon-HashMatchRoot {
+    background: url('qp_icons.png') -64px -64px
+}
+
+.qp-icon-HashMatchTeam {
+    background: url('qp_icons.png') -64px -64px
+}
+
+.qp-icon-If {
+    background: url('qp_icons.png') -96px -64px
+}
+
+.qp-icon-Insert {
+    background: url('qp_icons.png') -0px -192px
+}
+
+.qp-icon-InsertedScan {
+    background: url('qp_icons.png') -128px -64px
+}
+
+.qp-icon-Intrinsic {
+    background: url('qp_icons.png') -160px -64px
+}
+
+.qp-icon-IteratorCatchall {
+    background: url('qp_icons.png') -96px -0px
+}
+
+.qp-icon-Keyset {
+    background: url('qp_icons.png') -192px -64px
+}
+
+.qp-icon-LanguageElementCatchall {
+    background: url('qp_icons.png') -96px -0px
+}
+
+.qp-icon-LazySpool {
+    background: url('qp_icons.png') -192px -160px
+}
+
+.qp-icon-LogRowScan {
+    background: url('qp_icons.png') -224px -64px
+}
+
+.qp-icon-MergeInterval {
+    background: url('qp_icons.png') -256px -64px
+}
+
+.qp-icon-MergeJoin {
+    background: url('qp_icons.png') -288px -64px
+}
+
+.qp-icon-NestedLoops {
+    background: url('qp_icons.png') -0px -96px
+}
+
+.qp-icon-NonclusteredIndexDelete {
+    background: url('qp_icons.png') -32px -96px
+}
+
+.qp-icon-NonclusteredIndexInsert {
+    background: url('qp_icons.png') -64px -96px
+}
+
+.qp-icon-IndexScan {
+    background: url('qp_icons.png') -96px -96px
+}
+
+.qp-icon-IndexSeek {
+    background: url('qp_icons.png') -128px -96px
+}
+
+.qp-icon-NonclusteredIndexSpool {
+    background: url('qp_icons.png') -160px -96px
+}
+
+.qp-icon-NonclusteredIndexUpdate {
+    background: url('qp_icons.png') -192px -96px
+}
+
+.qp-icon-OnlineIndexInsert {
+    background: url('qp_icons.png') -224px -96px
+}
+
+.qp-icon-ParameterTableScan {
+    background: url('qp_icons.png') -256px -96px
+}
+
+.qp-icon-PopulateQuery {
+    background: url('qp_icons.png') -192px -224px
+}
+
+.qp-icon-RdiLookup {
+    background: url('qp_icons.png') -0px -128px
+}
+
+.qp-icon-RefreshQuery {
+    background: url('qp_icons.png') -32px -128px
+}
+
+.qp-icon-RemoteDelete {
+    background: url('qp_icons.png') -64px -128px
+}
+
+.qp-icon-RemoteInsert {
+    background: url('qp_icons.png') -96px -128px
+}
+
+.qp-icon-RemoteQuery {
+    background: url('qp_icons.png') -128px -128px
+}
+
+.qp-icon-RemoteScan {
+    background: url('qp_icons.png') -160px -128px
+}
+
+.qp-icon-RemoteUpdate {
+    background: url('qp_icons.png') -192px -128px
+}
+
+.qp-icon-RepartitionStreams {
+    background: url('qp_icons.png') -224px -128px
+}
+
+.qp-icon-Result {
+    background: url('qp_icons.png') -256px -128px
+}
+
+.qp-icon-RowCountSpool {
+    background: url('qp_icons.png') -288px -128px
+}
+
+.qp-icon-Segment {
+    background: url('qp_icons.png') -0px -160px
+}
+
+.qp-icon-Sequence {
+    background: url('qp_icons.png') -32px -160px
+}
+
+.qp-icon-SequenceProject {
+    background: url('qp_icons.png') -224px -224px
+}
+
+.qp-icon-SnapShot {
+    background: url('qp_icons.png') -256px -224px
+}
+
+.qp-icon-Sort {
+    background: url('qp_icons.png') -128px -160px
+}
+
+.qp-icon-Split {
+    background: url('qp_icons.png') -160px -160px
+}
+
+.qp-icon-Spool {
+    background: url('qp_icons.png') -192px -160px
+}
+
+.qp-icon-Statement {
+    background: url('qp_icons.png') -256px -128px
+}
+
+.qp-icon-StreamAggregate {
+    background: url('qp_icons.png') -224px -160px
+}
+
+.qp-icon-Switch {
+    background: url('qp_icons.png') -256px -160px
+}
+
+.qp-icon-TableDelete {
+    background: url('qp_icons.png') -288px -160px
+}
+
+.qp-icon-TableInsert {
+    background: url('qp_icons.png') -0px -192px
+}
+
+.qp-icon-TableScan {
+    background: url('qp_icons.png') -32px -192px
+}
+
+.qp-icon-TableSpool {
+    background: url('qp_icons.png') -64px -192px
+}
+
+.qp-icon-WindowSpool {
+    background: url('qp_icons.png') -64px -192px
+}
+
+.qp-icon-TableUpdate {
+    background: url('qp_icons.png') -96px -192px
+}
+
+.qp-icon-TableValuedFunction {
+    background: url('qp_icons.png') -128px -192px
+}
+
+.qp-icon-Top {
+    background: url('qp_icons.png') -160px -192px
+}
+
+.qp-icon-UDX {
+    background: url('qp_icons.png') -192px -192px
+}
+
+.qp-icon-Update {
+    background: url('qp_icons.png') -96px -192px
+}
+
+.qp-icon-While {
+    background: url('qp_icons.png') -224px -192px
+}
+
+.qp-icon-StmtCursor {
+    background: url('qp_icons.png') -96px -256px
+}
+
+.qp-icon-StmtCond {
+    background: url('qp_icons.png') -0px -224px
+}
+
+.qp-icon-FastForward {
+    background: url('qp_icons.png') -96px -0px
+}
+
+.qp-icon-WindowAggregate {
+    background: url('qp_icons.png') -160px -256px
+}
+
+.qp-icon-AdaptiveJoin {
+    background: url('qp_icons.png') -288px -224px
+}
+
+.qp-icon-IndexSpool {
+    background: url('qp_icons.png') -160px -96px
+}
+
+.qp-icon-IndexInsert {
+    background: url('qp_icons.png') -64px -96px
+}
+
+.qp-icon-IndexDelete {
+    background: url('qp_icons.png') -32px -96px
+}
+
+.qp-icon-IndexUpdate {
+    background: url('qp_icons.png') -192px -96px
+}
+
+.qp-icon-ColumnStoreIndexScan {
+    background: url('qp_icons.png') -128px -224px
+}
+
+.qp-icon-ColumnStoreIndexInsert {
+    background: url('qp_icons.png') -64px -224px
+}
+
+.qp-icon-ColumnStoreIndexDelete {
+    background: url('qp_icons.png') -32px -224px
+}
+
+.qp-icon-ColumnStoreIndexUpdate {
+    background: url('qp_icons.png') -160px -224px
+}
+
+.qp-icon-ColumnStoreIndexMerge {
+    background: url('qp_icons.png') -96px -224px
+}
+
+.qp-icon-DeletedScan {
+    background: url('qp_icons.png') -32px -256px
+}
+
+.qp-icon-TableMerge {
+    background: url('qp_icons.png') -65px -256px
+}
+
+.qp-icon-BatchHashTableBuild {
+    background: url('qp_icons.png') -128px -256px
+}
+
+.qp-iconwarn {
+    background: url('qp_icons.png') -304px -208px;
+    height: 16px;
+    width: 16px;
+    position: absolute;
+    top: 16px;
+}
+
+.qp-iconpar {
+    background: url('qp_icons.png') -304px -192px;
+    height: 16px;
+    width: 16px;
+    position: absolute;
+    top: 16px;
+    left: 16px;
+}
+
+.qp-iconbatch {
+    background: url('qp_icons.png') -288px -192px;
+    height: 16px;
+    width: 16px;
+    position: absolute;
+    top: 16px;
+}
+
+/* Layout - can't touch this */
+.qp-tt {
+    position: absolute;
+    z-index: 1;
+    white-space: normal;
+    -webkit-transition-delay: 0.5s;
+    transition-delay: 0.5s;
+}
+
+div.qp-node .qp-tt,
+.qp-noCssTooltip div.qp-node:hover .qp-tt {
+    visibility: collapse;
+}
+
+div.qp-node:hover .qp-tt {
+    visibility: visible;
+}
+
+.qp-tt table {
+    white-space: nowrap;
+}
+
+.qp-node {
+    position: relative;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.qp-node-outer {
+    height: 76.4px;
+    display: table-cell;
+}
+
+.qp-tr {
+    display: table;
+    position: relative;
+    z-index: 2;
+}
+
+.qp-tr>div {
+    display: table-cell;
+    padding-left: 20px;
+}
+
+.qp-root {
+    position: relative;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    background: var(--qp-color-surface-soft);
+}
+
+.qp-statement-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    --qp-block-height: min(86vh, calc(100vh - 110px));
+    --qp-block-height-dvh: min(86vh, calc(100dvh - 110px));
+    height: var(--qp-block-height);
+    height: var(--qp-block-height-dvh);
+    min-height: 420px;
+}
+
+.qp-statement-header-panel {
+    flex: 0 0 auto;
+    max-height: calc(var(--qp-block-height) * 0.38);
+    max-height: calc(var(--qp-block-height-dvh) * 0.38);
+    min-height: 92px;
+    overflow: hidden;
+    background: var(--qp-color-surface-soft);
+    border: 1px solid var(--qp-color-border);
+    border-bottom: 0;
+}
+
+.qp-diagram-panel {
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 auto;
+    min-height: 280px;
+    overflow: auto;
+    border: 1px solid var(--qp-color-border);
+    background-color: var(--qp-color-surface-soft);
+    box-sizing: border-box;
+    cursor: grab;
+    color: var(--qp-color-text);
+}
+
+.qp-statement-block.qp-no-missing-index .qp-statement-header-panel {
+    max-height: calc(var(--qp-block-height) * 0.28);
+    max-height: calc(var(--qp-block-height-dvh) * 0.28);
+    min-height: 76px;
+}
+
+.qp-statement-block.qp-no-missing-index .qp-diagram-panel {
+    flex: 1 1 auto;
+}
+
+.qp-statement-block.qp-no-missing-index .qp-statement-query-panel {
+    flex: 1 1 auto;
+}
+
+.qp-statement-block.qp-no-missing-index .qp-missing-index-panel {
+    display: none;
+}
+
+.qp-diagram-canvas {
+    position: relative;
+    display: inline-block;
+    min-width: 100%;
+    padding: 8px 12px 12px 8px;
+    box-sizing: border-box;
+    transform-origin: top left;
+    background: var(--qp-color-surface-soft);
+}
+
+.qp-diagram-panel.qp-dragging {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.qp-diagram-toolbar {
+    position: sticky;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    background: color-mix(in srgb, var(--qp-color-surface-soft) 94%, transparent);
+    border-bottom: 1px solid var(--qp-color-border);
+    z-index: 4;
+}
+
+.qp-diagram-toolbar button {
+    min-width: 22px;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--qp-color-border-strong);
+    background: var(--qp-color-surface-soft);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--qp-color-text);
+}
+
+.qp-diagram-toolbar .qp-zoom-level {
+    margin-left: 4px;
+    min-width: 40px;
+    text-align: right;
+    font-family: var(--font-code);
+    font-size: 10px;
+    color: var(--qp-color-text-muted);
+}
+
+.qp-diagram-toolbar .qp-plan-mode {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--qp-color-border-strong);
+    background: var(--qp-color-surface);
+    color: var(--qp-color-text);
+    font-size: 11px;
+    font-family: var(--font-ui);
+    line-height: 16px;
+    letter-spacing: 0.1px;
+    user-select: none;
+}
+
+:root[data-theme="dark"] .qp-statement-header,
+:root[data-theme="dark"] .qp-statement-header-panel,
+:root[data-theme="dark"] .qp-statement-query-panel,
+:root[data-theme="dark"] .qp-statement-header-row > div,
+:root[data-theme="dark"] .qp-query-pane,
+:root[data-theme="dark"] .qp-root,
+:root[data-theme="dark"] .qp-diagram-canvas,
+:root[data-theme="dark"] .qp-diagram-panel,
+:root[data-theme="dark"] .qp-diagram-toolbar,
+:root[data-theme="dark"] .qp-query-tab,
+:root[data-theme="dark"] .qp-diagram-toolbar button,
+:root[data-theme="dark"] .qp-tt {
+    color: var(--qp-color-text);
+}
+
+:root[data-theme="dark"] .qp-query-tab.qp-query-action,
+:root[data-theme="dark"] .qp-open-beautify,
+:root[data-theme="dark"] .qp-diagram-toolbar button {
+    background: color-mix(in srgb, var(--qp-color-surface) 72%, var(--qp-color-surface-strong) 28%);
+}
+
+:root[data-theme="dark"] .qp-query-tab.active,
+:root[data-theme="dark"] button.is-active {
+    background: var(--qp-color-surface);
+}
+
+:root[data-theme="dark"] .qp-query-copy-btn,
+:root[data-theme="dark"] .qp-query-expand-btn {
+    background: color-mix(in srgb, var(--qp-color-surface) 76%, var(--qp-color-warning-soft) 24%);
+}
+
+:root[data-theme="dark"] .qp-open-ai-assist {
+    background: color-mix(in srgb, var(--qp-color-surface) 68%, var(--qp-color-primary) 32%);
+}
+
+:root[data-theme="dark"] .qp-diagram-toolbar .qp-plan-mode {
+    background: var(--qp-color-surface);
+}
+
+:root[data-theme="dark"] .qp-statement-header-panel,
+:root[data-theme="dark"] .qp-diagram-panel {
+    border-color: var(--qp-color-border);
+}
+
+.qp-diagram-toolbar .qp-plan-mode.runtime {
+    border-color: var(--qp-color-border-strong);
+    background: var(--qp-color-success-soft);
+    color: var(--color-success, #166534);
+}
+
+.qp-diagram-toolbar .qp-plan-mode.compile {
+    border-color: var(--qp-color-border-strong);
+    background: var(--qp-color-warning-soft);
+    color: var(--color-warning, #92400e);
+}
+
+/* Global button/tab interaction feedback */
+button,
+.qp-query-tab,
+.qp-diagram-toolbar button {
+    transition: background-color .12s ease, border-color .12s ease, transform .05s ease, box-shadow .12s ease;
+}
+
+button:hover,
+.qp-query-tab:hover,
+.qp-diagram-toolbar button:hover {
+    filter: brightness(0.98);
+}
+
+button:active,
+.qp-query-tab:active,
+.qp-diagram-toolbar button:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+button:focus-visible,
+.qp-query-tab:focus-visible,
+.qp-diagram-toolbar button:focus-visible {
+    outline: 2px solid var(--qp-color-primary);
+    outline-offset: 1px;
+}
+
+.qp-query-tab.active,
+button.is-active {
+    border-color: var(--qp-color-primary);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--qp-color-primary) 22%, transparent);
+}
+
+.qp-diagram-canvas svg {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.qp-diagram-canvas polyline {
+    pointer-events: auto;
+}
+
+/* SSMS / Learn operator icon mapping (SQL Server ver17 docs) */
+.qp-root div[class|='qp-icon'] {
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: 20px 20px;
+}
+
+.qp-icon-Catchall {
+    background-image: url('/assets/ssms-icons-ver17/icon-language-construct-catch-all.png')
+}
+
+.qp-icon-ArithmeticExpression {
+    background-image: url('/assets/ssms-icons-ver17/icon-arithmetic-expression.png')
+}
+
+.qp-icon-Assert {
+    background-image: url('/assets/ssms-icons-ver17/icon-assert.png')
+}
+
+.qp-icon-Assign {
+    background-image: url('/assets/ssms-icons-ver17/icon-assign.png')
+}
+
+.qp-icon-Bitmap {
+    background-image: url('/assets/ssms-icons-ver17/icon-bitmap.png')
+}
+
+.qp-icon-BookmarkLookup {
+    background-image: url('/assets/ssms-icons-ver17/icon-key-lookup.png')
+}
+
+.qp-icon-ClusteredIndexDelete {
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-delete.png')
+}
+
+.qp-icon-ClusteredIndexInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-insert.png')
+}
+
+.qp-icon-ClusteredIndexScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-scan.png')
+}
+
+.qp-icon-ClusteredIndexSeek {
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-seek.png')
+}
+
+.qp-icon-ClusteredIndexMerge {
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-merge.png')
+}
+
+.qp-icon-KeyLookup {
+    background-image: url('/assets/ssms-icons-ver17/icon-key-lookup.png')
+}
+
+.qp-icon-ClusteredIndexUpdate {
+    background-image: url('/assets/ssms-icons-ver17/icon-clustered-index-update.png')
+}
+
+.qp-icon-Collapse {
+    background-image: url('/assets/ssms-icons-ver17/icon-collapse.png')
+}
+
+.qp-icon-ComputeScalar {
+    background-image: url('/assets/ssms-icons-ver17/icon-compute-scalar.png')
+}
+
+.qp-icon-Concatenation {
+    background-image: url('/assets/ssms-icons-ver17/icon-concatenation.png')
+}
+
+.qp-icon-ConstantScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-constant-scan.png')
+}
+
+.qp-icon-Convert {
+    background-image: url('/assets/ssms-icons-ver17/icon-convert.png')
+}
+
+.qp-icon-CursorCatchall {
+    background-image: url('/assets/ssms-icons-ver17/icon-cursor-catch-all.png')
+}
+
+.qp-icon-Declare {
+    background-image: url('/assets/ssms-icons-ver17/icon-declare.png')
+}
+
+.qp-icon-Delete {
+    background-image: url('/assets/ssms-icons-ver17/icon-delete.png')
+}
+
+.qp-icon-DistributeStreams {
+    background-image: url('/assets/ssms-icons-ver17/icon-parallelism-distribute-streams.png')
+}
+
+.qp-icon-Dynamic {
+    background-image: url('/assets/ssms-icons-ver17/icon-dynamic.png')
+}
+
+.qp-icon-EagerSpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-spool.png')
+}
+
+.qp-icon-FetchQuery {
+    background-image: url('/assets/ssms-icons-ver17/icon-fetch-query.png')
+}
+
+.qp-icon-Filter {
+    background-image: url('/assets/ssms-icons-ver17/icon-filter.png')
+}
+
+.qp-icon-GatherStreams {
+    background-image: url('/assets/ssms-icons-ver17/icon-parallelism.png')
+}
+
+.qp-icon-HashMatch {
+    background-image: url('/assets/ssms-icons-ver17/icon-hash-match.png')
+}
+
+.qp-icon-HashMatchRoot {
+    background-image: url('/assets/ssms-icons-ver17/icon-hash-match.png')
+}
+
+.qp-icon-HashMatchTeam {
+    background-image: url('/assets/ssms-icons-ver17/icon-hash-match.png')
+}
+
+.qp-icon-If {
+    background-image: url('/assets/ssms-icons-ver17/icon-conditional.png')
+}
+
+.qp-icon-Insert {
+    background-image: url('/assets/ssms-icons-ver17/icon-insert.png')
+}
+
+.qp-icon-InsertedScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-inserted-scan.png')
+}
+
+.qp-icon-Intrinsic {
+    background-image: url('/assets/ssms-icons-ver17/icon-intrinsic.png')
+}
+
+.qp-icon-IteratorCatchall {
+    background-image: url('/assets/ssms-icons-ver17/icon-iterator-catch-all.png')
+}
+
+.qp-icon-Keyset {
+    background-image: url('/assets/ssms-icons-ver17/icon-keyset.png')
+}
+
+.qp-icon-LanguageElementCatchall {
+    background-image: url('/assets/ssms-icons-ver17/icon-language-construct-catch-all.png')
+}
+
+.qp-icon-LazySpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-spool.png')
+}
+
+.qp-icon-LogRowScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-log-row-scan.png')
+}
+
+.qp-icon-MergeInterval {
+    background-image: url('/assets/ssms-icons-ver17/icon-merge-interval.png')
+}
+
+.qp-icon-MergeJoin {
+    background-image: url('/assets/ssms-icons-ver17/icon-merge-join.png')
+}
+
+.qp-icon-NestedLoops {
+    background-image: url('/assets/ssms-icons-ver17/icon-nested-loops.png')
+}
+
+.qp-icon-NonclusteredIndexDelete {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-delete.png')
+}
+
+.qp-icon-NonclusteredIndexInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
+}
+
+.qp-icon-IndexScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-scan.png')
+}
+
+.qp-icon-IndexSeek {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-seek.png')
+}
+
+.qp-icon-NonclusteredIndexSpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-spool.png')
+}
+
+.qp-icon-NonclusteredIndexUpdate {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-update.png')
+}
+
+.qp-icon-OnlineIndexInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
+}
+
+.qp-icon-ParameterTableScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-parameter-table-scan.png')
+}
+
+.qp-icon-PopulateQuery {
+    background-image: url('/assets/ssms-icons-ver17/icon-population-query.png')
+}
+
+.qp-icon-RdiLookup {
+    background-image: url('/assets/ssms-icons-ver17/icon-row-id-nonclustered-locate.png')
+}
+
+.qp-icon-RefreshQuery {
+    background-image: url('/assets/ssms-icons-ver17/icon-refresh-query.png')
+}
+
+.qp-icon-RemoteDelete {
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-delete.png')
+}
+
+.qp-icon-RemoteInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-insert.png')
+}
+
+.qp-icon-RemoteQuery {
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-query.png')
+}
+
+.qp-icon-RemoteScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-scan.png')
+}
+
+.qp-icon-RemoteUpdate {
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-update.png')
+}
+
+.qp-icon-RepartitionStreams {
+    background-image: url('/assets/ssms-icons-ver17/icon-parallelism-repartition-streams.png')
+}
+
+.qp-icon-Result {
+    background-image: url('/assets/ssms-icons-ver17/icon-result.png')
+}
+
+.qp-icon-RowCountSpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-remote-count-spool.png')
+}
+
+.qp-icon-Segment {
+    background-image: url('/assets/ssms-icons-ver17/icon-segment.png')
+}
+
+.qp-icon-Sequence {
+    background-image: url('/assets/ssms-icons-ver17/icon-sequence.png')
+}
+
+.qp-icon-SequenceProject {
+    background-image: url('/assets/ssms-icons-ver17/icon-sequence-project.png')
+}
+
+.qp-icon-SnapShot {
+    background-image: url('/assets/ssms-icons-ver17/icon-snapshot.png')
+}
+
+.qp-icon-Sort {
+    background-image: url('/assets/ssms-icons-ver17/icon-sort.png')
+}
+
+.qp-icon-Split {
+    background-image: url('/assets/ssms-icons-ver17/icon-split.png')
+}
+
+.qp-icon-Spool {
+    background-image: url('/assets/ssms-icons-ver17/icon-spool.png')
+}
+
+.qp-icon-Statement {
+    background-image: url('/assets/ssms-icons-ver17/icon-result.png')
+}
+
+.qp-icon-StreamAggregate {
+    background-image: url('/assets/ssms-icons-ver17/icon-stream-aggregate.png')
+}
+
+.qp-icon-Switch {
+    background-image: url('/assets/ssms-icons-ver17/icon-switch.png')
+}
+
+.qp-icon-TableDelete {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-delete.png')
+}
+
+.qp-icon-TableInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-insert.png')
+}
+
+.qp-icon-TableScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-scan.png')
+}
+
+.qp-icon-TableSpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-spool.png')
+}
+
+.qp-icon-WindowSpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-spool.png')
+}
+
+.qp-icon-TableUpdate {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-update.png')
+}
+
+.qp-icon-TableValuedFunction {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-valued-function.png')
+}
+
+.qp-icon-Top {
+    background-image: url('/assets/ssms-icons-ver17/icon-top.png')
+}
+
+.qp-icon-UDX {
+    background-image: url('/assets/ssms-icons-ver17/icon-udx-extended-operator.png')
+}
+
+.qp-icon-Update {
+    background-image: url('/assets/ssms-icons-ver17/icon-update.png')
+}
+
+.qp-icon-While {
+    background-image: url('/assets/ssms-icons-ver17/icon-conditional.png')
+}
+
+.qp-icon-StmtCursor {
+    background-image: url('/assets/ssms-icons-ver17/icon-cursor-catch-all.png')
+}
+
+.qp-icon-StmtCond {
+    background-image: url('/assets/ssms-icons-ver17/icon-conditional.png')
+}
+
+.qp-icon-FastForward {
+    background-image: url('/assets/ssms-icons-ver17/icon-cursor-catch-all.png')
+}
+
+.qp-icon-WindowAggregate {
+    background-image: url('/assets/ssms-icons-ver17/icon-aggregate.png')
+}
+
+.qp-icon-AdaptiveJoin {
+    background-image: url('/assets/ssms-icons-ver17/icon-adaptive-join.png')
+}
+
+.qp-icon-IndexSpool {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-spool.png')
+}
+
+.qp-icon-IndexInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-insert.png')
+}
+
+.qp-icon-IndexDelete {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-delete.png')
+}
+
+.qp-icon-IndexUpdate {
+    background-image: url('/assets/ssms-icons-ver17/icon-nonclustered-index-update.png')
+}
+
+.qp-icon-ColumnStoreIndexScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-scan.png')
+}
+
+.qp-icon-ColumnStoreIndexInsert {
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-insert.png')
+}
+
+.qp-icon-ColumnStoreIndexDelete {
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-delete.png')
+}
+
+.qp-icon-ColumnStoreIndexUpdate {
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-update.png')
+}
+
+.qp-icon-ColumnStoreIndexMerge {
+    background-image: url('/assets/ssms-icons-ver17/icon-columnstore-index-merge.png')
+}
+
+.qp-icon-DeletedScan {
+    background-image: url('/assets/ssms-icons-ver17/icon-deleted-scan.png')
+}
+
+.qp-icon-TableMerge {
+    background-image: url('/assets/ssms-icons-ver17/icon-table-merge.png')
+}
+
+.qp-icon-BatchHashTableBuild {
+    background-image: url('/assets/ssms-icons-ver17/icon-batch-hash-table-build.png')
+}
+
