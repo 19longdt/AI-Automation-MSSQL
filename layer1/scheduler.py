@@ -212,6 +212,18 @@ class Layer1Service:
         self._job_runner = JobRunner(execution_repo)
         self._health_checker = HealthChecker(execution_repo, job_intervals={})
 
+        # Inject cluster-specific conn_str resolver so Telegram kill actions
+        # use correct credentials for each cluster instead of global env settings.
+        from .services.topic_action_service import topic_action_registry
+        cluster_repo_ref = self._cluster_repo
+        topic_action_registry.set_conn_str_resolver(
+            lambda cluster_id, host: (
+                c.get_connection_string(host)
+                if (c := cluster_repo_ref.find_by_id(cluster_id)) is not None
+                else None
+            )
+        )
+
         self._shared_dependencies = {
             "raw_metrics_repo": raw_metrics_repo,
             "findings_repo": findings_repo,

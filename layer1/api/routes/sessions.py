@@ -4,7 +4,7 @@ from ...services.session_service import kill_session, kill_session_with_conn_str
 from ..http import parse_json_body
 
 
-def register_session_routes(registry, _runtime) -> None:
+def register_session_routes(registry, runtime) -> None:
     def kill_handler(req):
         try:
             body = parse_json_body(req)

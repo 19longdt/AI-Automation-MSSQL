@@ -41,7 +41,7 @@ export async function registerActionRoutes(app: FastifyInstance) {
             node,
             cluster_id: clusterId || undefined
           },
-          8000,
+          20000,
           headers
         );
 
