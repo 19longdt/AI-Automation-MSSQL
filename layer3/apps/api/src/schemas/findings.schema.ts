@@ -8,6 +8,7 @@ export const findingsQuerySchema = {
     type: "object",
     properties: {
       finding_id: { type: "string", minLength: 1, maxLength: 128 },
+      cluster_id: { type: "string", minLength: 1, maxLength: 128 },
       topic_id: { type: "string", minLength: 1, maxLength: 64 },
       severity: { type: "string", enum: severityEnum },
       alert_status: { type: "string", enum: alertStatusEnum },
@@ -28,6 +29,7 @@ export const findingsTimelineQuerySchema = {
   querystring: {
     type: "object",
     properties: {
+      cluster_id: { type: "string", minLength: 1, maxLength: 128 },
       topic_id: { type: "string", minLength: 1, maxLength: 64 },
       severity: { type: "string", enum: severityEnum },
       alert_status: { type: "string", enum: alertStatusEnum },

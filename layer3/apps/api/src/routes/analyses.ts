@@ -3,6 +3,7 @@ import { getAnalysisById, listAnalyses } from "../services/analyses-service";
 import { analysisByIdSchema, analysesQuerySchema } from "../schemas/analyses.schema";
 
 interface AnalysesQuery {
+  cluster_id?: string;
   limit?: number;
   page?: number;
 }
@@ -15,7 +16,7 @@ export async function registerAnalysisRoutes(app: FastifyInstance) {
   app.get<{ Querystring: AnalysesQuery }>("/api/analyses", { schema: analysesQuerySchema }, async (req, reply) => {
     try {
       if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
-      const items = await listAnalyses(app.getDb(), req.query.limit, req.query.page);
+      const items = await listAnalyses(app.getDb(), req.query.limit, req.query.page, req.query.cluster_id);
       return reply.send(items);
     } catch (err: unknown) {
       app.log.error({ err, url: req.url, query: req.query }, "listAnalyses failed");

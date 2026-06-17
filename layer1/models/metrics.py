@@ -1,5 +1,5 @@
 """
-metrics.py — Models cho raw query results và execution results.
+Models for raw query results and persisted raw metrics.
 """
 from __future__ import annotations
 
@@ -12,12 +12,11 @@ from ..utils.time_utils import now_vn
 
 
 class QueryResult(BaseModel):
-    """Kết quả 1 query execution trên 1 node."""
-
     topic_id: str
+    cluster_id: str = ""
     query_id: str
     node: str
-    role: str = Field(description="'primary' | 'secondary' — từ NodeRoleCache")
+    role: str = Field(description="'primary' | 'secondary' from NodeRoleCache")
     rows: list[dict[str, Any]] = Field(default_factory=list)
     row_count: int = 0
     executed_at: datetime = Field(default_factory=now_vn)
@@ -27,8 +26,7 @@ class QueryResult(BaseModel):
 
 
 class RawMetric(BaseModel):
-    """Document ghi vào MongoDB `raw_metrics`."""
-
+    cluster_id: str = ""
     topic_id: str
     query_id: str
     node: str

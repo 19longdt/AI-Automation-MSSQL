@@ -35,3 +35,11 @@ export function apiGet<T>(url: string, params?: object): Promise<T> {
 export function apiPost<T>(url: string, body: unknown): Promise<T> {
   return apiFetch<T>(url, { method: "POST", body: JSON.stringify(body) });
 }
+
+export function apiPut<T>(url: string, body: unknown): Promise<T> {
+  return apiFetch<T>(url, { method: "PUT", body: JSON.stringify(body) });
+}
+
+export function apiDelete<T>(url: string): Promise<T> {
+  return apiFetch<T>(url, { method: "DELETE" });
+}

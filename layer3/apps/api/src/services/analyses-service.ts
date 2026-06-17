@@ -1,12 +1,13 @@
 import { Db } from "mongodb";
 import { collections } from "../db/collections";
 
-export async function listAnalyses(db: Db, limit = 50, page = 0) {
+export async function listAnalyses(db: Db, limit = 50, page = 0, clusterId?: string) {
   const safeLimit = Math.min(Math.max(Number(limit || 50), 1), 200);
   const safePage = Math.max(Number(page || 0), 0);
+  const filter = clusterId ? { "finding_snapshot.cluster_id": clusterId } : {};
 
   const docs = await db.collection(collections.analyses)
-    .find({}, { projection: { finding_snapshot: 0 } })
+    .find(filter, { projection: { finding_snapshot: 0 } })
     .sort({ started_at: -1 })
     .skip(safePage * safeLimit)
     .limit(safeLimit)

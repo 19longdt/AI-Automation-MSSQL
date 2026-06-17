@@ -1,4 +1,5 @@
 import { Database } from "lucide-react";
+import { ClusterSelector } from "@/components/layout/ClusterSelector";
 import { LiveIndicator } from "@/components/shared/LiveIndicator";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
 
@@ -6,6 +7,7 @@ const NAV_LINKS = [
   { href: "/dashboard",  label: "Dashboard"  },
   { href: "/insights",   label: "Insights"   },
   { href: "/query-plan", label: "Query Plan"  },
+  { href: "/settings",   label: "Settings"   },
 ] as const;
 
 export function Topbar() {
@@ -44,6 +46,7 @@ export function Topbar() {
 
         {/* Right */}
         <div className="ml-auto flex items-center gap-2">
+          <ClusterSelector />
           <LiveIndicator />
           <ThemeToggle />
         </div>

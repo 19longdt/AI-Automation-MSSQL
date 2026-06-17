@@ -64,6 +64,7 @@ class AnalysisRepo:
     def list_recent(
         self,
         issue_type: str | None = None,
+        cluster_id: str | None = None,
         node: str | None = None,
         status: str | None = None,
         since: datetime | None = None,
@@ -73,6 +74,8 @@ class AnalysisRepo:
         query: dict = {}
         if issue_type:
             query["finding_snapshot.issue_type"] = issue_type
+        if cluster_id:
+            query["finding_snapshot.cluster_id"] = cluster_id
         if node:
             query["finding_snapshot.node"] = node
         if status:

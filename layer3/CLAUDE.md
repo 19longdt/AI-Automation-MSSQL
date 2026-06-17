@@ -58,7 +58,7 @@ layer3/
 │   │       │   ├── plan.ts        ← POST /api/v1/plan/analyze → proxy Layer 2
 │   │       │   └── health.ts      ← GET /health
 │   │       └── services/
-│   │           ├── findings-service.ts            ← Query findings với filter/pagination
+│   │           ├── findings-service.ts            ← Query findings với filter/pagination + cluster_id isolation
 │   │           ├── findings-diagnostics-service.ts ← finding_diagnostics MongoDB lookup
 │   │           ├── analyses-service.ts            ← ai_analyses query
 │   │           ├── insights-service.ts            ← issue_insights query
@@ -229,6 +229,47 @@ Mọi code dùng `s.findings` cũ phải chuyển sang `s.finding_groups.reduce(
 | **FindingGroup grouped by `type` (không phải recommendation)** | Recommendation thường chứa tên bảng → mỗi cái unique, không group được |
 | **2-row summary bar** | Row 1 = plan characteristics; Row 2 = runtime signals (wait, perf) |
 | **Warning count = sum(group.count), không warning_count field** | `warning_count` chỉ đếm WARNING severity, bỏ sót CRITICAL + INFO |
+| **`cluster_id` filter trong findings-service** | Mọi findings query đều filter theo `cluster_id` của cluster đang chọn — dữ liệu không lẫn giữa cụm |
+| **ClusterSelector không có "All Clusters"** | Luôn filter theo 1 cluster cụ thể; auto-select cluster đầu tiên nếu chưa chọn |
+| **`filters.replica` reset khi đổi cluster** | Replica options là cluster-specific — giữ lại gây empty chart vì không match |
+| **Sort dùng `detected_at` khi không có date range** | `detected_at_date` (computed field) chỉ tồn tại sau `$addFields` stage — sort bằng nó khi không có date stages gây error |
+
+---
+
+## Multi-Cluster Data Isolation
+
+Dashboard hỗ trợ nhiều cụm MSSQL. Mỗi finding trong MongoDB có trường `cluster_id` để phân biệt.
+
+### Luồng filter
+
+```
+ClusterSelector (Zustand: selectedClusterId)
+    │
+    ▼
+findings-service.ts: buildFindingsFilter()
+    → filter.cluster_id = query.cluster_id   [bắt buộc khi cluster_id có]
+    │
+    ▼
+MongoDB findings collection
+    → chỉ trả documents có cluster_id khớp
+```
+
+### Backfill findings cũ (chạy 1 lần khi migrate)
+
+Findings tạo trước khi có multi-cluster không có `cluster_id`. Cần set về cluster prod:
+
+```javascript
+db.findings.updateMany(
+  { $or: [{ cluster_id: "" }, { cluster_id: { $exists: false } }, { cluster_id: null }] },
+  { $set: { cluster_id: "prod" } }
+)
+```
+
+### Các điểm quan trọng
+
+- **`filters.replica`** trong Zustand store reset khi đổi cluster — replica là cluster-specific
+- **`detected_at_date`** là computed field chỉ có sau `$addFields` stage; sort dùng `detected_at` khi không có date range
+- **ClusterSelector** không có option "All Clusters" — luôn filter theo 1 cluster; auto-select cluster đầu tiên
 
 ---
 

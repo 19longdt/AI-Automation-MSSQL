@@ -4,6 +4,7 @@ import type { AnalysisResult, InsightData } from "@layer3/core";
 /* ── API Query Params ── */
 export interface FindingsQuery {
   finding_id?: string;
+  cluster_id?: string;
   topic_id?: string;
   severity?: Severity | "";
   alert_status?: "sent" | "suppressed" | "pending" | "";
@@ -16,6 +17,7 @@ export interface FindingsQuery {
 }
 
 export interface TimelineQuery {
+  cluster_id?: string;
   topic_id?: string;
   severity?: string;
   alert_status?: string;
@@ -26,6 +28,7 @@ export interface TimelineQuery {
 }
 
 export interface InsightsQuery {
+  cluster_id?: string;
   issue_type?: string;
   severity?: string;
   since?: string;
@@ -34,6 +37,7 @@ export interface InsightsQuery {
 }
 
 export interface AnalysesQuery {
+  cluster_id?: string;
   finding_id?: string;
   limit?: number;
   page?: number;
@@ -90,6 +94,30 @@ export interface MonitorTopic {
   description?: string;
   enabled: boolean;
   thresholds?: Record<string, TopicThresholdConfig>;
+}
+
+export interface ClusterNodeRole {
+  host: string;
+  server_name: string;
+  role: "primary" | "secondary";
+  last_seen_at: string;
+}
+
+export interface ClusterResponse {
+  cluster_id: string;
+  name: string;
+  environment: "production" | "uat" | "dev" | "staging" | "other";
+  nodes: string[];
+  port: number;
+  database: string;
+  username: string;
+  connect_timeout_sec: number;
+  enabled: boolean;
+  color: string;
+  has_password: boolean;
+  node_roles: ClusterNodeRole[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface JobHealthEntry {

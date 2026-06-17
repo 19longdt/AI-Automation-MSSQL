@@ -443,7 +443,7 @@ function LoadingState(): React.ReactElement {
 }
 
 export function AgHealthPreview(): React.ReactElement {
-  const { activeTopicId, filters, timeRange, comparePastEnabled } = useDashboardStore();
+  const { activeTopicId, selectedClusterId, filters, timeRange, comparePastEnabled } = useDashboardStore();
   const { from, to } = useTimeRange();
   const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
     warning: 500,
@@ -456,12 +456,12 @@ export function AgHealthPreview(): React.ReactElement {
   const compareRange = useMemo(() => resolveCompareRange(timeRange, from, to), [timeRange, from, to]);
 
   const params: FindingsQuery = useMemo(
-    () => buildFindingsQuery({ activeTopicId, filters, from, to }, 0, 1),
-    [activeTopicId, filters, from, to],
+    () => buildFindingsQuery({ activeTopicId, selectedClusterId, filters, from, to }, 0, 1),
+    [activeTopicId, selectedClusterId, filters, from, to],
   );
   const compareParams: FindingsQuery = useMemo(
-    () => buildFindingsQuery({ activeTopicId, filters, from: compareRange.from, to: compareRange.to }, 0, 1),
-    [activeTopicId, filters, compareRange.from, compareRange.to],
+    () => buildFindingsQuery({ activeTopicId, selectedClusterId, filters, from: compareRange.from, to: compareRange.to }, 0, 1),
+    [activeTopicId, selectedClusterId, filters, compareRange.from, compareRange.to],
   );
 
   const { data, isLoading, isFetching, error, refetch } = useQuery({

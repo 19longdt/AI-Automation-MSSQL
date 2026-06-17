@@ -7,10 +7,10 @@ import { buildFindingsQuery } from "@/lib/dashboard-query";
 import type { FindingsResponse, FindingsQuery } from "@/types";
 
 export function useFindings() {
-  const { activeTopicId, filters, page } = useDashboardStore();
+  const { activeTopicId, selectedClusterId, filters, page } = useDashboardStore();
   const { from, to } = useTimeRange();
 
-  const params: FindingsQuery = buildFindingsQuery({ activeTopicId, filters, from, to }, page, 15);
+  const params: FindingsQuery = buildFindingsQuery({ activeTopicId, selectedClusterId, filters, from, to }, page, 15);
 
   return useQuery({
     queryKey: qk.findings(params),

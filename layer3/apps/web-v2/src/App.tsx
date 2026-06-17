@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 const DashboardPage  = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const InsightsPage   = lazy(() => import("@/pages/InsightsPage").then((m) => ({ default: m.InsightsPage })));
 const QueryPlanPage  = lazy(() => import("@/pages/QueryPlanPage").then((m) => ({ default: m.QueryPlanPage })));
+const SettingsPage   = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 
 function PageFallback() {
   return (
@@ -15,9 +16,10 @@ function PageFallback() {
   );
 }
 
-function resolveRoute(): "dashboard" | "insights" | "query-plan" {
+function resolveRoute(): "dashboard" | "insights" | "query-plan" | "settings" {
   const p = window.location.pathname;
   if (p.startsWith("/insights"))  return "insights";
+  if (p.startsWith("/settings")) return "settings";
   if (p.startsWith("/query-plan") || p.startsWith("/extract-query-plan")) return "query-plan";
   return "dashboard";
 }
@@ -33,6 +35,7 @@ export default function App() {
           {route === "dashboard"  && <DashboardPage />}
           {route === "insights"   && <InsightsPage />}
           {route === "query-plan" && <QueryPlanPage />}
+          {route === "settings"   && <SettingsPage />}
         </Suspense>
       </main>
       <Toaster

@@ -6,6 +6,7 @@ import { killSessionBodySchema } from "../schemas/actions.schema";
 interface KillSessionBody {
   session_id: number;
   node?: string;
+  cluster_id?: string;
 }
 
 export async function registerActionRoutes(app: FastifyInstance) {
@@ -18,6 +19,7 @@ export async function registerActionRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const sessionId = req.body.session_id;
       const node = req.body.node?.trim() ?? "";
+      const clusterId = req.body.cluster_id?.trim() ?? "";
 
       try {
         const layer1Url = app.config.l1ApiUrl;
@@ -36,7 +38,8 @@ export async function registerActionRoutes(app: FastifyInstance) {
             type: "action",
             action_name: "kill-session",
             session_id: sessionId,
-            node
+            node,
+            cluster_id: clusterId || undefined
           },
           8000,
           headers
@@ -47,6 +50,7 @@ export async function registerActionRoutes(app: FastifyInstance) {
           ok: true,
           session_id: sessionId,
           node,
+          cluster_id: clusterId || undefined,
           action_name: "kill-session",
           target: layer1Url,
           result

@@ -9,16 +9,17 @@ import { truncate } from "@/lib/format";
 interface Props {
   sessionId: number;
   node: string;
+  clusterId?: string;
   sourceLabel: string;
   sqlText?: string;
   onClose: () => void;
 }
 
-export function KillSessionConfirm({ sessionId, node, sourceLabel, sqlText, onClose }: Props) {
+export function KillSessionConfirm({ sessionId, node, clusterId, sourceLabel, sqlText, onClose }: Props) {
   const qc = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () => apiPost("/api/actions/kill-session", { session_id: sessionId, node }),
+    mutationFn: () => apiPost("/api/actions/kill-session", { session_id: sessionId, node, cluster_id: clusterId }),
     onSuccess: () => {
       toast.success(`Session #${sessionId} killed successfully`);
       void qc.invalidateQueries({ queryKey: qk.findings({}) });

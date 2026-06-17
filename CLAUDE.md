@@ -2,12 +2,13 @@
 
 ## Project Overview
 
-Hệ thống tự động giám sát và phân tích sự cố cho cụm **MSSQL Server 2019 Enterprise Always On Availability Groups**:
+Hệ thống tự động giám sát và phân tích sự cố cho **nhiều cụm MSSQL Server 2019 Enterprise Always On Availability Groups** (multi-cluster):
 
-- **1 Primary** + **2 Secondary** nodes — roles auto-detected, không hardcode
+- Mỗi cụm: **1 Primary** + **2 Secondary** nodes — roles auto-detected, không hardcode
 - **CDC** (Change Data Capture) enabled
 - **Resource Governor** với nhiều pools/workload groups
 - **Partition tables** theo ngày/tháng
+- Cụm được quản lý qua MongoDB `db_clusters` — thêm/bật/tắt cụm không cần redeploy
 
 Kiến trúc 3 layer:
 - **Layer 1** (`layer1/`): Python monitoring service — config-driven, generic executor ✅ Implemented
@@ -21,19 +22,19 @@ Kiến trúc 3 layer:
 **SQL queries, thresholds, schedule intervals** cấu hình hoàn toàn trong MongoDB `monitor_topics`. Python app chỉ là generic executor:
 
 ```
-MongoDB monitor_topics (config)
+MongoDB db_clusters (cluster config) + monitor_topics (topic config)
     │
     ▼
-scheduler.py → register 1 APScheduler job per topic
-    │
+scheduler.py → register 1 APScheduler job per (cluster_id, topic_id)
+    │               APScheduler ThreadPoolExecutor(max_workers=50)
     ▼ mỗi job run
-topic_runner.run(topic_id):
+topic_runner.run(topic_id):           [per cluster — cụm lỗi không ảnh hưởng cụm khác]
     1. Reload topic config từ MongoDB
-    2. Resolve node targets ("primary"/"secondary"/"all") từ role cache
+    2. Resolve node targets ("primary"/"secondary"/"all") từ role cache của cluster đó
     3. Execute queries parallel per node
     4. Save raw_metrics
     5. Run detector (threshold / baseline / plan_analysis / blocking_chain)
-    6. Save findings → dedup → notify
+    6. Save findings (kèm cluster_id) → dedup → notify
 ```
 
 **Thêm/sửa query hoặc threshold** trong MongoDB → có hiệu lực ngay lần chạy kế tiếp, KHÔNG cần redeploy.
@@ -133,6 +134,10 @@ Dockerfile riêng: `Dockerfile` (layer1), `Dockerfile.layer2` (layer2), `Dockerf
 | **Day-of-week baseline** | Workload pattern khác nhau theo ngày |
 | **Detector registry** | Thêm detector type = 1 class, không sửa code cũ |
 | **`OPTION(OPTIMIZE FOR UNKNOWN)` KHÔNG gợi ý** | Gây CPU overload khi throughput cao |
+| **Job per `(cluster_id, topic_id)`** | Cụm lỗi không block topic jobs của cụm khác |
+| **`cluster_id` trong findings** | Layer 3 filter findings đúng per cluster; backfill cũ bằng lệnh MongoDB |
+| **APScheduler `max_workers=50`** | Multi-cluster: N cụm × M topics jobs có thể fire cùng lúc; I/O-bound nên thread rẻ |
+| **`_refresh_all_node_roles` ngoài lock** | Snapshot dict → refresh từng cụm bên ngoài lock; UAT timeout không block prod |
 
 ---
 

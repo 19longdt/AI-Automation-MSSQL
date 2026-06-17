@@ -8,11 +8,11 @@ import { buildTimelineQuery } from "@/lib/dashboard-query";
 import type { TimelineResponse, TimelineQuery } from "@/types";
 
 export function useTimeline() {
-  const { activeTopicId, filters } = useDashboardStore();
+  const { activeTopicId, selectedClusterId, filters } = useDashboardStore();
   const { from, to } = useTimeRange();
 
   const params: TimelineQuery = buildTimelineQuery(
-    { activeTopicId, filters, from, to },
+    { activeTopicId, selectedClusterId, filters, from, to },
     chooseTimelineIntervalMinutes(from, to),
   );
 

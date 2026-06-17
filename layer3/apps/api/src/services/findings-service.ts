@@ -4,6 +4,7 @@ import { buildDetectedAtDateRangeMatch } from "./time-filter";
 
 export interface FindingsQuery {
   finding_id?: string;
+  cluster_id?: string;
   topic_id?: string;
   severity?: string;
   alert_status?: string;
@@ -18,6 +19,7 @@ export interface FindingsQuery {
 }
 
 export interface FindingTimelineQuery {
+  cluster_id?: string;
   topic_id?: string;
   severity?: string;
   alert_status?: string;
@@ -93,6 +95,7 @@ function buildFindingsFilter(query: FindingsQuery | FindingTimelineQuery): Recor
     return filter;
   }
 
+  if ("cluster_id" in query && query.cluster_id) filter.cluster_id = query.cluster_id;
   if (query.topic_id) filter.topic_id = query.topic_id;
   if (query.severity) filter.severity = query.severity;
   if (query.alert_status) filter.alert_status = query.alert_status;
@@ -148,11 +151,14 @@ export async function listFindings(db: Db, query: FindingsQuery): Promise<{ tota
   const analysesColl = db.collection<AnalysisDocument>(collections.analyses);
 
   const dateStages = buildDetectedAtPipeline(query.since, query.until);
+  const sortStage = dateStages.length > 0
+    ? { $sort: { detected_at_date: -1, detected_at: -1 } }
+    : { $sort: { detected_at: -1 } };
   const totalPipeline: Array<Record<string, unknown>> = [{ $match: filter }, ...dateStages, { $count: "total" }];
   const itemsPipeline: Array<Record<string, unknown>> = [
     { $match: filter },
     ...dateStages,
-    { $sort: { detected_at_date: -1, detected_at: -1 } },
+    sortStage,
     { $skip: page * limit },
     { $limit: limit }
   ];

@@ -20,7 +20,7 @@ services:
     image: ${LAYER1_IMAGE:-19longdt/ai-automation-mssql-layer1:latest}
     container_name: layer1-monitor
     restart: unless-stopped
-    command: ["python", "-m", "layer1.scheduler"]
+    command: ["python", "-m", "layer1.main"]
 
     # Đọc env vars từ file .env trong cùng thư mục
     env_file: .env

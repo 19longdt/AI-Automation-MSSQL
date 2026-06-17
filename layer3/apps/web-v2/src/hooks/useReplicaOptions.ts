@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-client";
+import { useDashboardStore } from "@/store/dashboard.store";
 import type { FindingWithAnalysis, FindingsResponse } from "@/types";
 
-async function fetchReplicaOptions(topicId: string): Promise<string[]> {
+async function fetchReplicaOptions(topicId: string, clusterId?: string): Promise<string[]> {
   const limit = 200;
   const maxPages = 5;
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -12,6 +13,7 @@ async function fetchReplicaOptions(topicId: string): Promise<string[]> {
   for (let page = 0; page < maxPages; page += 1) {
     const response = await apiGet<FindingsResponse>("/api/findings", {
       topic_id: topicId,
+      cluster_id: clusterId || undefined,
       since: cutoff,
       limit,
       page,
@@ -30,9 +32,11 @@ async function fetchReplicaOptions(topicId: string): Promise<string[]> {
 }
 
 export function useReplicaOptions(topicId: string, enabled = true) {
+  const { selectedClusterId } = useDashboardStore();
+  const clusterId = selectedClusterId ?? undefined;
   const query = useQuery({
-    queryKey: ["replica-options", topicId],
-    queryFn: () => fetchReplicaOptions(topicId),
+    queryKey: ["replica-options", topicId, clusterId],
+    queryFn: () => fetchReplicaOptions(topicId, clusterId),
     enabled: enabled && !!topicId,
     staleTime: 60_000,
   });

@@ -7,6 +7,9 @@ const DEFAULT_TIME_RANGE: TimeRangeState = { mode: "preset", presetId: "last_1_h
 const DEFAULT_AUTO_REFRESH: AutoRefreshConfig = { enabled: false, intervalMs: 60_000 };
 
 interface DashboardState {
+  selectedClusterId: string | null;
+  setSelectedClusterId: (id: string | null) => void;
+
   activeTopicId: string;
   setActiveTopicId: (id: string) => void;
 
@@ -33,6 +36,15 @@ interface DashboardState {
 export const useDashboardStore = create<DashboardState>()(
   persist(
     (set, get) => ({
+      selectedClusterId: null,
+      setSelectedClusterId: (selectedClusterId) =>
+        set((state) => ({
+          selectedClusterId,
+          page: 0,
+          // replica options are cluster-specific — reset to avoid stale client-side filter
+          filters: { ...state.filters, replica: undefined },
+        })),
+
       activeTopicId: "",
       setActiveTopicId: (id) =>
         set((state) => {
@@ -75,6 +87,7 @@ export const useDashboardStore = create<DashboardState>()(
       name: "dashboard-v3",
       partialize: (s) => ({
         activeTopicId: s.activeTopicId,
+        selectedClusterId: s.selectedClusterId,
         timeRange: s.timeRange,
         comparePastEnabled: s.comparePastEnabled,
         autoRefresh: s.autoRefresh,

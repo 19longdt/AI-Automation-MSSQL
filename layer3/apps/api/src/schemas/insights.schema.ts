@@ -4,7 +4,8 @@ export const insightsSummaryQuerySchema = {
   querystring: {
     type: "object",
     properties: {
-      days: { type: "integer", minimum: 1, maximum: 365, default: 30 }
+      days: { type: "integer", minimum: 1, maximum: 365, default: 30 },
+      cluster_id: { type: "string", minLength: 1, maxLength: 128 }
     },
     additionalProperties: false
   }
@@ -14,6 +15,7 @@ export const insightsQuerySchema = {
   querystring: {
     type: "object",
     properties: {
+      cluster_id: { type: "string", minLength: 1, maxLength: 128 },
       issue_type: { type: "string", minLength: 1, maxLength: 128 },
       table: { type: "string", minLength: 1, maxLength: 128 },
       resolved: { type: "string", enum: resolvedEnum },

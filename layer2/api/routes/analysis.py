@@ -67,6 +67,7 @@ async def get_analysis(analysis_id: str) -> AnalysisResult:
 @router.get("/analyses", response_model=list[AnalysisResult])
 async def list_analyses(
     issue_type: str | None = Query(default=None),
+    cluster_id: str | None = Query(default=None),
     node: str | None = Query(default=None),
     status: str | None = Query(default=None),
     since: datetime | None = Query(default=None),
@@ -74,4 +75,11 @@ async def list_analyses(
 ) -> list[AnalysisResult]:
     """List analyses với filter tùy chọn."""
     repo = AnalysisRepo()
-    return repo.list_recent(issue_type=issue_type, node=node, status=status, since=since, limit=limit)
+    return repo.list_recent(
+        issue_type=issue_type,
+        cluster_id=cluster_id,
+        node=node,
+        status=status,
+        since=since,
+        limit=limit,
+    )

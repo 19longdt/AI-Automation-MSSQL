@@ -11,6 +11,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..capture.diagnostic_capture import DiagnosticCapture
+from ..models.cluster import ClusterConfig
 from ..models.common import AlertStatus, Severity
 from ..models.topic import MonitorTopic
 from ..models.metrics import QueryResult, RawMetric
@@ -36,6 +37,7 @@ class TopicRunner:
 
     def __init__(
         self,
+        cluster: ClusterConfig,
         topic_repo: TopicRepo,
         raw_metrics_repo: RawMetricsRepo,
         findings_repo: FindingsRepo,
@@ -47,6 +49,7 @@ class TopicRunner:
         diagnostic_capture: DiagnosticCapture | None = None,
         dedup_suppress_minutes: int = 30,
     ) -> None:
+        self._cluster = cluster
         self._topic_repo = topic_repo
         self._raw_metrics_repo = raw_metrics_repo
         self._findings_repo = findings_repo
@@ -120,6 +123,9 @@ class TopicRunner:
                     host,
                     topic.topic_id,
                     role,
+                    self._cluster.cluster_id,
+                    self._cluster.get_connection_string(host),
+                    self._cluster.connect_timeout_sec,
                 ): (host, role)
                 for host, role in resolved_nodes
             }
@@ -140,6 +146,7 @@ class TopicRunner:
         metrics = [
             RawMetric(
                 topic_id=r.topic_id,
+                cluster_id=r.cluster_id,
                 query_id=r.query_id,
                 node=r.node,
                 role=r.role,
@@ -173,6 +180,8 @@ class TopicRunner:
         count = 0
         for finding in findings:
             try:
+                if not finding.cluster_id:
+                    finding.cluster_id = self._cluster.cluster_id
                 finding.finding_hash = finding.compute_finding_hash()
                 status, error = self._compute_alert_state(finding)
                 finding.alert_status = status

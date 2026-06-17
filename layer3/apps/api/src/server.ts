@@ -13,6 +13,7 @@ import { registerTopicRoutes } from "./routes/topics";
 import { registerJobRoutes } from "./routes/jobs";
 import { registerActionRoutes } from "./routes/actions";
 import { registerPlanRoutes } from "./routes/plan";
+import { registerClusterRoutes } from "./routes/clusters";
 import { fetchJsonWithTimeout } from "./proxy/l2-proxy";
 
 declare module "fastify" {
@@ -98,6 +99,7 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   app.get("/query-plan",         async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/extract-query-plan", async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/history",            async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/settings",           async (_req, reply) => reply.sendFile("index.html", dist2Root));
 
   await registerHealthRoutes(app);
   await registerFindingRoutes(app);
@@ -107,6 +109,7 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   await registerJobRoutes(app);
   await registerActionRoutes(app);
   await registerPlanRoutes(app);
+  await registerClusterRoutes(app);
 
   app.setNotFoundHandler(async (_req, reply) => reply.code(404).send({ message: "Not found" }));
 

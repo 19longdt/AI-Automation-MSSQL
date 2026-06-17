@@ -4,6 +4,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .http import RouteRegistry, send_json
+from .routes.clusters import register_cluster_routes
 from .routes.health import register_health_routes
 from .routes.sessions import register_session_routes
 
@@ -14,6 +15,7 @@ def build_registry(runtime) -> RouteRegistry:
     registry = RouteRegistry()
     register_health_routes(registry, runtime)
     register_session_routes(registry, runtime)
+    register_cluster_routes(registry, runtime)
     return registry
 
 
@@ -27,13 +29,21 @@ def make_handler(registry: RouteRegistry):
         def do_POST(self) -> None:  # noqa: N802
             self._dispatch("POST")
 
+        def do_PUT(self) -> None:  # noqa: N802
+            self._dispatch("PUT")
+
+        def do_DELETE(self) -> None:  # noqa: N802
+            self._dispatch("DELETE")
+
         def _dispatch(self, method: str) -> None:
-            handler = registry.resolve(method, self.path)
-            if not handler:
+            match = registry.resolve(method, self.path)
+            if not match:
                 send_json(self, 404, {"message": "Not found"})
                 return
+            self.path_params = match.path_params
+            self.query_params = match.query_params
             try:
-                status, payload = handler(self)
+                status, payload = match.handler(self)
                 send_json(self, status, payload)
             except Exception as exc:
                 logger.exception("Unhandled API error: %s", exc)
@@ -49,4 +59,3 @@ def create_http_server(host: str, port: int, runtime) -> ThreadingHTTPServer:
     registry = build_registry(runtime)
     handler = make_handler(registry)
     return ThreadingHTTPServer((host, port), handler)
-

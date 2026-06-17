@@ -4,9 +4,11 @@ import { insightsQuerySchema, insightsSummaryQuerySchema } from "../schemas/insi
 
 interface InsightsSummaryQuery {
   days?: number;
+  cluster_id?: string;
 }
 
 interface InsightsQuery {
+  cluster_id?: string;
   issue_type?: string;
   table?: string;
   resolved?: string;
@@ -22,7 +24,7 @@ export async function registerInsightRoutes(app: FastifyInstance) {
     async (req, reply) => {
       try {
         if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
-        const data = await getInsightsSummary(app.getDb(), app.config.l2ApiUrl, req.query.days);
+        const data = await getInsightsSummary(app.getDb(), app.config.l2ApiUrl, req.query.days, req.query.cluster_id);
         return reply.send(data);
       } catch (err: unknown) {
         app.log.error({ err, url: req.url, query: req.query }, "getInsightsSummary failed");

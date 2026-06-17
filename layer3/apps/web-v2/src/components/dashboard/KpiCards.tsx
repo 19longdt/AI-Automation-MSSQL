@@ -16,10 +16,10 @@ const CARDS = [
 ] as const;
 
 export function KpiCards() {
-  const { activeTopicId } = useDashboardStore();
+  const { activeTopicId, selectedClusterId } = useDashboardStore();
   const { from, to } = useTimeRange();
 
-  const params: FindingsQuery = buildFindingsQuery({ activeTopicId, filters: {}, from, to }, 0, 1);
+  const params: FindingsQuery = buildFindingsQuery({ activeTopicId, selectedClusterId, filters: {}, from, to }, 0, 1);
 
   const { data: all,   isLoading: l0, isFetching: f0 } = useQuery({ queryKey: qk.findings({ ...params }), queryFn: () => apiGet<FindingsResponse>("/api/findings", params), staleTime: 30_000, placeholderData: (prev) => prev });
   const { data: crit,  isLoading: l1, isFetching: f1 } = useQuery({ queryKey: qk.findings({ ...params, severity: "CRITICAL" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "CRITICAL" }), staleTime: 30_000, placeholderData: (prev) => prev });

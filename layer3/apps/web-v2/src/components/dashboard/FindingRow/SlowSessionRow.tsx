@@ -143,6 +143,7 @@ export function SlowSessionRow({ finding, onOpen }: { finding: FindingWithAnalys
         <KillSessionConfirm
           sessionId={modal.sessionId}
           node={finding.node}
+          clusterId={finding.cluster_id}
           sourceLabel={modal.sourceLabel}
           sqlText={modal.sqlText}
           onClose={() => setModal(null)}

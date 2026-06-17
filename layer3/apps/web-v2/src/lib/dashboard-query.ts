@@ -2,6 +2,7 @@ import { toDetectedAtFilterValue } from "@/lib/format";
 import type { FindingFilters, FindingsQuery, TimelineQuery } from "@/types";
 
 interface QueryContext {
+  selectedClusterId?: string | null;
   activeTopicId?: string;
   filters: FindingFilters;
   from: Date;
@@ -14,6 +15,7 @@ export function buildFindingsQuery(
   limit: number,
 ): FindingsQuery {
   return {
+    cluster_id: ctx.selectedClusterId || undefined,
     topic_id: ctx.activeTopicId || undefined,
     severity: ctx.filters.severity || undefined,
     alert_status: ctx.filters.alertStatus || undefined,
@@ -30,6 +32,7 @@ export function buildTimelineQuery(
   intervalMinutes: number,
 ): TimelineQuery {
   return {
+    cluster_id: ctx.selectedClusterId || undefined,
     topic_id: ctx.activeTopicId || undefined,
     severity: ctx.filters.severity || undefined,
     alert_status: ctx.filters.alertStatus || undefined,

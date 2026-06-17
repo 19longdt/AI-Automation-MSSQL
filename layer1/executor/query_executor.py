@@ -37,6 +37,8 @@ class QueryExecutor:
         host: str,
         topic_id: str,
         node_role: str,
+        cluster_id: str = "",
+        conn_str: str | None = None,
     ) -> QueryResult:
         """
         Execute query.sql trên host, trả về QueryResult.
@@ -46,7 +48,7 @@ class QueryExecutor:
         """
         start = time.monotonic()
         try:
-            with mssql_connection(host, timeout_sec=query.timeout_sec) as conn:
+            with mssql_connection(host, conn_str=conn_str, timeout_sec=query.timeout_sec) as conn:
                 cursor = conn.execute(query.sql)
                 columns = [col[0] for col in cursor.description] if cursor.description else []
                 rows = [{col: _sanitize_value(val) for col, val in zip(columns, row)} for row in cursor.fetchall()]
@@ -57,6 +59,7 @@ class QueryExecutor:
             )
             return QueryResult(
                 topic_id=topic_id,
+                cluster_id=cluster_id,
                 query_id=query.query_id,
                 node=host,
                 role=node_role,
@@ -73,6 +76,7 @@ class QueryExecutor:
             )
             return QueryResult(
                 topic_id=topic_id,
+                cluster_id=cluster_id,
                 query_id=query.query_id,
                 node=host,
                 role=node_role,
@@ -87,6 +91,9 @@ class QueryExecutor:
         host: str,
         topic_id: str,
         node_role: str,
+        cluster_id: str = "",
+        conn_str: str | None = None,
+        connect_timeout_sec: int | None = None,
     ) -> list[QueryResult]:
         """
         Execute nhiều queries trên cùng 1 host, dùng chung 1 connection.
@@ -94,7 +101,7 @@ class QueryExecutor:
         """
         results: list[QueryResult] = []
         try:
-            with mssql_connection(host) as conn:
+            with mssql_connection(host, conn_str=conn_str, timeout_sec=connect_timeout_sec) as conn:
                 for query in queries:
                     start = time.monotonic()
                     try:
@@ -115,6 +122,7 @@ class QueryExecutor:
                         results.append(
                             QueryResult(
                                 topic_id=topic_id,
+                                cluster_id=cluster_id,
                                 query_id=query.query_id,
                                 node=host,
                                 role=node_role,
@@ -133,6 +141,7 @@ class QueryExecutor:
                         results.append(
                             QueryResult(
                                 topic_id=topic_id,
+                                cluster_id=cluster_id,
                                 query_id=query.query_id,
                                 node=host,
                                 role=node_role,
@@ -148,6 +157,7 @@ class QueryExecutor:
                 results.append(
                     QueryResult(
                         topic_id=topic_id,
+                        cluster_id=cluster_id,
                         query_id=query.query_id,
                         node=host,
                         role=node_role,

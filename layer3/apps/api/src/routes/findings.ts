@@ -6,6 +6,7 @@ import { findingsQuerySchema, findingsTimelineQuerySchema } from "../schemas/fin
 
 interface FindingsRouteQuery {
   finding_id?: string;
+  cluster_id?: string;
   topic_id?: string;
   severity?: string;
   alert_status?: string;
@@ -20,6 +21,7 @@ interface FindingsRouteQuery {
 }
 
 interface FindingsTimelineRouteQuery {
+  cluster_id?: string;
   topic_id?: string;
   severity?: string;
   alert_status?: string;
