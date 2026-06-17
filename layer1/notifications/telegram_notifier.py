@@ -91,8 +91,9 @@ class TelegramNotifier(BaseNotifier):
         icon = _SEVERITY_ICON.get(finding.severity.value, "⚪")
         time_str = finding.detected_at.strftime("%Y-%m-%d %H:%M:%S +07")
 
+        cluster_part = f"<b>[{html.escape(finding.cluster_id)}]</b> " if finding.cluster_id else ""
         lines = [
-            f"{icon} <b>{html.escape(finding.severity.value)} — {html.escape(finding.issue_type.value)}</b>",
+            f"{icon} {cluster_part}<b>{html.escape(finding.severity.value)} — {html.escape(finding.issue_type.value)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
             f"🖥 Node:   <code>{html.escape(finding.node)}</code> ({html.escape(finding.role)})",
             f"📋 Topic:  <code>{html.escape(finding.topic_id)}</code>",

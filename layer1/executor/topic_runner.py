@@ -79,16 +79,17 @@ class TopicRunner:
         try:
             topic = self._topic_repo.find_by_id(topic_id)
             if topic is None:
-                logger.warning("Topic not found: %s", topic_id)
+                logger.warning("Topic not found: cluster=%s topic=%s", self._cluster.cluster_id, topic_id)
                 return 0
             if not topic.enabled:
-                logger.info("Topic disabled, skipping: topic=%s", topic_id)
+                logger.info("Topic disabled, skipping: cluster=%s topic=%s", self._cluster.cluster_id, topic_id)
                 return 0
 
             resolved_nodes = self._role_cache.resolve(topic.nodes)
             if not resolved_nodes:
                 logger.warning(
-                    "No nodes resolved: topic=%s nodes_config=%s", topic_id, topic.nodes
+                    "No nodes resolved: cluster=%s topic=%s nodes_config=%s",
+                    self._cluster.cluster_id, topic_id, topic.nodes,
                 )
                 return 0
 

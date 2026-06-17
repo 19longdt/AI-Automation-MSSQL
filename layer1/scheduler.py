@@ -318,6 +318,15 @@ class Layer1Service:
                 job_id = self._topic_job_id(cluster_id, topic.topic_id)
                 desired_job_ids.add(job_id)
                 job_intervals[job_id] = topic.schedule_sec
+
+                # Do NOT replace an already-scheduled job unless explicitly firing immediately.
+                # replace_existing=True resets APScheduler's per-job instance counter,
+                # which defeats max_instances=1: the stuck old instance is no longer tracked
+                # by the new job entry, so a new instance fires and also gets stuck.
+                # This is what caused multiple stuck UAT instances on every cluster refresh.
+                if not run_immediately and self._scheduler.get_job(job_id) is not None:
+                    continue
+
                 self._scheduler.add_job(
                     self._make_topic_job(cluster_id, topic.topic_id),
                     trigger="interval",

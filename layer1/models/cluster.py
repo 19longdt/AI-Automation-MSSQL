@@ -69,6 +69,7 @@ class ClusterConfig(BaseModel):
             f"UID={self.username};"
             f"PWD={self.password};"
             f"TrustServerCertificate=yes;"
+            f"Connection Timeout={self.connect_timeout_sec};"
         )
 
 
