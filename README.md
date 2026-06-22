@@ -1,136 +1,74 @@
 # AI-Automation-MSSQL
 
-Hệ thống tự động giám sát và phân tích sự cố cho cụm **MSSQL Server 2019 Enterprise Always On Availability Groups**.
+Hệ thống tự động giám sát và phân tích sự cố cho **nhiều cụm MSSQL Server 2019 Enterprise Always On Availability Groups** (multi-cluster).
 
-**Status:** ✅ Production-ready (Layer 1 monitoring + Layer 2 AI analysis)
+**Status:** ✅ Production-ready (Layer 1 + Layer 2 + Layer 3)
+
+---
+
+## 🖼️ Screenshots
+
+<table>
+  <tr>
+    <td align="center"><b>Dashboard</b></td>
+    <td align="center"><b>Slow Session Detail</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/slow-session.png" width="400"/></td>
+    <td><img src="docs/screenshots/slow-session-detail.png" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Query Plan Analysis</b></td>
+    <td align="center"><b>AG Redo Secondary</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/slow-session-analyze-plan.png" width="400"/></td>
+    <td><img src="docs/screenshots/ag_redo.png" width="400"/></td>
+  </tr>
+</table>
 
 ---
 
 ## 📋 Overview
 
-**Problem:** MSSQL Always On AG cluster với 3 nodes, dữ liệu lớn (~1TB), CDC capture, partitioned tables — cần giám sát liên tục và phân tích sự cố real-time.
+**Problem:** Nhiều cụm MSSQL Always On AG, mỗi cụm 1 Primary + 2 Secondary, dữ liệu lớn, CDC capture, partition tables — cần giám sát liên tục, phân tích sự cố real-time, và dashboard trực quan.
 
-**Solution:** 2-layer architecture:
-- **Layer 1** — Python APScheduler service: monitoring + alerting (config-driven, thay đổi query/threshold không cần redeploy)
-- **Layer 2** — FastAPI + Claude AI + Telegram bot: on-demand analysis khi user yêu cầu `/analyze`
+**Solution:** 3-layer architecture:
+
+- **Layer 1** — Python monitoring service: config-driven, multi-cluster, thay đổi query/threshold không cần redeploy
+- **Layer 2** — FastAPI + Claude AI + Telegram bot: on-demand analysis khi user yêu cầu
+- **Layer 3** — Web UI dashboard: findings, insights, query plan visualization
+
+**Quản lý cụm qua MongoDB** — thêm/bật/tắt cluster không cần redeploy.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-                 ┌─────────────────────────┐
-                 │   MSSQL Always On AG    │
-                 │  (EASYPOS-DB1/2/3)      │
-                 └────────────┬────────────┘
-                              │
-                ┌─────────────┴──────────────┐
-                ▼                             ▼
-          ┌──────────────┐           ┌──────────────┐
-          │   Layer 1    │           │   Layer 2    │
-          │   Monitoring │───────────│   Analysis   │
-          └──────────────┘           └──────────────┘
-                │                           │
-         ┌──────┴──────┐            ┌──────┴──────┐
-         ▼             ▼            ▼             ▼
-    MongoDB      Telegram bot  Claude API   FastAPI
-                                  │
-                          ┌───────┴────────┐
-                          ▼                ▼
-                      Findings         Notifications
+MongoDB db_clusters (cluster config)
+MongoDB monitor_topics (topic config)
+         │
+         ▼
+Layer 1 — APScheduler (max_workers=50)
+  └─ 1 job per (cluster_id, topic_id)
+       │
+       ├─ Resolve nodes từ NodeRoleCache (AG role auto-detect)
+       ├─ Execute queries parallel per node
+       ├─ Detect: threshold / baseline / blocking_chain / plan_analysis
+       ├─ Save findings (cluster_id, node, metrics)
+       └─ Notify: Telegram / Teams
+         │
+         ▼
+Layer 2 — FastAPI + Claude AI
+  └─ /analyze → AgentOrchestrator → Claude Sonnet → insights
+       │
+       ▼
+Layer 3 — Express.js API + TypeScript Web UI
+  └─ Dashboard: findings, metrics, insights, query plan
 ```
 
-### Layer 1 — Config-Driven Monitoring
-- **APScheduler** jobs loaded từ MongoDB `monitor_topics`
-- Parallel query execution per node
-- Built-in detectors: threshold, baseline, blocking_chain, plan_analysis
-- Auto role detection (PRIMARY/SECONDARY) + caching
-- Telegram/Teams notifications
-
-**Thay đổi query/threshold:** Edit MongoDB → không cần redeploy
-
-### Layer 2 — AI Agent Analysis
-- **FastAPI** REST API
-- **Claude Sonnet** API for intelligent analysis
-- **Telegram bot** webhook integration (`/analyze` command)
-- Real-time findings explanation + recommendations
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Docker + Docker Compose
-- MSSQL Server instance (3-node AG recommended, but single node OK for testing)
-- MongoDB (local or remote)
-- Telegram bot token (optional, for notifications)
-
-### 1. Setup Environment
-
-```bash
-cd d:\GIT\AI-Automation-MSSQL
-
-# Copy and edit .env
-cp .env.example .env
-```
-
-Edit `.env`:
-```env
-# MSSQL nodes (comma-separated IPs)
-MSSQL_NODES=10.x.x.1,10.x.x.2,10.x.x.3
-MSSQL_DATABASE=easyposbackoffice
-MSSQL_USERNAME=sa_monitor
-MSSQL_PASSWORD=YourPassword
-
-# MongoDB
-MONGODB_URI=mongodb://mongodb:27017
-MONGODB_DB=db_monitor
-
-# Notifications (optional)
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-TEAMS_WEBHOOK_URL=
-
-# AI Analysis (Layer 2)
-CLAUDE_API_KEY=sk-ant-...
-CLAUDE_MODEL=claude-sonnet-4-6
-```
-
-### 2. Build and Run
-
-```bash
-# Build images
-docker build -t 19longdt/ai-automation-mssql:v1.0.0 .
-
-# Start all services
-docker compose up -d
-
-# Verify health
-docker compose ps
-curl http://localhost:8000/health  # Layer 2
-```
-
-### 3. Test Layer 1 (Monitoring)
-
-```bash
-# View logs
-docker compose logs -f layer1
-
-# Monitoring runs automatically based on MongoDB config
-```
-
-### 4. Test Layer 2 (AI Analysis)
-
-```bash
-# Telegram bot: send /analyze command to bot
-# Or curl:
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"finding_type": "high_cpu"}'
-
-# Check DB context
-curl http://localhost:8000/admin/db-context
-```
+**Thêm/sửa query hoặc threshold:** Edit MongoDB `monitor_topics` → có hiệu lực ngay lần chạy kế tiếp, không cần restart.
 
 ---
 
@@ -138,185 +76,273 @@ curl http://localhost:8000/admin/db-context
 
 ```
 AI-Automation-MSSQL/
-├── layer1/                           # Python monitoring service
-│   ├── __main__.py                  # Entry: python -m layer1
-│   ├── scheduler.py                 # APScheduler + topic runner
-│   ├── config.py                    # EnvSettings
-│   ├── executor/                    # SQL executor + node role cache
-│   ├── detectors/                   # Detector registry
-│   ├── storage/                     # MongoDB repositories
-│   ├── notifications/               # Telegram/Teams channels
-│   ├── ai/                          # Claude API integration
+├── layer1/                    # Python monitoring service
+│   ├── scheduler.py           # Entry point + APScheduler
+│   ├── config.py              # EnvSettings (env vars only)
+│   ├── executor/              # SQL executor + NodeRoleCache
+│   ├── detectors/             # Registry: threshold, baseline, plan_analysis, blocking_chain
+│   ├── storage/               # MongoDB repositories
+│   ├── notifications/         # Telegram bot + Teams notifier
+│   ├── ai/                    # Claude Haiku (/quick command)
+│   ├── services/              # Kill session / blocking actions
+│   ├── api/                   # REST API (clusters, health, kill-session)
+│   ├── job_manager/           # Job execution tracking + health checker
+│   ├── seed/                  # Seed monitor_topics vào MongoDB
 │   └── CLAUDE.md
 │
-├── layer2/                           # FastAPI + Claude AI
-│   ├── main.py                      # FastAPI app
-│   ├── routers/                     # API endpoints
-│   ├── service/                     # Business logic
-│   ├── db_business_context.yaml     # Database schema reference
-│   ├── AGENT_MECHANISM.md           # AI agent architecture
-│   ├── CLAUDE.md
-│   └── requirements.txt
+├── layer2/                    # FastAPI + Claude AI analysis
+│   ├── main.py                # FastAPI app entry point
+│   ├── agent/                 # AgentOrchestrator, SkillLoader, ToolRegistry
+│   ├── plan/                  # Execution plan analysis engine (pure Python)
+│   ├── analysis/              # Pipeline abstraction
+│   ├── executor/              # DiagnosticExecutor, node_role_cache
+│   ├── storage/               # MongoDB: ai_analyses, issue_insights, sessions
+│   ├── notifications/         # Telegram bot (/analyze + multi-turn)
+│   ├── api/routes/            # analysis, plan, insights, skills, health
+│   ├── skills/                # 14 YAML skill files
+│   ├── db_business_context.yaml
+│   └── CLAUDE.md
 │
-├── db-context/                       # Database schema docs
-│   ├── SUMMARY.md                   # Quick reference
-│   ├── ag-typology.md
-│   ├── cdc-table.md
-│   ├── index.md
-│   ├── resource-governer.md
-│   └── row-count.md
+├── layer3/                    # Web UI Dashboard
+│   ├── apps/api/              # Express.js backend (proxy + MongoDB reads)
+│   │   └── src/routes/        # findings, analyses, insights, actions, plan
+│   ├── apps/web-v2/           # React + TypeScript frontend
+│   │   └── src/components/    # Dashboard, KPI cards, findings table, modals
+│   └── CLAUDE.md
 │
-├── docs/                             # Documentation
-│   ├── 01-overview.md
-│   ├── 02-architecture.md
-│   ├── 03-project-structure.md
-│   ├── 04-data-flow.md
-│   ├── 05-database.md
-│   ├── 06-configuration.md
-│   ├── 07-deployment.md
-│   └── 08-local-development.md
-│
-├── plan/                             # Roadmap
-│   ├── bubbly-snuggling-brooks.md
-│   └── layer2-agent.md
-│
-├── Dockerfile
+├── Dockerfile                 # Layer 1 image
+├── Dockerfile.layer2          # Layer 2 image
 ├── docker-compose.yml
 ├── .env.example
-└── CLAUDE.md
+└── CLAUDE.md                  # Root architecture overview
 ```
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Docker + Docker Compose
+- MSSQL Server 2019 (AG cluster hoặc standalone cho test)
+- MongoDB 6+
+- Telegram bot token (optional)
+- Anthropic API key (optional, cho AI analysis)
+
+### 1. Setup Environment
+
+```bash
+cp .env.example .env
+cp layer3/.env.example layer3/.env
+```
+
+Chỉnh `.env` với thông tin thực tế (xem phần Environment Variables bên dưới).
+
+### 2. Seed MongoDB
+
+```bash
+# Chạy 1 lần khi setup lần đầu
+docker compose run --rm layer1 python -m layer1.seed.seed_topics
+```
+
+### 3. Build & Run
+
+```bash
+# Build
+docker build -t myorg/ai-automation-mssql:v1.0.0 .
+docker build -f Dockerfile.layer2 -t myorg/ai-automation-mssql-layer2:v1.0.0 .
+
+# Start
+docker compose up -d
+
+# Verify
+docker compose ps
+docker compose logs -f layer1
+```
+
+### 4. Thêm cluster mới
+
+Qua REST API của Layer 1:
+
+```bash
+curl -X POST http://localhost:8001/clusters \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cluster_id": "prod",
+    "name": "Production",
+    "environment": "production",
+    "nodes": ["10.0.1.10", "10.0.1.11", "10.0.1.12"],
+    "port": 1433,
+    "database": "AppDatabase",
+    "username": "sa_monitor",
+    "password": "...",
+    "color": "#2563eb"
+  }'
+```
+
+Cluster được enable ngay — Layer 1 tự detect AG role và bắt đầu chạy jobs.
 
 ---
 
 ## 🔧 Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `MSSQL_NODES` | Comma-separated SQL Server IPs | `10.10.1.1,10.10.1.2,10.10.1.3` |
-| `MSSQL_DATABASE` | Database name | `easyposbackoffice` |
-| `MSSQL_USERNAME` | SQL login | `sa_monitor` |
-| `MSSQL_PASSWORD` | SQL password | `YourPassword` |
+### Layer 1 (`.env`)
+
+| Variable | Mô tả | Ví dụ |
+|---|---|---|
 | `MONGODB_URI` | MongoDB connection string | `mongodb://mongodb:27017` |
-| `MONGODB_DB` | MongoDB database name | `db_monitor` |
-| `NODE_ROLE_REFRESH_SEC` | AG role cache refresh interval (sec) | `3600` |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token (optional) | `123456:ABC...` |
+| `MONGODB_DB` | MongoDB database | `db_monitor` |
+| `MSSQL_NODES` | Legacy seed nodes (optional) | `10.0.1.10,10.0.1.11,10.0.1.12` |
+| `MSSQL_DATABASE` | Legacy seed database (optional) | `AppDatabase` |
+| `MSSQL_USERNAME` | Legacy seed username (optional) | `sa_monitor` |
+| `MSSQL_PASSWORD` | Legacy seed password (optional) | _(secret)_ |
+| `NODE_ROLE_REFRESH_SEC` | AG role cache refresh interval | `3600` |
+| `CLUSTER_REFRESH_SEC` | Cluster config reload interval | `60` |
+| `DEDUP_SUPPRESS_MINUTES` | Alert dedup window | `30` |
+| `TELEGRAM_BOT_TOKEN` | Layer 1 bot token (optional) | _(secret)_ |
 | `TELEGRAM_CHAT_ID` | Telegram chat ID (optional) | `1234567890` |
-| `TEAMS_WEBHOOK_URL` | Teams webhook (optional) | `https://outlook.webhook...` |
-| `CLAUDE_API_KEY` | Claude API key (for Layer 2) | `sk-ant-...` |
-| `CLAUDE_MODEL` | Claude model (for Layer 2) | `claude-sonnet-4-6` |
+| `ACTION_BOT_TOKEN` | Bot gửi action result (optional) | _(secret)_ |
+| `TEAMS_WEBHOOK_URL` | Teams webhook (optional) | _(secret)_ |
+| `CLAUDE_API_KEY` | Claude API key cho /quick | _(secret)_ |
+| `HAIKU_MODEL` | Model cho /quick (nhanh, rẻ) | `claude-haiku-4-5-20251001` |
+| `LAYER2_URL` | Layer 2 internal URL | `http://layer2:8000` |
+| `LOG_LEVEL` | Log level | `INFO` |
+
+### Layer 2 (`.env.layer2`)
+
+| Variable | Mô tả | Ví dụ |
+|---|---|---|
+| `MONGODB_URI` | MongoDB (dùng chung với Layer 1) | `mongodb://mongodb:27017` |
+| `L2_TELEGRAM_BOT_TOKEN` | Layer 2 bot token (khác Layer 1) | _(secret)_ |
+| `CLAUDE_API_KEY` | Claude API key cho analysis | _(secret)_ |
+| `CLAUDE_MODEL` | Model cho analysis | `claude-sonnet-4-6` |
+
+### Layer 3 (`layer3/.env`)
+
+| Variable | Mô tả | Ví dụ |
+|---|---|---|
+| `MONGODB_URI` | MongoDB | `mongodb://mongodb:27017` |
+| `L1_API_URL` | Layer 1 API URL | `http://layer1:8001` |
+| `L2_API_URL` | Layer 2 API URL | `http://layer2:8000` |
+| `ACTION_BOT_TOKEN` | Token xác thực kill-session | _(secret)_ |
 
 ---
 
-## 📊 Monitoring Checks (Layer 1)
+## 📊 Monitoring Topics (Layer 1)
 
-Configured in MongoDB `monitor_topics` (queries + detectors):
-- CPU utilization per pool (Resource Governor)
-- Memory usage + TempDB version store
-- Disk I/O latency
-- Blocking/deadlock chains
-- Replication lag (AG secondary)
-- CDC lag (Debezium heartbeat)
-- Missing indexes (from plan cache)
-- SQL Agent job health
+Cấu hình trong MongoDB `monitor_topics` — thêm/sửa không cần redeploy:
 
-Each check runs on configurable schedule per node (PRIMARY/SECONDARY/ALL).
+| Topic | Mô tả | Target |
+|---|---|---|
+| `slow_sessions` | Session chạy lâu, blocking | PRIMARY |
+| `blocking` | Blocking chains, head blocker | PRIMARY |
+| `deadlock` | Deadlock detection | PRIMARY |
+| `ag_health` | AG replica health, sync state | ALL |
+| `ag_redo_secondary` | Redo queue lag trên secondary | SECONDARY |
+| `tempdb` | TempDB version store, space | PRIMARY |
+| `resource_governor` | CPU/memory per resource pool | PRIMARY |
+| `missing_indexes` | Missing indexes từ plan cache | PRIMARY |
+| `index_fragmentation` | Index fragmentation | PRIMARY |
+
+Mỗi topic có: SQL query, detector type, threshold/baseline config, schedule interval, target nodes.
 
 ---
 
 ## 🤖 AI Analysis (Layer 2)
 
-Send raw metrics + findings → Claude analyzes:
-- Root cause detection
-- Performance impact estimation
-- Remediation steps
-- Risk assessment
+**Từ Telegram:**
+- `/analyze <finding_id>` — Claude Sonnet phân tích sâu, gửi kết quả về chat
+- Reply vào alert message → tự động phân tích finding đó
 
-Response format:
-```json
-{
-  "finding_id": "blocking_20260421_001",
-  "severity": "critical",
-  "analysis": "Blocking chain detected: tx#5 waiting on tx#3. Root cause: missing index on batch_id...",
-  "recommendations": [
-    "Create index idx_batch_id on table X",
-    "Review query plan Y"
-  ]
-}
-```
+**Từ Layer 3 UI:**
+- Click "Analyze" trên finding → gọi Layer 2 API → hiển thị insights
 
----
-
-## 📚 Documentation
-
-- [01-overview.md](docs/01-overview.md) — System overview
-- [02-architecture.md](docs/02-architecture.md) — Detailed architecture
-- [03-project-structure.md](docs/03-project-structure.md) — File structure
-- [04-data-flow.md](docs/04-data-flow.md) — Message flow + events
-- [05-database.md](docs/05-database.md) — Database schema + partition design
-- [06-configuration.md](docs/06-configuration.md) — Configuration guide
-- [07-deployment.md](docs/07-deployment.md) — Docker deployment
-- [08-local-development.md](docs/08-local-development.md) — Dev setup
+**Execution plan analysis:**
+- Paste XML plan vào Query Plan page → Layer 2 parse + phân tích 10 dimensions
 
 ---
 
 ## 🔐 Security
 
-- SQL login (`sa_monitor`) created with minimal permissions (SELECT on DMVs only)
-- MongoDB credentials in `.env` (not in image)
-- Claude API key stored securely (GitHub Actions secrets)
-- No sensitive data in logs
+- SQL login (`sa_monitor`) chỉ cần `SELECT` trên DMVs + quyền `KILL` session
+- Credentials lưu trong `.env` — không commit vào git (`.gitignore`)
+- `ACTION_BOT_TOKEN` bảo vệ kill-session endpoint
+- Không log password, API key, hay session content
 
 ---
 
 ## 📝 Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| **Config-driven** (MongoDB) | Thêm/sửa query không cần redeploy Layer 1 |
-| **Node role auto-detect** | AG failover transparent, không hardcode |
-| **Standalone single instance** | Đơn giản, không cần leader election |
-| **Day-of-week baseline** | Workload pattern khác nhau theo ngày |
-| **Detector registry** | Plugin architecture — thêm detector = 1 class |
-| **AVOID `OPTION(OPTIMIZE FOR UNKNOWN)`** | Gây CPU overload (documented in detectors) |
+| Quyết định | Lý do |
+|---|---|
+| **Config-driven** (MongoDB) | Thêm/sửa query không cần redeploy |
+| **Node role auto-detect** | AG failover transparent |
+| **Job per `(cluster_id, topic_id)`** | Cụm lỗi không block cụm khác |
+| **APScheduler `max_workers=50`** | N cụm × M topics đồng thời; I/O-bound |
+| **Không replace job đang chạy** | Giữ `max_instances=1` hiệu lực; tránh stuck accumulation |
+| **`cluster_id` trong findings** | Dữ liệu multi-cluster không lẫn nhau |
+| **`_refresh_all_node_roles` ngoài lock** | Timeout 1 cụm không block cụm khác |
+| **TRÁNH `OPTION(OPTIMIZE FOR UNKNOWN)`** | Gây CPU overload khi throughput cao |
+| **Day-of-week baseline** | Workload pattern khác nhau theo ngày trong tuần |
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Layer 1 not connecting to MSSQL
-```bash
-# Check connection string
-docker compose exec layer1 python -c "from config import settings; print(settings.mssql_connection_string())"
+### Layer 1 không connect được MSSQL
 
-# Test connection
-docker compose logs layer1 | grep -i connection
+```bash
+docker compose logs layer1 | grep -E "Role detection|Connection failed|cluster="
 ```
 
-### Layer 2 API returns 500
+Kiểm tra `db_clusters` trong MongoDB — xem `nodes`, `database`, `username` đúng chưa.
+
+### Job stuck / MISSED schedule
+
 ```bash
-docker compose logs layer2
-# Check Claude API key
-docker compose exec layer2 echo $CLAUDE_API_KEY
+docker compose logs layer1 | grep -E "STUCK|MISSED"
 ```
 
-### Telegram bot not receiving alerts
+Job stuck thường do SQL Server không respond. Cụm healthy vẫn chạy bình thường. Nếu cụm lỗi liên tục — disable tạm trong MongoDB Settings.
+
+### Kill session lỗi từ Telegram / Layer 3
+
 ```bash
-# Verify webhook is configured
-curl http://localhost:8000/admin/webhook-status
-# Check logs
-docker compose logs layer2
+docker compose logs layer1 | grep "kill_session"
+```
+
+Nguyên nhân thường gặp: `cluster_id` không có trong request → dùng sai credentials. Đảm bảo Layer 3 gửi `cluster_id` khi call `/kill-session`.
+
+### Layer 3 báo 502
+
+```bash
+docker compose logs layer3
+curl http://localhost:8001/health
 ```
 
 ---
 
-## 📞 Support & Contribution
+## 🚢 Deployment
 
-**Author:** Long Do | Backend Engineering | longdt@softdreams.vn
+```bash
+# Build & push
+docker build -t myorg/ai-automation-mssql:v2.0.0 .
+docker build -f Dockerfile.layer2 -t myorg/ai-automation-mssql-layer2:v2.0.0 .
+docker push myorg/ai-automation-mssql:v2.0.0
+docker push myorg/ai-automation-mssql-layer2:v2.0.0
 
-Questions? Check `/docs` folder or contact author.
+# Server — pull và restart từng layer độc lập
+docker compose pull layer1 && docker compose up -d layer1
+docker compose pull layer2 && docker compose up -d layer2
+docker compose pull layer3 && docker compose up -d layer3
+```
 
 ---
 
-## 📄 License
+## 📄 About
 
-Internal project — Soft Dreams company.
+**Author:** Long Do — Backend Engineering — longdt@softdreams.vn
+
+**License:** Internal project — SoftDreams company.
+
+**Third-party:** SQL parsing powered by [sqlparse](https://github.com/andialbrecht/sqlparse) © Andi Albrecht, BSD License.

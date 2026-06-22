@@ -84,8 +84,7 @@ class JobExecutionRepo:
         for job_name, interval_sec in job_intervals.items():
             doc = latest.get(job_name)
             if doc is None:
-                # Chưa từng chạy
-                missed.append(job_name)
+                # Chưa từng chạy — topic mới seed, chờ lần trigger đầu tiên
                 continue
             expected_by = doc["started_at"] + timedelta(seconds=interval_sec * 1.5)
             if now > expected_by:

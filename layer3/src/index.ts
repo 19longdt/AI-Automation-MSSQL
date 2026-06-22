@@ -337,16 +337,22 @@ function bindQueryActions(container: Element, handlers: QueryActionHandlers) {
 
         let showXmlBtn = target.closest(".qp-open-xml-viewer");
         if (showXmlBtn != null) {
+            event.preventDefault();
+            event.stopPropagation();
             if (handlers.onShowPlanXml != null) handlers.onShowPlanXml({ block: block, queryText: getActiveQueryText(block) });
             return;
         }
         let expandBtn = target.closest(".qp-open-query-popup");
         if (expandBtn != null) {
+            event.preventDefault();
+            event.stopPropagation();
             if (handlers.onOpenQueryPopup != null) handlers.onOpenQueryPopup({ block: block, queryText: getActiveQueryText(block) });
             return;
         }
         let copyXmlBtn = target.closest(".qp-copy-plan-xml");
         if (copyXmlBtn != null) {
+            event.preventDefault();
+            event.stopPropagation();
             let btn = copyXmlBtn as HTMLButtonElement;
             let prev = btn.textContent;
             btn.textContent = "✓ Copied";
@@ -357,12 +363,16 @@ function bindQueryActions(container: Element, handlers: QueryActionHandlers) {
 
         let beautifyBtn = target.closest(".qp-open-beautify");
         if (beautifyBtn != null) {
+            event.preventDefault();
+            event.stopPropagation();
             if (handlers.onBeautify != null) handlers.onBeautify({ block: block, queryText: getActiveQueryText(block) });
             return;
         }
 
         let aiAssistBtn = target.closest(".qp-open-ai-assist");
         if (aiAssistBtn != null) {
+            event.preventDefault();
+            event.stopPropagation();
             if (handlers.onAiAssist != null) handlers.onAiAssist({ block: block, queryText: getActiveQueryText(block) });
             return;
         }

@@ -27,6 +27,7 @@ export interface Finding {
   finding_id: string;
   detected_at: string;
   topic_id: string;
+  cluster_id?: string;
   issue_type: IssueType;
   severity: Severity;
   node: string;

@@ -177,6 +177,8 @@ class ToolExecutor:
             return ex.get_statistics_info(node=inp["node"], table_name=inp["table_name"], top_n=inp.get("top_n", 50))
         if tool_name == "get_memory_grant":
             return ex.get_memory_grant(node=inp["node"], top_n=inp.get("top_n", 20))
+        if tool_name == "get_ple_numa":
+            return ex.get_ple_numa(node=inp["node"], top_n=inp.get("top_n", 16))
         if tool_name == "get_blocking_chain":
             return ex.get_blocking_chain(node=inp["node"], top_n=inp.get("top_n", 30))
         if tool_name == "get_wait_stats":

@@ -104,6 +104,7 @@ class AgentOrchestrator:
         )
 
         issue_type = str(finding.get("issue_type", ""))
+        cluster_id = str(finding.get("cluster_id", ""))
         node = finding.get("node", "")
         detected_at = finding.get("detected_at") or now_vn()
 
@@ -182,6 +183,7 @@ class AgentOrchestrator:
                     analysis_id=result.analysis_id,
                     finding_id=request.finding_id,
                     issue_type=issue_type,
+                    cluster_id=cluster_id,
                     node=node,
                     detected_at=detected_at,
                     insight=insight,

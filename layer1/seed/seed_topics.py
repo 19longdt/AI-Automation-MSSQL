@@ -46,6 +46,7 @@ from ..models.topic_constants import (
     TOPIC_INDEX_FRAGMENTATION,
     TOPIC_INDEX_USAGE,
     TOPIC_MISSING_INDEX,
+    TOPIC_PLE_TREND,
     TOPIC_PLAN_INSTABILITY,
     TOPIC_PLAN_REGRESSION,
     TOPIC_RESOURCE_GOVERNOR,
@@ -89,6 +90,7 @@ def _all_topics() -> list[MonitorTopic]:
         _index_usage(),
         _high_variation(),
         _tempdb_memory(),
+        _ple_trend(),
         _wait_stats(),
         _agent_maintenance(),
         _missing_index(),
@@ -930,6 +932,20 @@ WHERE counter_name = 'Page life expectancy'
                 timeout_sec=10,
             ),
             QueryConfig(
+                query_id="ple_numa",
+                description="Page Life Expectancy theo tung NUMA node",
+                sql="""
+SELECT
+    object_name AS numa_node,
+    cntr_value  AS ple_sec
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Page life expectancy'
+  AND object_name LIKE '%Buffer Node%'
+ORDER BY object_name
+""",
+                timeout_sec=10,
+            ),
+            QueryConfig(
                 query_id="memory_grants",
                 description="Memory grants pending — > 0 = workload đang chờ memory",
                 sql="""
@@ -962,16 +978,95 @@ FROM sys.dm_db_file_space_usage
         ],
         detector_type="threshold",
         thresholds={
-            "ple_sec": ThresholdConfig(warning=300, critical=100),
+            "ple_sec": ThresholdConfig(warning=1500, critical=600),
             "pending_grants": ThresholdConfig(warning=1, critical=5),
             "used_pct": ThresholdConfig(warning=70, critical=85),
             "version_store_mb": ThresholdConfig(warning=500, critical=1000),
         },
         extra={
-            # ple_sec và pending_grants: giá trị thấp/cao mới là vấn đề
-            # threshold detector sẽ đọc extra.lower_is_worse khi implement
-            "lower_is_worse": ["ple_sec"],
+            "lower_is_worse_fields": ["ple_sec"],
+            # Ghi finding INFO cho mỗi snapshot khỏe mạnh → lưu lịch sử PLE/TempDB liên tục.
+            "emit_info_when_healthy": True,
+            "info_issue_type": "memory_pressure",
+            "issue_type_map": {
+                "ple_sec": "memory_pressure",
+                "pending_grants": "memory_pressure",
+                "used_pct": "tempdb_pressure",
+                "version_store_mb": "tempdb_pressure",
+            },
         },
+        capture_tools=[
+            "get_memory_pressure",
+            "get_ple_numa",
+            "get_memory_grant",
+            "get_tempdb_usage",
+            "get_wait_stats",
+            "get_query_stats",
+            "get_resource_governor_stats",
+        ],
+        analysis_config=AnalysisConfig(
+            context=(
+                "Memory pressure va TempDB pressure. "
+                "PLE thap theo RAM-threshold la dau hieu buffer pool churn; "
+                "so sanh them theo NUMA node de tim imbalance. "
+                "pending_grants > 0 cho thay truy van dang cho memory grant. "
+                "used_pct/version_store_mb cao nghieng ve pressure o TempDB."
+            ),
+            focus_metrics=[
+                "ple_sec", "pending_grants", "used_pct", "version_store_mb", "numa_node",
+                "threshold_warning", "threshold_critical",
+            ],
+        ),
+    )
+
+
+def _ple_trend() -> MonitorTopic:
+    return MonitorTopic(
+        topic_id=TOPIC_PLE_TREND,
+        display_name="PLE Trend Monitor",
+        enabled=True,
+        schedule_sec=300,
+        nodes=["primary"],
+        queries=[
+            QueryConfig(
+                query_id="ple_global",
+                description="Global PLE de so sanh voi baseline cung thu-va-gio",
+                sql="""
+SELECT TOP 1
+    object_name,
+    cntr_value AS ple_sec
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Page life expectancy'
+  AND object_name LIKE '%Buffer Manager%'
+""",
+                timeout_sec=10,
+            ),
+        ],
+        detector_type="baseline",
+        baseline_config=BaselineConfig(
+            metric_field="ple_sec",
+            threshold_pct=50.0,
+            min_executions=1,
+            baseline_weeks=4,
+        ),
+        extra={
+            "lower_is_worse_fields": ["ple_sec"],
+            "issue_type": "memory_pressure",
+        },
+        capture_tools=[
+            "get_memory_pressure",
+            "get_ple_numa",
+            "get_memory_grant",
+            "get_wait_stats",
+            "get_query_stats",
+        ],
+        analysis_config=AnalysisConfig(
+            context=(
+                "PLE trend detector canh bao khi PLE giam manh so voi baseline cung thu-va-gio. "
+                "Dung de bat workload bat thuong du PLE chua cham threshold tuyet doi."
+            ),
+            focus_metrics=["ple_sec", "baseline_avg", "threshold_pct"],
+        ),
     )
 
 

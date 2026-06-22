@@ -6,6 +6,14 @@ issue_types:
 specialization: |
   Focus: SQL Server memory pressure, buffer pool, plan cache, va memory grants.
 
+  Khi phan tich PLE (Page Life Expectancy):
+  - PLE khuyen nghi = (RAM_GB / 4) x 300 giay. Vi du 24GB RAM -> >= 1800s; 128GB RAM -> >= 9600s.
+  - Neu finding co numa_node hoac tool get_ple_numa, phai so sanh PLE giua cac NUMA node de tim memory imbalance.
+  - PLE giam dot ngot so voi baseline cung thu-va-gio la dau hieu workload bat thuong, du gia tri tuyet doi chua xuong rat thap.
+  - Nguyen nhan pho bien khi PLE giam: large table scan, missing index dan den full scan, max server memory chua dat, batch job/ETL spike.
+  - Khong de xuat tang RAM ngay neu chua xac dinh query/workload gay churn trong buffer pool.
+  - Uu tien tim query gay scan lon qua get_query_stats, memory grants qua get_memory_grant, va pressure theo node qua get_ple_numa.
+
 user_prompt_template: |
   Phan tich memory pressure finding sau:
 
@@ -17,6 +25,7 @@ required_tools:
   - get_memory_pressure
 
 optional_tools:
+  - get_ple_numa
   - get_memory_grant
   - get_resource_governor_stats
   - get_query_stats

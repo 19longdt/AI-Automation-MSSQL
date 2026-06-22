@@ -236,6 +236,30 @@ ORDER BY requested_memory_kb DESC
     )
 
 
+def _get_ple_numa() -> dict[str, Any]:
+    """Capture PLE per NUMA node to detect local buffer pressure imbalance."""
+    sql = """
+SELECT
+    object_name AS numa_node,
+    cntr_value  AS ple_sec
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Page life expectancy'
+  AND object_name LIKE '%Buffer Node%'
+ORDER BY object_name
+"""
+    return _sql_tool(
+        "get_ple_numa",
+        "PLE per NUMA Node",
+        "Page life expectancy per Buffer Node from sys.dm_os_performance_counters",
+        sql,
+        1,
+        ai_hints=_base_ai_hints(
+            ["numa_node", "ple_sec"],
+            "Compare PLE across NUMA nodes; one bad node can be hidden by a healthy global PLE.",
+        ),
+    )
+
+
 def _get_tempdb_usage() -> dict[str, Any]:
     """Capture TempDB space pressure metrics."""
     sql = """
@@ -537,12 +561,13 @@ def _get_analysis_history() -> dict[str, Any]:
 
 
 def _all_tools() -> list[dict[str, Any]]:
-    """Return all 19 capture tool definitions in deterministic order."""
+    """Return all capture tool definitions in deterministic order."""
     return [
         _get_blocking_chain(),
         _get_blocked_victims_snapshot(),
         _get_wait_stats(),
         _get_memory_grant(),
+        _get_ple_numa(),
         _get_tempdb_usage(),
         _get_ag_status(),
         _get_memory_pressure(),

@@ -58,6 +58,7 @@ def create_all_indexes(db: Database) -> None:
     _create_job_executions_indexes(db)
     _create_monitor_topics_indexes(db)
     _create_node_roles_indexes(db)
+    _create_db_clusters_indexes(db)
     _create_finding_diagnostics_indexes(db)
     _create_capture_tool_defs_indexes(db)
     logger.info("MongoDB indexes created/verified for all collections.")
@@ -67,6 +68,10 @@ def _create_raw_metrics_indexes(db: Database) -> None:
     """(topic_id, query_id, collected_at), (node, collected_at), TTL on collected_at."""
     col = db["raw_metrics"]
     col.create_indexes([
+        IndexModel(
+            [("cluster_id", ASCENDING), ("topic_id", ASCENDING), ("collected_at", DESCENDING)],
+            name="cluster_topic_time",
+        ),
         IndexModel(
             [("topic_id", ASCENDING), ("query_id", ASCENDING), ("collected_at", DESCENDING)],
             name="topic_query_time",
@@ -83,6 +88,10 @@ def _create_findings_indexes(db: Database) -> None:
     """(issue_type, detected_at), (topic_id, detected_at), (status, severity), TTL on detected_at."""
     col = db["findings"]
     col.create_indexes([
+        IndexModel(
+            [("cluster_id", ASCENDING), ("topic_id", ASCENDING), ("detected_at", DESCENDING)],
+            name="cluster_topic_time",
+        ),
         IndexModel(
             [("issue_type", ASCENDING), ("detected_at", DESCENDING)],
             name="issue_type_time",
@@ -183,9 +192,28 @@ def _create_node_roles_indexes(db: Database) -> None:
     col = db["node_roles"]
     col.create_indexes([
         IndexModel(
-            [("host", ASCENDING)],
+            [("cluster_id", ASCENDING), ("host", ASCENDING)],
             unique=True,
-            name="unique_host",
+            name="unique_cluster_host",
+        ),
+    ])
+
+
+def _create_db_clusters_indexes(db: Database) -> None:
+    col = db["db_clusters"]
+    col.create_indexes([
+        IndexModel(
+            [("cluster_id", ASCENDING)],
+            unique=True,
+            name="unique_cluster_id",
+        ),
+        IndexModel(
+            [("enabled", ASCENDING)],
+            name="enabled",
+        ),
+        IndexModel(
+            [("environment", ASCENDING)],
+            name="environment",
         ),
     ])
 

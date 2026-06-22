@@ -36,6 +36,7 @@ class InsightRepo:
         analysis_id: str,
         finding_id: str,
         issue_type: str,
+        cluster_id: str,
         node: str,
         detected_at: datetime,
         insight: InsightData,
@@ -58,7 +59,7 @@ class InsightRepo:
 
         if existing is None:
             return self._insert_new(
-                analysis_id, finding_id, issue_type, node, detected_at, insight,
+                analysis_id, finding_id, issue_type, cluster_id, node, detected_at, insight,
                 affected_tables_sorted,
             )
         else:
@@ -70,6 +71,7 @@ class InsightRepo:
         analysis_id: str,
         finding_id: str,
         issue_type: str,
+        cluster_id: str,
         node: str,
         detected_at: datetime,
         insight: InsightData,
@@ -80,6 +82,7 @@ class InsightRepo:
             "insight_id": insight_id,
             "analysis_id": analysis_id,
             "finding_id": finding_id,
+            "cluster_id": cluster_id,
             "detected_at": detected_at,
             "issue_type": issue_type,
             "node": node,
@@ -161,6 +164,7 @@ class InsightRepo:
     def list_insights(
         self,
         issue_type: str | None = None,
+        cluster_id: str | None = None,
         table: str | None = None,
         root_cause: str | None = None,
         resolved: bool | None = None,
@@ -171,6 +175,8 @@ class InsightRepo:
         query: dict = {}
         if issue_type:
             query["issue_type"] = issue_type
+        if cluster_id:
+            query["cluster_id"] = cluster_id
         if table:
             query["affected_tables"] = table
         if root_cause:

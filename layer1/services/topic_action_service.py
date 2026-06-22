@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Callable
 
 from ..models.findings import Finding
 from ..models.topic_constants import TOPIC_BLOCKING, TOPIC_SLOW_SESSIONS
-from .session_service import kill_session
+from .session_service import kill_session, kill_session_with_conn_str
 
 
 class TopicActionHandler(ABC):
@@ -21,7 +22,7 @@ class TopicActionHandler(ABC):
         """Các command hiển thị thêm trên alert cho topic này."""
         return []
 
-    def execute(self, finding: Finding, command: str) -> dict:
+    def execute(self, finding: Finding, command: str, conn_str: str | None = None) -> dict:
         """Template method: validate -> resolve target -> execute action."""
         if finding.topic_id != self.topic_id:
             return {
@@ -44,7 +45,7 @@ class TopicActionHandler(ABC):
         target = self.resolve_target(finding, normalized)
         if not target.get("ok"):
             return target
-        return self.execute_target(finding, normalized, target["value"])
+        return self.execute_target(finding, normalized, target["value"], conn_str=conn_str)
 
     def command_aliases(self) -> dict[str, str]:
         return {}
@@ -54,7 +55,7 @@ class TopicActionHandler(ABC):
         ...
 
     @abstractmethod
-    def execute_target(self, finding: Finding, command: str, target_value: int) -> dict:
+    def execute_target(self, finding: Finding, command: str, target_value: int, conn_str: str | None = None) -> dict:
         ...
 
 
@@ -81,9 +82,12 @@ class SlowSessionsActionHandler(TopicActionHandler):
             }
         return {"ok": True, "value": session_id, "metric_key": metric_key}
 
-    def execute_target(self, finding: Finding, command: str, target_value: int) -> dict:
+    def execute_target(self, finding: Finding, command: str, target_value: int, conn_str: str | None = None) -> dict:
         # Slow session finding thuộc node nào thì kill đúng node đó, tránh kill nhầm SPID trên node khác.
-        result = kill_session(target_value, hosts=[finding.node])
+        if conn_str:
+            result = kill_session_with_conn_str(target_value, host=finding.node, conn_str=conn_str)
+        else:
+            result = kill_session(target_value, hosts=[finding.node])
         result["metric_key"] = "blocking_session_id" if command == "/kill-blocking" else "session_id"
         result["target_node"] = finding.node
         return result
@@ -118,9 +122,12 @@ class BlockingActionHandler(TopicActionHandler):
             }
         return {"ok": True, "value": session_id, "metric_key": "head_blocker_session_id"}
 
-    def execute_target(self, finding: Finding, command: str, target_value: int) -> dict:
+    def execute_target(self, finding: Finding, command: str, target_value: int, conn_str: str | None = None) -> dict:
         # Kill đúng node phát hiện blocking — SPID chỉ có nghĩa trong phạm vi 1 instance
-        result = kill_session(target_value, hosts=[finding.node])
+        if conn_str:
+            result = kill_session_with_conn_str(target_value, host=finding.node, conn_str=conn_str)
+        else:
+            result = kill_session(target_value, hosts=[finding.node])
         result["metric_key"] = "head_blocker_session_id"
         result["target_node"] = finding.node
         return result
@@ -132,6 +139,12 @@ class TopicActionRegistry:
             SlowSessionsActionHandler(),
             BlockingActionHandler(),
         ]
+        # Injected at startup by Layer1Service so actions use cluster-specific credentials.
+        # Signature: (cluster_id: str, host: str) -> str | None
+        self._conn_str_resolver: Callable[[str, str], str | None] | None = None
+
+    def set_conn_str_resolver(self, resolver: Callable[[str, str], str | None]) -> None:
+        self._conn_str_resolver = resolver
 
     def commands_for_topic(self, topic_id: str) -> list[str]:
         for handler in self._handlers:
@@ -140,9 +153,12 @@ class TopicActionRegistry:
         return []
 
     def execute(self, finding: Finding, command: str) -> dict:
+        conn_str: str | None = None
+        if self._conn_str_resolver and finding.cluster_id:
+            conn_str = self._conn_str_resolver(finding.cluster_id, finding.node)
         for handler in self._handlers:
             if handler.supports(finding, command):
-                return handler.execute(finding, command)
+                return handler.execute(finding, command, conn_str=conn_str)
         return {
             "ok": False,
             "status": 400,

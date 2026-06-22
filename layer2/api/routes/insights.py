@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/v1", tags=["insights"])
 @router.get("/insights")
 async def list_insights(
     issue_type: str | None = Query(default=None),
+    cluster_id: str | None = Query(default=None),
     table: str | None = Query(default=None),
     root_cause: str | None = Query(default=None),
     resolved: bool | None = Query(default=None),
@@ -24,6 +25,7 @@ async def list_insights(
     repo = InsightRepo()
     return repo.list_insights(
         issue_type=issue_type,
+        cluster_id=cluster_id,
         table=table,
         root_cause=root_cause,
         resolved=resolved,

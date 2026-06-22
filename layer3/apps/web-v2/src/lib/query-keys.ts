@@ -1,0 +1,17 @@
+import type {
+  FindingsQuery,
+  TimelineQuery,
+  InsightsQuery,
+  AnalysesQuery,
+} from "@/types";
+
+export const qk = {
+  topics: ()                          => ["topics"]                      as const,
+  findings: (p: FindingsQuery)        => ["findings", p]                 as const,
+  timeline: (p: TimelineQuery)        => ["findings-timeline", p]        as const,
+  findingById: (id: string)           => ["finding", id]                 as const,
+  diagnostics: (id: string)           => ["diagnostics", id]             as const,
+  insights: (p: InsightsQuery)        => ["insights", p]                 as const,
+  analyses: (p: AnalysesQuery)        => ["analyses", p]                 as const,
+  jobsHealth: ()                      => ["jobs-health"]                  as const,
+};

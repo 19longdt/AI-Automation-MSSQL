@@ -324,7 +324,7 @@ APScheduler trigger → topic_runner.run("ag_health")
     │           → insert finding_diagnostics
     │       finding.has_diagnostics = True
     │
-    ├── 7. findings_repo.insert(finding)
+    ├── 7. findings_repo.insert(finding)   [finding.cluster_id = cluster config's cluster_id]
     │
     └── 8. dedup check → notify nếu chưa alert gần đây
 ```
@@ -379,7 +379,7 @@ MongoDB `baselines` document:
 | `monitor_topics` | — | upsert per topic | unique `(topic_id)` |
 | `node_roles` | — | upsert per host | unique `(host)` |
 | `raw_metrics` | **3d** | `insert_many` per job run | `(topic_id, query_id, collected_at)` |
-| `findings` | **9d** | `insert_one` per finding | `(topic_id, detected_at)`, `(issue_type, detected_at)`, `(finding_hash, detected_at)` |
+| `findings` | **9d** | `insert_one` per finding | `(topic_id, detected_at)`, `(issue_type, detected_at)`, `(finding_hash, detected_at)`, `(cluster_id, detected_at)` |
 | `baselines` | — | `update_one` upsert | `(metric_type, day_of_week, hour, node)` |
 | `dedup_cache` | 7d | `findOne` + `updateOne(upsert)` | unique `(finding_hash)` |
 | `job_executions` | **3d** | `insert_one` + `update_one` | `(job_name, started_at)` |
@@ -395,9 +395,11 @@ Main thread — HTTP API server (ThreadingHTTPServer, L1_API_HOST:L1_API_PORT)
     │
     └─► xử lý mỗi HTTP request trong thread riêng (ThreadingHTTPServer)
 
-Daemon thread — APScheduler
+Daemon thread — APScheduler (ThreadPoolExecutor max_workers=50)
+    │   Jobs: topic_{cluster_id}_{topic_id} — mỗi (cluster, topic) là 1 job riêng
+    │   → Nhiều cluster chạy song song; cụm lỗi không block cụm khác
     │
-    └─► topic_runner.run(topic_id)
+    └─► topic_runner.run(topic_id)   [mỗi cluster có TopicRunner riêng]
             │
             ├─► ThreadPoolExecutor (max_workers = len(resolved_nodes))
             │       Thread 1: query_executor.execute(queries, "SQL-NODE-01") — pyodbc conn mới
@@ -484,6 +486,7 @@ reply (other text) vào alert → Layer 2 bot xử lý, gửi document trực ti
 | `BaselineDetector.detect()` stub | `NoneType is not iterable` | Full implementation của `detect()` và `_compare_with_baseline()` |
 | Telegram HTTP 400 | MarkdownV2 fail với IP `10.100.112.61` (dấu `.`) | Chuyển sang HTML parse mode + `html.escape()` cho tất cả user data |
 | Dedup hash collision | Alert chỉ gửi lần đầu rồi dừng hẳn cho mọi topic | `finding_hash()` thêm `topic_id` vào key (trước chỉ có `issue_type + node + query_hash`) |
+| Lock contention — cụm lỗi block cụm khác | `_refresh_all_node_roles` giữ `self._lock` trong lúc query SQL Server → UAT timeout 30s block prod topic jobs | Snapshot `_role_caches` dict dưới lock, sau đó refresh từng cache **bên ngoài lock**; `_build_cluster_runtime` trả về tuple thay vì mutate state trực tiếp |
 
 **Sau khi deploy finding_hash fix**, cần xóa dedup cache cũ:
 ```javascript
@@ -565,6 +568,10 @@ stdlib → third-party → internal (relative imports).
 | **Detector registry pattern** | Thêm detector type = 1 class + register, không sửa logic cũ |
 | **Day-of-week baseline** | Pattern workload khác nhau theo ngày |
 | **Parallel per node** (ThreadPoolExecutor) | 3 nodes × sequential = triple latency |
+| **Job per `(cluster_id, topic_id)`** | Cụm lỗi không block topic jobs của cụm khác |
+| **APScheduler `max_workers=50`** | N cụm × M topics fire đồng thời; I/O-bound nên thread pool lớn không tốn CPU |
+| **`_refresh_all_node_roles` ngoài lock** | Snapshot dict dưới lock → refresh bên ngoài; tránh UAT timeout block prod |
+| **`cluster_id` trong findings** | Layer 3 filter findings đúng per cluster khi multi-cluster |
 | **DiagnosticCapture chỉ trigger khi CRITICAL** | Tiết kiệm compute — chỉ snapshot những gì thực sự quan trọng |
 | **Capture tool defs trong MongoDB** (`capture_tool_defs`) | SQL templates + AI hints config-driven, không hardcode trong Python |
 | **`finding_diagnostics` self-contained** | Layer 2 nhận snapshot đầy đủ, không cần query thêm MongoDB lúc phân tích |

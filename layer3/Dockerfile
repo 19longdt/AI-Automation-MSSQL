@@ -2,18 +2,20 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Install deps — copy all package.json manifests first for layer caching
 COPY package*.json ./
-COPY apps/api/package*.json ./apps/api/
-COPY apps/web/package*.json ./apps/web/
+COPY apps/api/package*.json     ./apps/api/
+COPY apps/web-v2/package*.json  ./apps/web-v2/
 COPY packages/core/package*.json ./packages/core/
+
 RUN npm ci
 
 COPY . .
 
-# Webpack 4 compatibility on modern Node/OpenSSL.
-ENV NODE_OPTIONS=--openssl-legacy-provider
+# Build: core types → web-v2 (Vite) → API (tsc)
 RUN npm run build
 
+# ── Runtime image ───────────────────────────────────────────────────────────
 FROM node:22-alpine
 
 WORKDIR /app
@@ -21,16 +23,17 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV API_PORT=3000
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/web/pages ./apps/web/pages
-COPY --from=builder /app/apps/web/css ./apps/web/css
-COPY --from=builder /app/css ./css
-COPY --from=builder /app/examples ./examples
-COPY --from=builder /app/assets ./assets
-COPY --from=builder /app/images ./images
+# API runtime deps
+COPY --from=builder /app/package*.json         ./
+COPY --from=builder /app/node_modules          ./node_modules
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=builder /app/apps/api/dist         ./apps/api/dist
+
+# React frontend (Vite build output)
+COPY --from=builder /app/dist-v2               ./dist-v2
+COPY --from=builder /app/dist                  ./dist
+COPY --from=builder /app/css                   ./css
+COPY --from=builder /app/assets/ssms-icons-ver17 ./assets/ssms-icons-ver17
 
 EXPOSE 3000
 

@@ -54,3 +54,29 @@ def kill_session(session_id: int, hosts: list[str] | None = None) -> dict:
         "message": "Failed to execute KILL on target hosts",
         "errors": errors,
     }
+
+
+def kill_session_with_conn_str(session_id: int, host: str, conn_str: str) -> dict:
+    if session_id <= 0:
+        return {"ok": False, "status": 400, "message": "session_id must be > 0"}
+    if not host.strip():
+        return {"ok": False, "status": 400, "message": "target host is required"}
+    try:
+        with mssql_connection(host, conn_str=conn_str) as conn:
+            conn.execute(f"KILL {session_id}")
+        return {
+            "ok": True,
+            "status": 200,
+            "session_id": session_id,
+            "host": host,
+            "message": f"KILL {session_id} executed",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": 502,
+            "session_id": session_id,
+            "host": host,
+            "message": "Failed to execute KILL on target host",
+            "errors": [{"host": host, "error": str(exc)}],
+        }
