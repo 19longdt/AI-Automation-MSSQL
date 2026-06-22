@@ -244,7 +244,7 @@ function KpiCard({
   accentColor,
 }: {
   icon: React.ReactNode;
-  label: string;
+  label: React.ReactNode;
   value: string;
   hint: string;
   tone: "good" | "warn" | "bad";
@@ -274,7 +274,7 @@ function ChartFrame({
   eyebrow,
   children,
 }: {
-  title: string;
+  title: React.ReactNode;
   eyebrow: string;
   children: React.ReactNode;
 }) {

@@ -4,6 +4,7 @@ import { buildDetectedAtDateRangeMatch } from "./time-filter";
 
 export interface FindingsQuery {
   finding_id?: string;
+  query_hash?: string;
   cluster_id?: string;
   topic_id?: string;
   severity?: string;
@@ -19,6 +20,8 @@ export interface FindingsQuery {
 }
 
 export interface FindingTimelineQuery {
+  finding_id?: string;
+  query_hash?: string;
   cluster_id?: string;
   topic_id?: string;
   severity?: string;
@@ -27,6 +30,21 @@ export interface FindingTimelineQuery {
   since?: string;
   until?: string;
   interval_minutes?: number;
+}
+
+export interface SlowQueryStatsQuery {
+  finding_id?: string;
+  query_hash?: string;
+  cluster_id?: string;
+  severity?: string;
+  alert_status?: string;
+  blocking_status?: string;
+  replica?: string;
+  since?: string;
+  until?: string;
+  sort_by?: "impact" | "count" | "avg_elapsed" | "max_elapsed" | "avg_cpu";
+  sort_dir?: "asc" | "desc";
+  limit?: number;
 }
 
 interface FindingDocument extends Document {
@@ -52,6 +70,17 @@ interface TimelineBucket {
   critical?: number;
   warning?: number;
   info?: number;
+}
+
+interface SlowQueryStatsDocument {
+  query_hash: string;
+  count: number;
+  avg_elapsed: number;
+  max_elapsed: number;
+  avg_cpu: number;
+  impact: number;
+  sql_text: string;
+  severity: string;
 }
 
 function applyBlockingStatusFilter(filter: Record<string, unknown>, blockingStatus?: string): void {
@@ -86,13 +115,27 @@ function applyBlockingStatusFilter(filter: Record<string, unknown>, blockingStat
   }
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function buildFindingsFilter(query: FindingsQuery | FindingTimelineQuery): Record<string, unknown> {
   const filter: Record<string, unknown> = {};
-  const findingQuery = query as FindingsQuery;
+  const andClauses: Array<Record<string, unknown>> = [];
 
-  if (findingQuery.finding_id) {
-    filter.finding_id = findingQuery.finding_id;
-    return filter;
+  if (query.finding_id) {
+    andClauses.push({
+      finding_id: { $regex: escapeRegex(query.finding_id), $options: "i" }
+    });
+  }
+
+  if (query.query_hash) {
+    andClauses.push({
+      "metrics.query_hash": {
+        $regex: escapeRegex(query.query_hash.trim()),
+        $options: "i"
+      }
+    });
   }
 
   if ("cluster_id" in query && query.cluster_id) filter.cluster_id = query.cluster_id;
@@ -104,6 +147,11 @@ function buildFindingsFilter(query: FindingsQuery | FindingTimelineQuery): Recor
   if ("status" in query && query.status) filter.status = query.status;
 
   applyBlockingStatusFilter(filter, query.blocking_status);
+
+  if (andClauses.length > 0) {
+    const currentAnd = Array.isArray(filter.$and) ? filter.$and : [];
+    filter.$and = [...currentAnd, ...andClauses];
+  }
 
   return filter;
 }
@@ -313,6 +361,151 @@ export async function getFindingTimeline(
     to: rangeEnd ? rangeEnd.toISOString() : null,
     buckets: items
   };
+}
+
+export async function getSlowQueryStats(
+  db: Db,
+  query: SlowQueryStatsQuery
+): Promise<{ items: SlowQueryStatsDocument[] }> {
+  const filter = buildFindingsFilter({
+    finding_id: query.finding_id,
+    query_hash: query.query_hash,
+    cluster_id: query.cluster_id,
+    topic_id: "slow_sessions",
+    severity: query.severity,
+    alert_status: query.alert_status,
+    blocking_status: query.blocking_status
+  });
+  const limit = Math.min(Math.max(Number(query.limit || 5), 1), 20);
+  const sortBy = query.sort_by || "impact";
+  const sortDirection = query.sort_dir === "asc" ? 1 : -1;
+  const findingsColl = db.collection<FindingDocument>(collections.findings);
+  const dateStages = buildDetectedAtPipeline(query.since, query.until);
+  const replicaStages = query.replica
+    ? [{ $match: { "metrics.replica_server_name": query.replica } }]
+    : [];
+  const sortStage: Record<string, 1 | -1> =
+    sortBy === "count"
+      ? { count: sortDirection, impact: -1, avg_elapsed: -1, max_elapsed: -1 }
+      : sortBy === "avg_elapsed"
+        ? { avg_elapsed: sortDirection, count: -1, max_elapsed: -1 }
+        : sortBy === "max_elapsed"
+          ? { max_elapsed: sortDirection, avg_elapsed: -1, count: -1 }
+          : sortBy === "avg_cpu"
+            ? { avg_cpu: sortDirection, impact: -1, avg_elapsed: -1 }
+            : { impact: sortDirection, avg_elapsed: -1, count: -1, max_elapsed: -1 };
+
+  const items = await findingsColl.aggregate<SlowQueryStatsDocument>([
+    { $match: filter },
+    ...dateStages,
+    ...replicaStages,
+    {
+      $addFields: {
+        query_hash_str: {
+          $toUpper: {
+            $trim: {
+              input: {
+                $convert: {
+                  input: "$metrics.query_hash",
+                  to: "string",
+                  onError: "",
+                  onNull: ""
+                }
+              }
+            }
+          }
+        },
+        elapsed_num: {
+          $convert: {
+            input: "$metrics.elapsed_seconds",
+            to: "double",
+            onError: 0,
+            onNull: 0
+          }
+        },
+        cpu_num: {
+          $convert: {
+            input: "$metrics.cpu_time_seconds",
+            to: "double",
+            onError: 0,
+            onNull: 0
+          }
+        },
+        sql_text_str: {
+          $trim: {
+            input: {
+              $convert: {
+                input: "$metrics.sql_text",
+                to: "string",
+                onError: "",
+                onNull: ""
+              }
+            }
+          }
+        },
+        severity_rank: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$severity", "CRITICAL"] }, then: 3 },
+              { case: { $eq: ["$severity", "WARNING"] }, then: 2 }
+            ],
+            default: 1
+          }
+        }
+      }
+    },
+    {
+      $match: {
+        query_hash_str: {
+          $nin: ["", "0X0000000000000000"]
+        }
+      }
+    },
+    {
+      $addFields: {
+        has_sql_text: {
+          $cond: [{ $gt: [{ $strLenCP: "$sql_text_str" }, 0] }, 1, 0]
+        }
+      }
+    },
+    { $sort: { query_hash_str: 1, has_sql_text: -1, detected_at_date: -1, detected_at: -1 } },
+    {
+      $group: {
+        _id: "$query_hash_str",
+        count: { $sum: 1 },
+        avg_elapsed: { $avg: "$elapsed_num" },
+        max_elapsed: { $max: "$elapsed_num" },
+        avg_cpu: { $avg: "$cpu_num" },
+        sql_text: { $first: "$sql_text_str" },
+        severity_rank: { $max: "$severity_rank" }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        query_hash: "$_id",
+        count: 1,
+        avg_elapsed: 1,
+        max_elapsed: 1,
+        avg_cpu: 1,
+        impact: { $multiply: ["$avg_elapsed", "$count"] },
+        sql_text: 1,
+        severity: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$severity_rank", 3] }, then: "CRITICAL" },
+              { case: { $eq: ["$severity_rank", 2] }, then: "WARNING" }
+            ],
+            default: "INFO"
+          }
+        }
+      }
+    },
+    { $sort: sortStage },
+    { $limit: limit }
+  ]).toArray();
+
+  return { items };
 }
 
 async function findAnalysisForFinding(db: Db, finding: FindingDocument): Promise<AnalysisDocument | null> {

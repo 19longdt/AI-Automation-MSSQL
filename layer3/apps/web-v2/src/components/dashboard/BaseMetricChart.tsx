@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import {
   CartesianGrid,
   Line,
@@ -106,5 +106,29 @@ export function BaseMetricChart<TData extends object>({
         </LineChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+export function ChartFrame({
+  title,
+  eyebrow,
+  children,
+  className,
+}: {
+  title: ReactNode;
+  eyebrow: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const hasTitle = typeof title === "string" ? title.trim().length > 0 : Boolean(title);
+
+  return (
+    <section className={className ?? "rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3"}>
+      <div className="mb-1">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">{eyebrow}</p>
+        {hasTitle ? <h3 className="text-[16px] font-semibold text-[var(--color-text)]">{title}</h3> : null}
+      </div>
+      {children}
+    </section>
   );
 }

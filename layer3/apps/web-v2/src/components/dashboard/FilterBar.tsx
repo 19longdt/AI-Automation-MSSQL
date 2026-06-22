@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useDashboardStore } from "@/store/dashboard.store";
 import { useReplicaOptions } from "@/hooks/useReplicaOptions";
 import { FilterX } from "lucide-react";
@@ -18,18 +19,64 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
     comparePastEnabled,
     setComparePastEnabled,
   } = useDashboardStore();
+  const [queryHashDraft, setQueryHashDraft] = useState(filters.queryHash || "");
+  const [findingIdDraft, setFindingIdDraft] = useState(filters.findingId || "");
   const showReplicaFilter = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
+  const showSlowSearchFilters = activeTopicId === "slow_sessions";
   const showComparePast =
     activeTopicId === "ag_health"
     || activeTopicId === "ag_redo_secondary"
     || activeTopicId === "tempdb_memory"
     || activeTopicId === "ple_trend";
   const { data: replicaOptions } = useReplicaOptions(activeTopicId, showReplicaFilter);
-  const hasFilters = !!(filters.severity || filters.alertStatus || filters.blockingStatus || filters.replica);
+  const hasFilters = !!(
+    filters.severity
+    || filters.alertStatus
+    || filters.blockingStatus
+    || filters.replica
+    || filters.queryHash
+    || filters.findingId
+  );
 
   function update(patch: Partial<FindingFilters>) {
-    setFilters({ ...filters, ...patch });
+    setFilters({ ...useDashboardStore.getState().filters, ...patch });
   }
+
+  useEffect(() => {
+    setQueryHashDraft(filters.queryHash || "");
+  }, [filters.queryHash]);
+
+  useEffect(() => {
+    setFindingIdDraft(filters.findingId || "");
+  }, [filters.findingId]);
+
+  useEffect(() => {
+    if (!showSlowSearchFilters) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      const nextQueryHash = queryHashDraft.trim().toUpperCase();
+      if ((filters.queryHash || "") === nextQueryHash) {
+        return;
+      }
+      update({ queryHash: nextQueryHash || undefined });
+    }, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [queryHashDraft, showSlowSearchFilters, filters, setFilters]);
+
+  useEffect(() => {
+    if (!showSlowSearchFilters) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      const nextFindingId = findingIdDraft.trim();
+      if ((filters.findingId || "") === nextFindingId) {
+        return;
+      }
+      update({ findingId: nextFindingId || undefined });
+    }, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [findingIdDraft, showSlowSearchFilters, filters, setFilters]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -96,6 +143,27 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
             ))}
           </SelectContent>
         </Select>
+      )}
+
+      {showSlowSearchFilters && (
+        <>
+          <input
+            type="text"
+            value={queryHashDraft}
+            onChange={(e) => setQueryHashDraft(e.target.value)}
+            placeholder="Query Hash"
+            aria-label="Search by query hash"
+            className="h-9 w-[180px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[12px] text-[var(--color-text)] font-code placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+          />
+          <input
+            type="text"
+            value={findingIdDraft}
+            onChange={(e) => setFindingIdDraft(e.target.value)}
+            placeholder="Finding ID"
+            aria-label="Search by finding id"
+            className="h-9 w-[220px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[12px] text-[var(--color-text)] font-code placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+          />
+        </>
       )}
 
       {hasFilters && (
