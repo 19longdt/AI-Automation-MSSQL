@@ -8,6 +8,8 @@ import { FilterBar } from "@/components/dashboard/FilterBar";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { AgHealthPreview } from "@/components/dashboard/AgHealthPreview";
 import { AgRedoSecondaryPreview } from "@/components/dashboard/AgRedoSecondaryPreview";
+import { TempdbMemoryPreview } from "@/components/dashboard/TempdbMemoryPreview";
+import { PleTrendPreview } from "@/components/dashboard/PleTrendPreview";
 import { TimelineChart } from "@/components/dashboard/TimelineChart";
 import { FindingsTable } from "@/components/dashboard/FindingsTable";
 
@@ -27,6 +29,8 @@ export function DashboardPage() {
   const showBlockingFilter = activeTopicId === "slow_sessions";
   const showAgHealthPreview = activeTopicId === "ag_health";
   const showAgRedoPreview = activeTopicId === "ag_redo_secondary";
+  const showTempdbPreview = activeTopicId === "tempdb_memory";
+  const showPleTrendPreview = activeTopicId === "ple_trend";
 
   return (
     <PageShell className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
@@ -52,6 +56,26 @@ export function DashboardPage() {
             <KpiCards />
             <AgHealthPreview />
             <div className="min-h-[520px] shrink-0">
+              <FindingsTable useOuterScroll />
+            </div>
+          </div>
+        </div>
+      ) : showPleTrendPreview ? (
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="flex min-h-full flex-col gap-3 pb-1">
+            <KpiCards />
+            <PleTrendPreview />
+            <div className="min-h-[420px] shrink-0">
+              <FindingsTable useOuterScroll />
+            </div>
+          </div>
+        </div>
+      ) : showTempdbPreview ? (
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="flex min-h-full flex-col gap-3 pb-1">
+            <KpiCards />
+            <TempdbMemoryPreview />
+            <div className="min-h-[420px] shrink-0">
               <FindingsTable useOuterScroll />
             </div>
           </div>

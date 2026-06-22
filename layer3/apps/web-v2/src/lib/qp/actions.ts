@@ -1,14 +1,14 @@
 import "./types";
 
 const OVERLAY_BACKDROP_CSS =
-  "position:fixed;inset:0;z-index:9900;background:var(--color-overlay);" +
-  "display:flex;align-items:center;justify-content:center;padding:16px";
+  "position:fixed;inset:0;z-index:200000;background:var(--color-overlay);" +
+  "display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto";
 
 const OVERLAY_MODAL_CSS =
   "display:flex;flex-direction:column;background:var(--color-surface-2);" +
   "border:1px solid var(--color-border-2);border-radius:16px;" +
   "width:min(95vw,940px);max-height:88vh;overflow:hidden;color:var(--color-text);" +
-  "box-shadow:0 24px 64px var(--color-shadow-lg)";
+  "box-shadow:0 24px 64px var(--color-shadow-lg);pointer-events:auto";
 
 const OVERLAY_HEADER_CSS =
   "display:flex;align-items:center;justify-content:space-between;" +
@@ -36,15 +36,17 @@ const OVERLAY_PRE_CSS =
   "word-break:break-word;margin:0;line-height:1.6;color:var(--color-text);" +
   "background:var(--color-surface);padding:12px;border-radius:10px;border:1px solid var(--color-border)";
 
+const QP_OVERLAY_ATTR = "data-qp-overlay";
+
 function createQpOverlay(title: string, bodyContent: HTMLElement) {
+  document.querySelectorAll<HTMLElement>(`[${QP_OVERLAY_ATTR}="true"]`).forEach(existing => existing.remove());
+
   const backdrop = document.createElement("div");
+  backdrop.setAttribute(QP_OVERLAY_ATTR, "true");
   backdrop.style.cssText = OVERLAY_BACKDROP_CSS;
 
   const modal = document.createElement("div");
   modal.style.cssText = OVERLAY_MODAL_CSS;
-  modal.addEventListener("pointerdown", e => e.stopPropagation(), true);
-  modal.addEventListener("mousedown", e => e.stopPropagation(), true);
-  modal.addEventListener("click", e => e.stopPropagation(), true);
 
   const header = document.createElement("div");
   header.style.cssText = OVERLAY_HEADER_CSS;
@@ -79,18 +81,51 @@ function createQpOverlay(title: string, bodyContent: HTMLElement) {
   document.body.appendChild(backdrop);
 
   const keyHandlerRef = { fn: (_e: KeyboardEvent) => {} };
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     backdrop.remove();
     document.removeEventListener("keydown", keyHandlerRef.fn, true);
   };
 
-  closeBtn.addEventListener("pointerdown", e => {
+  const stopBubble = (e: Event) => {
     e.stopPropagation();
-    close();
-  });
+  };
+  modal.addEventListener("pointerdown", stopBubble);
+  modal.addEventListener("mousedown", stopBubble);
+  modal.addEventListener("click", stopBubble);
+
+  const handleClosePointerDown = (e: Event) => {
+    e.stopPropagation();
+    if ("preventDefault" in e) e.preventDefault();
+  };
+  const handleCloseClick = (e: Event) => {
+    handleClosePointerDown(e);
+    window.setTimeout(close, 0);
+  };
+  closeBtn.addEventListener("pointerdown", handleClosePointerDown);
+  closeBtn.addEventListener("mousedown", handleClosePointerDown);
+  closeBtn.addEventListener("click", handleCloseClick);
 
   backdrop.addEventListener("pointerdown", e => {
-    if (e.target === backdrop) close();
+    e.stopPropagation();
+    if (e.target === backdrop) {
+      handleClosePointerDown(e);
+    }
+  });
+  backdrop.addEventListener("mousedown", e => {
+    e.stopPropagation();
+    if (e.target === backdrop) {
+      handleClosePointerDown(e);
+    }
+  });
+  backdrop.addEventListener("click", e => {
+    e.stopPropagation();
+    if (e.target === backdrop) {
+      handleClosePointerDown(e);
+      window.setTimeout(close, 0);
+    }
   });
 
   keyHandlerRef.fn = (e: KeyboardEvent) => {

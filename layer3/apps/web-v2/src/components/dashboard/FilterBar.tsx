@@ -19,7 +19,11 @@ export function FilterBar({ showBlockingFilter = false }: Props) {
     setComparePastEnabled,
   } = useDashboardStore();
   const showReplicaFilter = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
-  const showComparePast = activeTopicId === "ag_health" || activeTopicId === "ag_redo_secondary";
+  const showComparePast =
+    activeTopicId === "ag_health"
+    || activeTopicId === "ag_redo_secondary"
+    || activeTopicId === "tempdb_memory"
+    || activeTopicId === "ple_trend";
   const { data: replicaOptions } = useReplicaOptions(activeTopicId, showReplicaFilter);
   const hasFilters = !!(filters.severity || filters.alertStatus || filters.blockingStatus || filters.replica);
 

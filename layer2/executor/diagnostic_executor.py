@@ -287,6 +287,18 @@ class DiagnosticExecutor:
         """
         return self._run(node, sql, (top_n,))
 
+    def get_ple_numa(self, node: str, top_n: int = 16) -> list[dict[str, Any]]:
+        sql = """
+        SELECT TOP (?)
+            object_name AS numa_node,
+            cntr_value  AS ple_sec
+        FROM sys.dm_os_performance_counters
+        WHERE counter_name = 'Page life expectancy'
+          AND object_name LIKE '%Buffer Node%'
+        ORDER BY object_name
+        """
+        return self._run(node, sql, (top_n,))
+
     def get_blocking_chain(self, node: str, top_n: int = 30) -> list[dict[str, Any]]:
         sql = """
         SELECT TOP (?)

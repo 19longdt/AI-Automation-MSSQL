@@ -140,6 +140,17 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
             required=["node"],
         ),
     ),
+    "get_ple_numa": ToolDefinition(
+        name="get_ple_numa",
+        description=(
+            "Lay PLE theo tung NUMA node tu Buffer Node counters. Dung de phat hien 1 node bi pressure "
+            "du global PLE van co ve on."
+        ),
+        input_schema=_schema(
+            {"node": _NODE, "top_n": {**_TOP_N, "default": 16}},
+            required=["node"],
+        ),
+    ),
     "get_blocking_chain": ToolDefinition(
         name="get_blocking_chain",
         description=(

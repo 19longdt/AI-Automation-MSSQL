@@ -108,6 +108,7 @@ class BaselineDetector:
             hour=hour,
             threshold_pct=config.threshold_pct,
             query_hash=query_hash,
+            lower_is_worse=self._is_lower_worse(topic, config.metric_field),
         )
         if not is_anomaly:
             return None
@@ -138,9 +139,28 @@ class BaselineDetector:
 
         return Finding(
             topic_id=topic.topic_id,
-            issue_type=IssueType.slow_sessions,
+            issue_type=self._resolve_issue_type(topic, config.metric_field),
             severity=Severity.WARNING,
             node=node,
             role=role,
             metrics=metrics,
         )
+
+    @staticmethod
+    def _is_lower_worse(topic: MonitorTopic, field: str) -> bool:
+        fields = set(topic.extra.get("lower_is_worse_fields", []))
+        return field in fields
+
+    @staticmethod
+    def _resolve_issue_type(topic: MonitorTopic, field: str) -> IssueType:
+        field_map: dict = topic.extra.get("issue_type_map", {})
+        raw = field_map.get(field) or topic.extra.get("issue_type")
+        if raw:
+            try:
+                return IssueType(raw)
+            except ValueError:
+                logger.warning(
+                    "baseline_detector: unknown issue_type '%s' for topic=%s field=%s",
+                    raw, topic.topic_id, field,
+                )
+        return IssueType.slow_sessions

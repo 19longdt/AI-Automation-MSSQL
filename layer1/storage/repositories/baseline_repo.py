@@ -123,13 +123,19 @@ class BaselineRepo:
         hour: int,
         threshold_pct: float,
         query_hash: str | None = None,
+        lower_is_worse: bool = False,
     ) -> bool:
         """
-        Kiểm tra current_value có vượt baseline_avg * (1 + threshold_pct/100) không.
+        Kiểm tra current_value có lệch khỏi baseline theo hướng xấu hay không.
         Trả về False nếu chưa có baseline (chưa đủ dữ liệu).
         """
         doc = self.get_baseline(metric_type, node, day_of_week, hour, query_hash)
         if not doc or not doc.get("baseline_avg"):
             return False
-        threshold = doc["baseline_avg"] * (1 + threshold_pct / 100)
+        baseline_avg = float(doc["baseline_avg"])
+        if lower_is_worse:
+            threshold = baseline_avg * (1 - threshold_pct / 100)
+            return current_value < threshold
+
+        threshold = baseline_avg * (1 + threshold_pct / 100)
         return current_value > threshold

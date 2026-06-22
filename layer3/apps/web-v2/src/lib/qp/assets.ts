@@ -1,4 +1,4 @@
-const QP_VERSION = "20260615f";
+const QP_VERSION = "20260621a";
 
 export function getQpScriptUrl() {
   return `/dist/qp.js?v=${QP_VERSION}`;

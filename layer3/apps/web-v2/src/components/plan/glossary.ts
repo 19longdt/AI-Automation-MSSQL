@@ -923,4 +923,30 @@ export const GLOSSARY: Record<string, GlossaryEntry> = {
     definition: "Thời điểm SQL Server phát hiện và giải quyết deadlock — victim bắt đầu bị rollback từ thời điểm này.",
     impact: "Giúp đối chiếu với error log, application log và workload cùng lúc để tìm query gây ra.",
   },
+
+  // ── TempDB & Memory ───────────────────────────────────────────────────────
+  page_life_expectancy: {
+    term: "Page Life Expectancy (PLE)",
+    definition: "Số giây trung bình một data page tồn tại trong buffer pool (RAM) trước khi bị đẩy ra đĩa. Giá trị càng cao = RAM càng dư dả, SQL Server ít phải đọc đĩa.",
+    threshold: "Khuyến nghị: (RAM_GB / 4) × 300. Ví dụ 24 GB RAM → PLE nên ≥ 1800s. Ngưỡng cảnh báo hệ thống: < 1500s, nguy hiểm: < 600s.",
+    impact: "PLE thấp = buffer pool liên tục bị churn → mọi query phải đọc đĩa thay vì đọc RAM → tăng PAGEIOLATCH wait, I/O cao, throughput giảm mạnh.",
+  },
+  numa_node: {
+    term: "NUMA Node",
+    definition: "Non-Uniform Memory Access: server multi-socket có nhiều CPU socket, mỗi socket có vùng RAM riêng (local memory). SQL Server cấp phát buffer pool riêng cho mỗi NUMA node để tối ưu băng thông memory.",
+    threshold: "PLE chênh lệch lớn giữa các node (ví dụ Node 0: 6000s, Node 1: 800s) = workload đang phân bổ không đều hoặc một node đang bị memory pressure cục bộ.",
+    impact: "PLE global có thể trông ổn trong khi một NUMA node đang bị churn nặng — cần xem PLE per node để phát hiện.",
+  },
+  version_store: {
+    term: "Version Store",
+    definition: "Vùng trong TempDB lưu phiên bản cũ của rows để phục vụ snapshot isolation và Change Data Capture (CDC). Mỗi lần row bị UPDATE/DELETE, bản cũ được ghi vào version store cho đến khi không còn transaction nào cần đọc nó.",
+    threshold: "> 500 MB cảnh báo, > 1000 MB nghiêm trọng.",
+    impact: "Version store phình to thường do: CDC job fail (không dọn được), snapshot isolation giữ transaction quá lâu, hoặc long-running query dùng READ COMMITTED SNAPSHOT. TempDB đầy sẽ làm lỗi query toàn server.",
+  },
+  baseline_deviation: {
+    term: "Độ lệch so với Baseline",
+    definition: "Phần trăm chênh lệch giữa giá trị hiện tại và trung bình lịch sử cùng thứ-và-giờ trong 4 tuần qua. Dương = đang tệ hơn bình thường; âm = đang tốt hơn bình thường.",
+    threshold: "Alert khi lệch > 50% so với baseline. Ví dụ PLE bình thường 8000s, hôm nay 3500s → lệch 56% → cảnh báo.",
+    impact: "Phát hiện workload bất thường sớm hơn threshold tuyệt đối: server 64GB RAM có thể không bao giờ chạm ngưỡng 1500s nhưng drop từ 10000s xuống 3000s là tín hiệu quan trọng.",
+  },
 };
