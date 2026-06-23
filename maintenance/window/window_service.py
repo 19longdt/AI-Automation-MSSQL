@@ -21,13 +21,14 @@ logger = logging.getLogger(__name__)
 
 class WindowService:
 
-    def __init__(self, window_repo: WindowRepo, history_repo: HistoryRepo) -> None:
+    def __init__(self, cluster_id: str, window_repo: WindowRepo, history_repo: HistoryRepo) -> None:
+        self._cluster_id = cluster_id
         self._window_repo = window_repo
         self._history_repo = history_repo
 
     def state(self, now: datetime) -> WindowState:
         """Trạng thái window tại `now` (naive VN time — truyền now_vn())."""
-        window = self._window_repo.get()
+        window = self._window_repo.find_by_cluster(self._cluster_id)
         if window is None:
             return WindowState(open=False, reason="missing_config")
         if not window.enabled:
@@ -40,7 +41,7 @@ class WindowService:
             return WindowState(open=False, reason="outside_window")
         window_start, window_end, slot = bounds
 
-        used_minutes = self._history_repo.sum_done_minutes_between(window_start, now)
+        used_minutes = self._history_repo.sum_done_minutes_between(self._cluster_id, window_start, now)
         budget_left = slot.time_budget_minutes - used_minutes
         minutes_to_end = (window_end - now).total_seconds() / 60.0
         remaining = min(budget_left, minutes_to_end)
@@ -51,7 +52,7 @@ class WindowService:
 
     def current_slot(self, now: datetime) -> WindowSlot | None:
         """Slot của window gần nhất (đang mở hoặc đêm vừa rồi) — cho summary."""
-        window = self._window_repo.get()
+        window = self._window_repo.find_by_cluster(self._cluster_id)
         if window is None:
             return None
         bounds = self.current_window_bounds(window, now)

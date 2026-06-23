@@ -82,6 +82,8 @@ class WorkItemMetrics(BaseModel):
 class WorkItem(BaseModel):
     """1 document trong `maintenance_queue`."""
 
+    cluster_id: str
+    campaign_id: str | None = None
     item_id: str = Field(default_factory=lambda: str(uuid4()))
     short_id: str = ""  # 8 ký tự đầu của item_id — dùng cho Telegram callback (64-byte limit)
     batch_id: str
@@ -133,6 +135,7 @@ class WorkItem(BaseModel):
     def dedupe_key(self) -> tuple:
         """Key chống enqueue trùng object đang còn open trong queue."""
         return (
+            self.cluster_id,
             self.schema_name,
             self.table_name,
             self.index_name,

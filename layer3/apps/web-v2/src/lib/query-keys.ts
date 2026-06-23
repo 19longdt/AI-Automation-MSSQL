@@ -3,6 +3,10 @@ import type {
   TimelineQuery,
   InsightsQuery,
   AnalysesQuery,
+  CampaignListQuery,
+  MaintenanceSummaryQuery,
+  MaintenanceQueueQuery,
+  MaintenanceHistoryQuery,
 } from "@/types";
 
 export const qk = {
@@ -14,4 +18,8 @@ export const qk = {
   insights: (p: InsightsQuery)        => ["insights", p]                 as const,
   analyses: (p: AnalysesQuery)        => ["analyses", p]                 as const,
   jobsHealth: ()                      => ["jobs-health"]                  as const,
+  campaigns: (p: CampaignListQuery) => ["campaigns", p] as const,
+  maintenanceSummary: (p: MaintenanceSummaryQuery) => ["maintenance-summary", p] as const,
+  maintenanceQueue: (p: MaintenanceQueueQuery) => ["maintenance-queue", p] as const,
+  maintenanceHistory: (p: MaintenanceHistoryQuery) => ["maintenance-history", p] as const,
 };

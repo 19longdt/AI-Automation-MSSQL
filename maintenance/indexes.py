@@ -28,6 +28,7 @@ def _ensure_ttl_index(col, keys, name: str, ttl_seconds: int) -> None:
 
 
 def create_maint_indexes(db: Database) -> None:
+    _create_maintenance_campaign_indexes(db)
     _create_maintenance_policies_indexes(db)
     _create_maintenance_window_indexes(db)
     _create_maintenance_queue_indexes(db)
@@ -35,6 +36,15 @@ def create_maint_indexes(db: Database) -> None:
     _create_maintenance_history_indexes(db)
     _create_maintenance_scan_queries_indexes(db)
     logger.info("Maintenance MongoDB indexes created/verified (db=%s).", db.name)
+
+
+def _create_maintenance_campaign_indexes(db: Database) -> None:
+    col = db["maintenance_campaigns"]
+    col.create_indexes([
+        IndexModel([("campaign_id", ASCENDING)], unique=True, name="unique_campaign_id"),
+        IndexModel([("cluster_id", ASCENDING), ("status", ASCENDING)], name="cluster_status"),
+        IndexModel([("cluster_id", ASCENDING), ("start_date", ASCENDING)], name="cluster_start_date"),
+    ])
 
 
 def _create_maintenance_policies_indexes(db: Database) -> None:
@@ -53,6 +63,7 @@ def _create_maintenance_policies_indexes(db: Database) -> None:
 def _create_maintenance_window_indexes(db: Database) -> None:
     col = db["maintenance_window"]
     col.create_indexes([
+        IndexModel([("cluster_id", ASCENDING)], unique=True, name="unique_cluster"),
         IndexModel([("window_id", ASCENDING)], unique=True, name="unique_window_id"),
     ])
 
@@ -61,13 +72,15 @@ def _create_maintenance_queue_indexes(db: Database) -> None:
     col = db["maintenance_queue"]
     col.create_indexes([
         IndexModel(
-            [("status", ASCENDING), ("priority", DESCENDING), ("created_at", ASCENDING)],
+            [("cluster_id", ASCENDING), ("campaign_id", ASCENDING), ("status", ASCENDING), ("priority", DESCENDING), ("created_at", ASCENDING)],
             name="claim_order",
         ),
-        IndexModel([("batch_id", ASCENDING)], name="batch_id"),
-        IndexModel([("short_id", ASCENDING)], name="short_id"),
+        IndexModel([("cluster_id", ASCENDING), ("batch_id", ASCENDING)], name="batch_id"),
+        IndexModel([("cluster_id", ASCENDING), ("short_id", ASCENDING)], name="short_id"),
+        IndexModel([("cluster_id", ASCENDING), ("campaign_id", ASCENDING)], name="campaign_id"),
         IndexModel(
             [
+                ("cluster_id", ASCENDING),
                 ("schema_name", ASCENDING),
                 ("table_name", ASCENDING),
                 ("index_name", ASCENDING),
@@ -83,8 +96,8 @@ def _create_maintenance_queue_indexes(db: Database) -> None:
 def _create_maintenance_batches_indexes(db: Database) -> None:
     col = db["maintenance_batches"]
     col.create_indexes([
-        IndexModel([("batch_id", ASCENDING)], unique=True, name="unique_batch_id"),
-        IndexModel([("status", ASCENDING), ("created_at", DESCENDING)], name="status_time"),
+        IndexModel([("cluster_id", ASCENDING), ("batch_id", ASCENDING)], unique=True, name="unique_batch_id"),
+        IndexModel([("cluster_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)], name="status_time"),
     ])
     _ensure_ttl_index(col, [("created_at", ASCENDING)], "ttl_created_at", TTL_MAINT_BATCHES_SEC)
 
@@ -92,9 +105,10 @@ def _create_maintenance_batches_indexes(db: Database) -> None:
 def _create_maintenance_history_indexes(db: Database) -> None:
     col = db["maintenance_history"]
     col.create_indexes([
-        IndexModel([("table_name", ASCENDING), ("created_at", DESCENDING)], name="table_time"),
-        IndexModel([("action_type", ASCENDING), ("created_at", DESCENDING)], name="action_time"),
-        IndexModel([("item_id", ASCENDING)], name="item_id"),
+        IndexModel([("cluster_id", ASCENDING), ("table_name", ASCENDING), ("created_at", DESCENDING)], name="table_time"),
+        IndexModel([("cluster_id", ASCENDING), ("action_type", ASCENDING), ("created_at", DESCENDING)], name="action_time"),
+        IndexModel([("cluster_id", ASCENDING), ("item_id", ASCENDING)], name="item_id"),
+        IndexModel([("cluster_id", ASCENDING), ("campaign_id", ASCENDING), ("created_at", DESCENDING)], name="campaign_time"),
     ])
     _ensure_ttl_index(col, [("created_at", ASCENDING)], "ttl_created_at", TTL_MAINT_HISTORY_SEC)
 

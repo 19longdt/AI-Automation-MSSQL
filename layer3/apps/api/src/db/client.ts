@@ -20,6 +20,11 @@ export function getDb(): Db {
   return db;
 }
 
+export function getDbByName(name: string): Db {
+  if (!client) throw new Error("MongoDB is not connected");
+  return client.db(name);
+}
+
 export async function closeMongo(): Promise<void> {
   if (client) {
     await client.close();

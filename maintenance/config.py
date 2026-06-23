@@ -1,11 +1,7 @@
-"""
-Standalone environment settings for the maintenance package.
-"""
+"""Standalone environment settings for the maintenance package."""
 from __future__ import annotations
 
-import json
-
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,15 +19,10 @@ class MaintEnvSettings(BaseSettings):
         case_sensitive=False,
     )
 
-    mssql_nodes: list[str] = Field(default_factory=list)
-    mssql_database: str = Field(...)
-    mssql_username: str = Field(...)
-    mssql_password: str = Field(...)
-    mssql_port: int = Field(default=1433)
-    mssql_query_timeout_sec: int = Field(default=30)
-
     mongodb_uri: str = Field(default="mongodb://localhost:27017")
+    monitor_mongodb_db: str = Field(default="db_monitor")
     maint_mongodb_db: str = Field(default="db_maintenance")
+    mssql_query_timeout_sec: int = Field(default=30)
 
     maint_scan_cron: str = Field(default="0 20 * * *")
     maint_summary_cron: str = Field(default="30 5 * * *")
@@ -43,10 +34,8 @@ class MaintEnvSettings(BaseSettings):
     maint_batch_top_n_items: int = Field(default=10, ge=0, le=20)
     maint_approval_expire_hours: int = Field(default=30, ge=1)
 
-    node_role_refresh_sec: int = Field(default=3600)
-
     maint_telegram_bot_token: str
-    maint_telegram_chat_id: str
+    telegram_chat_id: str
 
     log_level: str = Field(
         default="INFO",
@@ -57,16 +46,6 @@ class MaintEnvSettings(BaseSettings):
     logstash_app_name: str = Field(default="sds.ep.ai-automation-maintenance")
     logstash_transport: str = Field(default="tcp")
     logstash_database_path: str = Field(default="")
-
-    @field_validator("mssql_nodes", mode="before")
-    @classmethod
-    def parse_mssql_nodes(cls, v: object) -> list[str]:
-        if isinstance(v, str):
-            raw = v.strip()
-            if raw.startswith("["):
-                return json.loads(raw)
-            return [node.strip() for node in raw.split(",") if node.strip()]
-        return v  # type: ignore[return-value]
 
     @field_validator("maint_scan_cron", "maint_summary_cron")
     @classmethod
@@ -80,22 +59,5 @@ class MaintEnvSettings(BaseSettings):
         if text not in {"udp", "tcp"}:
             raise ValueError("LOGSTASH_TRANSPORT must be 'udp' or 'tcp'")
         return text
-
-    @model_validator(mode="after")
-    def validate_nodes_not_empty(self) -> "MaintEnvSettings":
-        if not self.mssql_nodes:
-            raise ValueError("MSSQL_NODES is required for maintenance.")
-        return self
-
-    def get_connection_string(self, host: str) -> str:
-        return (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={host},{self.mssql_port};"
-            f"DATABASE={self.mssql_database};"
-            f"UID={self.mssql_username};"
-            f"PWD={self.mssql_password};"
-            f"TrustServerCertificate=yes;"
-        )
-
 
 maint_settings = MaintEnvSettings()

@@ -48,12 +48,12 @@ class QueueRepo:
         self.collection.insert_many([item.model_dump() for item in items])
         return len(items)
 
-    def find_open_keys(self) -> set[tuple]:
+    def find_open_keys(self, cluster_id: str) -> set[tuple]:
         """Dedupe keys của items chưa terminal — scan không enqueue trùng."""
         open_values = [s.value for s in OPEN_STATUSES]
         keys: set[tuple] = set()
         cursor = self.collection.find(
-            {"status": {"$in": open_values}},
+            {"cluster_id": cluster_id, "status": {"$in": open_values}},
             {
                 "schema_name": 1,
                 "table_name": 1,
@@ -65,6 +65,7 @@ class QueueRepo:
         )
         for doc in cursor:
             keys.add((
+                doc.get("cluster_id"),
                 doc.get("schema_name"),
                 doc.get("table_name"),
                 doc.get("index_name"),
@@ -74,11 +75,12 @@ class QueueRepo:
             ))
         return keys
 
-    def expire_stale_awaiting(self, older_than: datetime) -> int:
+    def expire_stale_awaiting(self, cluster_id: str, older_than: datetime) -> int:
         """Batch cũ chưa được duyệt → expired (không bao giờ chạy)."""
         now = now_vn()
         result = self.collection.update_many(
             {
+                "cluster_id": cluster_id,
                 "status": WorkItemStatus.AWAITING_APPROVAL.value,
                 "created_at": {"$lt": older_than},
             },
@@ -92,7 +94,7 @@ class QueueRepo:
 
     # ── Approval side ────────────────────────────────────────────────────────
 
-    def bulk_decide_batch(self, batch_id: str, decision: str, decided_by: str) -> int:
+    def bulk_decide_batch(self, cluster_id: str, batch_id: str, decision: str, decided_by: str) -> int:
         """Approve/Reject ALL items awaiting_approval của 1 batch."""
         now = now_vn()
         if decision == "approved":
@@ -109,12 +111,16 @@ class QueueRepo:
                 "terminal_at": now,
             }}
         result = self.collection.update_many(
-            {"batch_id": batch_id, "status": WorkItemStatus.AWAITING_APPROVAL.value},
+            {
+                "cluster_id": cluster_id,
+                "batch_id": batch_id,
+                "status": WorkItemStatus.AWAITING_APPROVAL.value,
+            },
             update,
         )
         return result.modified_count
 
-    def decide_item(self, short_id: str, decision: str, decided_by: str) -> bool:
+    def decide_item(self, cluster_id: str, short_id: str, decision: str, decided_by: str) -> bool:
         """Approve/Reject 1 item theo short_id. Idempotent — item đã quyết → False."""
         now = now_vn()
         new_status = (
@@ -128,27 +134,44 @@ class QueueRepo:
         if new_status in TERMINAL_STATUSES:
             set_fields["terminal_at"] = now
         result = self.collection.update_one(
-            {"short_id": short_id, "status": WorkItemStatus.AWAITING_APPROVAL.value},
+            {
+                "cluster_id": cluster_id,
+                "short_id": short_id,
+                "status": WorkItemStatus.AWAITING_APPROVAL.value,
+            },
             {"$set": set_fields},
         )
         return result.modified_count > 0
 
     # ── Execute side ─────────────────────────────────────────────────────────
 
-    def claim_paused_resumable(self) -> WorkItem | None:
+    def claim_paused_resumable(self, cluster_id: str, campaign_id: str | None = None) -> WorkItem | None:
         """Ưu tiên RESUME rebuild đang paused trước khi lấy item mới."""
+        filter_doc: dict[str, object] = {
+            "cluster_id": cluster_id,
+            "status": WorkItemStatus.PAUSED.value,
+            "resume_token": True,
+        }
+        if campaign_id is not None:
+            filter_doc["campaign_id"] = campaign_id
         doc = self.collection.find_one_and_update(
-            {"status": WorkItemStatus.PAUSED.value, "resume_token": True},
+            filter_doc,
             {"$set": {"status": WorkItemStatus.RUNNING.value, "updated_at": now_vn()}},
             sort=_CLAIM_SORT,
             return_document=ReturnDocument.AFTER,
         )
         return _to_item(doc)
 
-    def claim_next_approved(self) -> WorkItem | None:
+    def claim_next_approved(self, cluster_id: str, campaign_id: str | None = None) -> WorkItem | None:
         """Claim atomic item approved có priority cao nhất."""
+        filter_doc: dict[str, object] = {
+            "cluster_id": cluster_id,
+            "status": WorkItemStatus.APPROVED.value,
+        }
+        if campaign_id is not None:
+            filter_doc["campaign_id"] = campaign_id
         doc = self.collection.find_one_and_update(
-            {"status": WorkItemStatus.APPROVED.value},
+            filter_doc,
             {"$set": {"status": WorkItemStatus.RUNNING.value, "updated_at": now_vn()}},
             sort=_CLAIM_SORT,
             return_document=ReturnDocument.AFTER,
@@ -213,11 +236,14 @@ class QueueRepo:
             )
         return result.modified_count
 
-    def count_by_status(self) -> dict[str, int]:
+    def count_by_status(self, cluster_id: str) -> dict[str, int]:
         """Đếm items theo status — cho summary/notification."""
-        pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+        pipeline = [
+            {"$match": {"cluster_id": cluster_id}},
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+        ]
         return {doc["_id"]: doc["count"] for doc in self.collection.aggregate(pipeline)}
 
-    def find_by_batch(self, batch_id: str) -> list[WorkItem]:
-        docs = self.collection.find({"batch_id": batch_id}).sort(_CLAIM_SORT)
+    def find_by_batch(self, cluster_id: str, batch_id: str) -> list[WorkItem]:
+        docs = self.collection.find({"cluster_id": cluster_id, "batch_id": batch_id}).sort(_CLAIM_SORT)
         return [item for item in (_to_item(d) for d in docs) if item]

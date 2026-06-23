@@ -97,7 +97,7 @@ class MaintenanceBot:
             return
 
         parts = data.split("|")
-        if len(parts) < 4:
+        if len(parts) < 5:
             self._answer_callback(callback_id, "Callback thiếu dữ liệu.")
             return
 

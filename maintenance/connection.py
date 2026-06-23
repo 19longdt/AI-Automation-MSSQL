@@ -16,11 +16,9 @@ from contextlib import contextmanager
 
 import pyodbc
 
-from .config import maint_settings as settings
-
 
 @contextmanager
-def maint_connection(host: str) -> Generator[pyodbc.Connection, None, None]:
+def maint_connection(host: str, conn_str: str) -> Generator[pyodbc.Connection, None, None]:
     """
     Connection cho ALTER INDEX / UPDATE STATISTICS.
 
@@ -29,7 +27,7 @@ def maint_connection(host: str) -> Generator[pyodbc.Connection, None, None]:
     Tạo mới per-call, KHÔNG cache (pyodbc không thread-safe).
     """
     conn = pyodbc.connect(
-        settings.get_connection_string(host),
+        conn_str,
         timeout=15,  # login/connect timeout — kết nối thất bại phải fail nhanh
         autocommit=True,
     )

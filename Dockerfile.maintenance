@@ -15,6 +15,7 @@ WORKDIR /app
 COPY requirements.maintenance.txt .
 RUN pip install --no-cache-dir -r requirements.maintenance.txt
 
+COPY layer1/ ./layer1/
 COPY maintenance/ ./maintenance/
 
 RUN useradd -m -u 1000 monitor \

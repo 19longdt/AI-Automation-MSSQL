@@ -24,16 +24,16 @@ class HistoryRepo:
         self.collection.insert_one(history.model_dump())
         return history.history_id
 
-    def find_between(self, since: datetime, until: datetime) -> list[dict]:
+    def find_between(self, cluster_id: str, since: datetime, until: datetime) -> list[dict]:
         """History records trong khoảng thời gian — cho nightly summary."""
         return list(
             self.collection.find(
-                {"created_at": {"$gte": since, "$lt": until}},
+                {"cluster_id": cluster_id, "created_at": {"$gte": since, "$lt": until}},
                 {"_id": 0},
             ).sort("created_at", DESCENDING)
         )
 
-    def sum_done_minutes_between(self, since: datetime, until: datetime) -> float:
+    def sum_done_minutes_between(self, cluster_id: str, since: datetime, until: datetime) -> float:
         """
         Tổng phút đã thực thi trong khoảng — để tính budget còn lại của window.
         Tính cả done/failed/paused (đều chiếm thời gian window), bỏ skipped/dry_run.
@@ -41,6 +41,7 @@ class HistoryRepo:
         pipeline = [
             {"$match": {
                 "created_at": {"$gte": since, "$lt": until},
+                "cluster_id": cluster_id,
                 "outcome": {"$in": [
                     MaintenanceOutcome.DONE.value,
                     MaintenanceOutcome.FAILED.value,
@@ -54,9 +55,9 @@ class HistoryRepo:
             return 0.0
         return float(docs[0].get("total_ms") or 0.0) / 60_000.0
 
-    def find_recent_by_table(self, table_name: str, limit: int = 10) -> list[dict]:
+    def find_recent_by_table(self, cluster_id: str, table_name: str, limit: int = 10) -> list[dict]:
         return list(
-            self.collection.find({"table_name": table_name}, {"_id": 0})
+            self.collection.find({"cluster_id": cluster_id, "table_name": table_name}, {"_id": 0})
             .sort("created_at", DESCENDING)
             .limit(limit)
         )

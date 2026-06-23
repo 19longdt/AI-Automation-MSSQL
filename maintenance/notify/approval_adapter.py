@@ -36,7 +36,7 @@ class MaintenanceApprovalAdapter:
     def handle(self, action: str, parts: list[str], sender: str) -> ApprovalResult:
         """
         action: "mntb" | "mnti"
-        parts:  ["l1", action, id, decision]
+        parts:  ["l1", action, cluster_id, id, decision]
         """
         try:
             if action == "mntb":
@@ -50,14 +50,15 @@ class MaintenanceApprovalAdapter:
             return ApprovalResult(ok=False, message="⚠️ Lỗi xử lý maintenance approval — xem log.")
 
     def _handle_batch(self, parts: list[str], sender: str) -> ApprovalResult:
-        if len(parts) < 4:
-            return ApprovalResult(ok=False, message="⚠️ Callback batch thiếu decision.")
-        batch_id = parts[2].strip()
-        decision_raw = parts[3].strip().lower()
+        if len(parts) < 5:
+            return ApprovalResult(ok=False, message="⚠️ Callback batch thiếu cluster_id hoặc decision.")
+        cluster_id = parts[2].strip()
+        batch_id = parts[3].strip()
+        decision_raw = parts[4].strip().lower()
         decision = "approved" if decision_raw == "all" else "rejected"
 
-        decided = self._batch_repo.decide(batch_id, decision_raw, sender)
-        affected = self._queue_repo.bulk_decide_batch(batch_id, decision, sender)
+        decided = self._batch_repo.decide(cluster_id, batch_id, decision_raw, sender)
+        affected = self._queue_repo.bulk_decide_batch(cluster_id, batch_id, decision, sender)
 
         if not decided and affected == 0:
             return ApprovalResult(
@@ -79,12 +80,13 @@ class MaintenanceApprovalAdapter:
         )
 
     def _handle_item(self, parts: list[str], sender: str) -> ApprovalResult:
-        if len(parts) < 4:
-            return ApprovalResult(ok=False, message="⚠️ Callback item thiếu decision.")
-        short_id = parts[2].strip()
-        decision = "approved" if parts[3].strip().lower() == "ok" else "rejected"
+        if len(parts) < 5:
+            return ApprovalResult(ok=False, message="⚠️ Callback item thiếu cluster_id hoặc decision.")
+        cluster_id = parts[2].strip()
+        short_id = parts[3].strip()
+        decision = "approved" if parts[4].strip().lower() == "ok" else "rejected"
 
-        changed = self._queue_repo.decide_item(short_id, decision, sender)
+        changed = self._queue_repo.decide_item(cluster_id, short_id, decision, sender)
         if not changed:
             return ApprovalResult(
                 ok=False,

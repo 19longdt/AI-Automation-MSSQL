@@ -35,6 +35,27 @@ WHERE ips.page_count > {min_page_count}
 ORDER BY ips.avg_fragmentation_in_percent DESC
 """
 
+FRAGMENTATION_SQL_PER_TABLE = """
+SELECT DB_NAME() AS database_name, s.name AS schema_name,
+  o.name AS table_name, i.name AS index_name,
+  ips.object_id, ips.index_id, ips.partition_number, ips.index_type_desc,
+  CAST(ips.avg_fragmentation_in_percent AS DECIMAL(5,2)) AS fragmentation_pct,
+  ips.page_count, ips.record_count,
+  CASE WHEN EXISTS (SELECT 1 FROM sys.partitions p
+       WHERE p.object_id = ips.object_id AND p.index_id = ips.index_id
+         AND p.partition_number > 1)
+       THEN 1 ELSE 0 END AS is_partitioned
+FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'SAMPLED') ips
+JOIN sys.indexes i  ON ips.object_id = i.object_id AND ips.index_id = i.index_id
+JOIN sys.objects o  ON ips.object_id = o.object_id
+JOIN sys.schemas s  ON o.schema_id = s.schema_id
+WHERE ips.page_count > {min_page_count}
+  AND ips.avg_fragmentation_in_percent >= {min_frag_pct}
+  AND ips.index_type_desc IN ('CLUSTERED INDEX', 'NONCLUSTERED INDEX')
+  AND o.is_ms_shipped = 0
+ORDER BY ips.avg_fragmentation_in_percent DESC
+"""
+
 # Q2 — Statistics staleness theo modification_counter.
 STATS_STALENESS_SQL = """
 SELECT DB_NAME() AS database_name, sch.name AS schema_name, o.name AS table_name,

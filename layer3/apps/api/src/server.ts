@@ -5,6 +5,7 @@ import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import { Db } from "mongodb";
 import { AppConfig } from "./config";
+import { getDbByName } from "./db/client";
 import { registerHealthRoutes } from "./routes/health";
 import { registerFindingRoutes } from "./routes/findings";
 import { registerAnalysisRoutes } from "./routes/analyses";
@@ -14,6 +15,8 @@ import { registerJobRoutes } from "./routes/jobs";
 import { registerActionRoutes } from "./routes/actions";
 import { registerPlanRoutes } from "./routes/plan";
 import { registerClusterRoutes } from "./routes/clusters";
+import { registerMaintenanceRoutes } from "./routes/maintenance";
+import { registerCampaignRoutes } from "./routes/campaigns";
 import { fetchJsonWithTimeout } from "./proxy/l2-proxy";
 
 declare module "fastify" {
@@ -21,6 +24,7 @@ declare module "fastify" {
     config: AppConfig;
     mongoReady: boolean;
     getDb(): Db;
+    getMaintDb(): Db;
     checkL2(): Promise<boolean>;
   }
 }
@@ -43,6 +47,10 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   app.decorate("getDb", () => {
     if (!db) throw new Error("MongoDB is unavailable");
     return db;
+  });
+  app.decorate("getMaintDb", () => {
+    if (!db) throw new Error("MongoDB is unavailable");
+    return getDbByName(config.maintMongoDb);
   });
   app.decorate("checkL2", async () => {
     if (!config.l2ApiUrl) return false;
@@ -99,6 +107,7 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   app.get("/query-plan",         async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/extract-query-plan", async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/history",            async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/maintenance",        async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/settings",           async (_req, reply) => reply.sendFile("index.html", dist2Root));
 
   await registerHealthRoutes(app);
@@ -110,6 +119,8 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   await registerActionRoutes(app);
   await registerPlanRoutes(app);
   await registerClusterRoutes(app);
+  await registerMaintenanceRoutes(app);
+  await registerCampaignRoutes(app);
 
   app.setNotFoundHandler(async (_req, reply) => reply.code(404).send({ message: "Not found" }));
 

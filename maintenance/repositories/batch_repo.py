@@ -32,19 +32,23 @@ class BatchRepo:
         self.collection.insert_one(batch.model_dump())
         return batch.batch_id
 
-    def find_by_id(self, batch_id: str) -> MaintenanceBatch | None:
-        return _to_batch(self.collection.find_one({"batch_id": batch_id}))
+    def find_by_id(self, cluster_id: str, batch_id: str) -> MaintenanceBatch | None:
+        return _to_batch(self.collection.find_one({"cluster_id": cluster_id, "batch_id": batch_id}))
 
-    def set_message_id(self, batch_id: str, message_id: int) -> None:
+    def set_message_id(self, cluster_id: str, batch_id: str, message_id: int) -> None:
         self.collection.update_one(
-            {"batch_id": batch_id},
+            {"cluster_id": cluster_id, "batch_id": batch_id},
             {"$set": {"telegram_message_id": message_id}},
         )
 
-    def decide(self, batch_id: str, decision: str, decided_by: str) -> bool:
+    def decide(self, cluster_id: str, batch_id: str, decision: str, decided_by: str) -> bool:
         """Ghi quyết định batch. Idempotent — batch đã quyết → False."""
         result = self.collection.update_one(
-            {"batch_id": batch_id, "status": BatchStatus.AWAITING_APPROVAL.value},
+            {
+                "cluster_id": cluster_id,
+                "batch_id": batch_id,
+                "status": BatchStatus.AWAITING_APPROVAL.value,
+            },
             {"$set": {
                 "status": BatchStatus.DECIDED.value,
                 "decision": decision,
@@ -54,9 +58,10 @@ class BatchRepo:
         )
         return result.modified_count > 0
 
-    def expire_stale(self, older_than: datetime) -> int:
+    def expire_stale(self, cluster_id: str, older_than: datetime) -> int:
         result = self.collection.update_many(
             {
+                "cluster_id": cluster_id,
                 "status": BatchStatus.AWAITING_APPROVAL.value,
                 "created_at": {"$lt": older_than},
             },
@@ -64,9 +69,9 @@ class BatchRepo:
         )
         return result.modified_count
 
-    def find_latest_awaiting(self) -> MaintenanceBatch | None:
+    def find_latest_awaiting(self, cluster_id: str) -> MaintenanceBatch | None:
         doc = self.collection.find_one(
-            {"status": BatchStatus.AWAITING_APPROVAL.value},
+            {"cluster_id": cluster_id, "status": BatchStatus.AWAITING_APPROVAL.value},
             sort=[("created_at", DESCENDING)],
         )
         return _to_batch(doc)

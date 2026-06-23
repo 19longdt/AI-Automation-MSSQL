@@ -53,9 +53,10 @@ DEFAULT_GATES = {
 
 
 class MaintenanceWindow(BaseModel):
-    """Document duy nhất trong `maintenance_window` (window_id="default")."""
+    """Document window cho 1 cluster."""
 
-    window_id: str = "default"
+    window_id: str
+    cluster_id: str
     enabled: bool = True
     default: WindowSlot = Field(default_factory=WindowSlot)
     # {"0": WindowSlot, ..., "6": WindowSlot} — 0=Mon

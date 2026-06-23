@@ -6,10 +6,10 @@ giữ độc quyền poll (2 process cùng poll 1 token → Telegram 409 giết 
 Approval callbacks được monitoring process xử lý qua MaintenanceApprovalAdapter.
 
 Callback data format (64-byte limit):
-  l1|mntb|<batch_id>|all     — approve toàn bộ batch
-  l1|mntb|<batch_id>|reject  — reject toàn bộ batch
-  l1|mnti|<short_id>|ok      — approve 1 item
-  l1|mnti|<short_id>|no      — reject 1 item
+  l1|mntb|<cluster_id>|<batch_id>|all     — approve toàn bộ batch
+  l1|mntb|<cluster_id>|<batch_id>|reject  — reject toàn bộ batch
+  l1|mnti|<cluster_id>|<short_id>|ok      — approve 1 item
+  l1|mnti|<cluster_id>|<short_id>|no      — reject 1 item
 """
 from __future__ import annotations
 
@@ -35,8 +35,9 @@ def _esc(value: object) -> str:
 
 class MaintenanceNotifier:
 
-    def __init__(self, bot_token: str, chat_id: str) -> None:
+    def __init__(self, bot_token: str, chat_id: str, cluster_id: str) -> None:
         self._chat_id = chat_id
+        self._cluster_id = cluster_id
         self._api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         self._doc_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
 
@@ -55,7 +56,7 @@ class MaintenanceNotifier:
         """
         s = batch.summary
         lines = [
-            f"🔧 <b>Maintenance Batch</b> {batch.created_at:%d/%m %H:%M}",
+            f"🔧 <b>[{_esc(batch.cluster_id)}] Maintenance Batch</b> {batch.created_at:%d/%m %H:%M}",
             f"🆔 <code>{_esc(batch.batch_id[:8])}</code>",
             f"📊 {batch.item_count} items — ước tính <b>{s.est_total_minutes:.0f} phút</b>",
             f"   • REBUILD: {s.rebuild} (partition: {s.rebuild_partition})"
@@ -69,8 +70,8 @@ class MaintenanceNotifier:
 
         keyboard = {
             "inline_keyboard": [[
-                {"text": "✅ Approve ALL", "callback_data": f"l1|mntb|{batch.batch_id}|all"},
-                {"text": "⛔ Reject ALL", "callback_data": f"l1|mntb|{batch.batch_id}|reject"},
+                {"text": "✅ Approve ALL", "callback_data": f"l1|mntb|{self._cluster_id}|{batch.batch_id}|all"},
+                {"text": "⛔ Reject ALL", "callback_data": f"l1|mntb|{self._cluster_id}|{batch.batch_id}|reject"},
             ]]
         }
         message_id = self._post("\n".join(lines), reply_markup=keyboard)
@@ -82,8 +83,8 @@ class MaintenanceNotifier:
                 self._format_item_line(item),
                 reply_markup={
                     "inline_keyboard": [[
-                        {"text": "✅", "callback_data": f"l1|mnti|{item.short_id}|ok"},
-                        {"text": "⛔", "callback_data": f"l1|mnti|{item.short_id}|no"},
+                        {"text": "✅", "callback_data": f"l1|mnti|{self._cluster_id}|{item.short_id}|ok"},
+                        {"text": "⛔", "callback_data": f"l1|mnti|{self._cluster_id}|{item.short_id}|no"},
                     ]]
                 },
             )
@@ -153,7 +154,7 @@ class MaintenanceNotifier:
             budget_text = f" — {used_minutes:.0f}/{slot.time_budget_minutes}p budget"
 
         lines = [
-            f"🌙 <b>Maintenance đêm qua</b>{budget_text}",
+            f"🌙 <b>[{_esc(self._cluster_id)}] Maintenance đêm qua</b>{budget_text}",
             f"✅ done: {done}  ⏭ skipped: {skipped}  ❌ failed: {failed}  ⏸ paused: {paused}"
             + (f"  🧪 dry_run: {dry}" if dry else ""),
         ]

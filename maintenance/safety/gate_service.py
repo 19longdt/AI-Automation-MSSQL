@@ -30,14 +30,14 @@ class GateResult(BaseModel):
 
 class GateService:
 
-    def check(self, host: str, gates: dict[str, int]) -> GateResult:
+    def check(self, host: str, gates: dict[str, int], conn_str: str) -> GateResult:
         """
         host: primary node. gates: thresholds đã merge từ window doc + defaults
         (MaintenanceWindow.effective_gates()).
         """
         reasons: list[str] = []
         try:
-            with mssql_connection(host, timeout_sec=gate_queries.GATE_TIMEOUT_SEC) as conn:
+            with mssql_connection(host, conn_str, timeout_sec=gate_queries.GATE_TIMEOUT_SEC) as conn:
                 reasons.extend(self._check_cpu(conn, gates))
                 reasons.extend(self._check_active_load(conn, gates))
                 reasons.extend(self._check_ag_queues(conn, gates))

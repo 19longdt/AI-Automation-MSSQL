@@ -22,7 +22,9 @@ class ClusterNodeRole(BaseModel):
 
 
 class ClusterConfig(BaseModel):
-    cluster_id: str
+    # max_length=12: derived from Telegram 64-byte callback_data limit.
+    # Longest callback: "l1|mntb|" (8) + cluster_id + "|" (1) + UUID (36) + "|reject" (7) = 52 + len ≤ 64
+    cluster_id: str = Field(..., min_length=1, max_length=12)
     name: str
     environment: EnvironmentType = "other"
     nodes: list[str]
@@ -74,7 +76,7 @@ class ClusterConfig(BaseModel):
 
 
 class ClusterCreate(BaseModel):
-    cluster_id: str
+    cluster_id: str = Field(..., min_length=1, max_length=12)  # same constraint as ClusterConfig
     name: str
     environment: EnvironmentType = "other"
     nodes: list[str]

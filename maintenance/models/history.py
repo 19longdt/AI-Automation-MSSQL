@@ -28,6 +28,8 @@ class MaintenanceOutcome(str, Enum):
 class MaintenanceHistory(BaseModel):
     """1 document trong `maintenance_history`."""
 
+    cluster_id: str
+    campaign_id: str | None = None
     history_id: str = Field(default_factory=lambda: str(uuid4()))
     item_id: str
     batch_id: str

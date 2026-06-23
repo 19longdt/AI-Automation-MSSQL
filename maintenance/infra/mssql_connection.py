@@ -13,13 +13,15 @@ from typing import Generator
 
 import pyodbc
 
-from ..config import maint_settings as settings
-
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def mssql_connection(host: str, timeout_sec: int | None = None) -> Generator[pyodbc.Connection, None, None]:
+def mssql_connection(
+    host: str,
+    conn_str: str,
+    timeout_sec: int | None = None,
+) -> Generator[pyodbc.Connection, None, None]:
     """
     Context manager tạo và đóng pyodbc connection.
 
@@ -33,8 +35,7 @@ def mssql_connection(host: str, timeout_sec: int | None = None) -> Generator[pyo
     Raises:
         pyodbc.Error: nếu không kết nối được — caller phải handle
     """
-    timeout = timeout_sec if timeout_sec is not None else settings.mssql_query_timeout_sec
-    conn_str = settings.get_connection_string(host)
+    timeout = timeout_sec if timeout_sec is not None else 30
     conn = pyodbc.connect(conn_str, timeout=timeout, autocommit=True)
     # pyodbc connect(timeout=...) chỉ là login/connect timeout.
     # Cần set conn.timeout để giới hạn thời gian thực thi statement.
@@ -45,10 +46,10 @@ def mssql_connection(host: str, timeout_sec: int | None = None) -> Generator[pyo
         conn.close()
 
 
-def test_connection(host: str) -> bool:
+def test_connection(host: str, conn_str: str) -> bool:
     """Kiểm tra kết nối tới 1 node. Trả về False nếu unreachable."""
     try:
-        with mssql_connection(host) as conn:
+        with mssql_connection(host, conn_str) as conn:
             conn.execute("SELECT 1")
         return True
     except Exception as exc:

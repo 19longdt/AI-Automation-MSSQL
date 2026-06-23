@@ -37,6 +37,7 @@ class QueryExecutor:
         host: str,
         topic_id: str,
         node_role: str,
+        conn_str: str,
     ) -> QueryResult:
         """
         Execute query.sql trên host, trả về QueryResult.
@@ -46,7 +47,7 @@ class QueryExecutor:
         """
         start = time.monotonic()
         try:
-            with mssql_connection(host, timeout_sec=query.timeout_sec) as conn:
+            with mssql_connection(host, conn_str, timeout_sec=query.timeout_sec) as conn:
                 cursor = conn.execute(query.sql)
                 columns = [col[0] for col in cursor.description] if cursor.description else []
                 rows = [{col: _sanitize_value(val) for col, val in zip(columns, row)} for row in cursor.fetchall()]
@@ -87,6 +88,7 @@ class QueryExecutor:
         host: str,
         topic_id: str,
         node_role: str,
+        conn_str: str,
     ) -> list[QueryResult]:
         """
         Execute nhiều queries trên cùng 1 host, dùng chung 1 connection.
@@ -94,7 +96,7 @@ class QueryExecutor:
         """
         results: list[QueryResult] = []
         try:
-            with mssql_connection(host) as conn:
+            with mssql_connection(host, conn_str) as conn:
                 for query in queries:
                     start = time.monotonic()
                     try:

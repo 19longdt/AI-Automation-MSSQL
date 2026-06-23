@@ -43,6 +43,7 @@ class BatchSummary(BaseModel):
 class MaintenanceBatch(BaseModel):
     """1 document trong `maintenance_batches`."""
 
+    cluster_id: str
     batch_id: str = Field(default_factory=lambda: str(uuid4()))
     created_at: datetime = Field(default_factory=now_vn)
     item_count: int = 0

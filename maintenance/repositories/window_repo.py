@@ -10,7 +10,6 @@ from ..models.window import MaintenanceWindow
 logger = logging.getLogger(__name__)
 
 COLLECTION = "maintenance_window"
-WINDOW_ID = "default"
 
 
 class WindowRepo:
@@ -19,12 +18,12 @@ class WindowRepo:
     def collection(self):
         return get_maint_db()[COLLECTION]
 
-    def get(self) -> MaintenanceWindow | None:
+    def find_by_cluster(self, cluster_id: str) -> MaintenanceWindow | None:
         """
         Đọc fresh mỗi lần gọi (mỗi tick) — DBA sửa window/kill-switch
         trong MongoDB có hiệu lực ngay tick sau, không cần restart.
         """
-        doc = self.collection.find_one({"window_id": WINDOW_ID})
+        doc = self.collection.find_one({"cluster_id": cluster_id})
         if not doc:
             return None
         doc.pop("_id", None)
@@ -33,11 +32,11 @@ class WindowRepo:
     def upsert(self, window: MaintenanceWindow) -> None:
         doc = window.model_dump()
         doc["updated_at"] = now_vn()
-        self.collection.replace_one({"window_id": window.window_id}, doc, upsert=True)
+        self.collection.replace_one({"cluster_id": window.cluster_id}, doc, upsert=True)
 
-    def set_kill_switch(self, enabled: bool) -> None:
+    def set_kill_switch(self, cluster_id: str, enabled: bool) -> None:
         self.collection.update_one(
-            {"window_id": WINDOW_ID},
+            {"cluster_id": cluster_id},
             {"$set": {"kill_switch": enabled, "updated_at": now_vn()}},
         )
-        logger.warning("Maintenance kill_switch set: %s", enabled)
+        logger.warning("Maintenance kill_switch set: cluster=%s enabled=%s", cluster_id, enabled)
