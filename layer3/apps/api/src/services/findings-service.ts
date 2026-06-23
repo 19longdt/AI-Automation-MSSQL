@@ -508,6 +508,39 @@ export async function getSlowQueryStats(
   return { items };
 }
 
+export interface AgSecondaryStatus {
+  status: "active" | "no_secondary";
+  last_seen_at: string | null;
+}
+
+export async function getAgSecondaryStatus(db: Db, clusterId: string): Promise<AgSecondaryStatus> {
+  const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const filter: Record<string, unknown> = { topic_id: "ag_health" };
+  if (clusterId) filter.cluster_id = clusterId;
+
+  const findingsColl = db.collection<FindingDocument>(collections.findings);
+  const dateStages = buildDetectedAtPipeline(since, undefined);
+
+  const result = await findingsColl.aggregate<{ total: number }>([
+    { $match: filter },
+    ...dateStages,
+    { $count: "total" }
+  ]).toArray();
+
+  if ((result[0]?.total ?? 0) > 0) {
+    return { status: "active", last_seen_at: since };
+  }
+
+  const latest = await findingsColl.findOne(
+    filter as Parameters<typeof findingsColl.findOne>[0],
+    { sort: { detected_at: -1 } }
+  );
+  return {
+    status: "no_secondary",
+    last_seen_at: latest ? String(latest.detected_at ?? null) : null
+  };
+}
+
 async function findAnalysisForFinding(db: Db, finding: FindingDocument): Promise<AnalysisDocument | null> {
   const analyses = db.collection<AnalysisDocument>(collections.analyses);
 

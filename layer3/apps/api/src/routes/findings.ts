@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { getDiagnosticsByFindingId } from "../services/findings-diagnostics-service";
-import { getFindingById, getFindingTimeline, getSlowQueryStats, listFindings } from "../services/findings-service";
+import { getAgSecondaryStatus, getFindingById, getFindingTimeline, getSlowQueryStats, listFindings } from "../services/findings-service";
 import { idParamsSchema } from "../schemas/common.schema";
 import { findingsQuerySchema, findingsTimelineQuerySchema, slowQueryStatsQuerySchema } from "../schemas/findings.schema";
 
@@ -91,6 +91,20 @@ export async function registerFindingRoutes(app: FastifyInstance) {
         return reply.send(stats);
       } catch (err: unknown) {
         app.log.error({ err, url: req.url, query: req.query }, "getSlowQueryStats failed");
+        return reply.code(500).send({ message: "Internal server error" });
+      }
+    }
+  );
+
+  app.get<{ Querystring: { cluster_id?: string } }>(
+    "/api/findings/ag-secondary-status",
+    async (req, reply) => {
+      try {
+        if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
+        const status = await getAgSecondaryStatus(app.getDb(), req.query.cluster_id ?? "");
+        return reply.send(status);
+      } catch (err: unknown) {
+        app.log.error({ err, url: req.url }, "getAgSecondaryStatus failed");
         return reply.code(500).send({ message: "Internal server error" });
       }
     }

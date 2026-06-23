@@ -9,6 +9,7 @@ import type {
   MaintenanceHistoryQuery,
 } from "@/types";
 
+
 export const qk = {
   topics: ()                          => ["topics"]                      as const,
   findings: (p: FindingsQuery)        => ["findings", p]                 as const,
@@ -23,4 +24,5 @@ export const qk = {
   maintenanceSummary: (p: MaintenanceSummaryQuery) => ["maintenance-summary", p] as const,
   maintenanceQueue: (p: MaintenanceQueueQuery) => ["maintenance-queue", p] as const,
   maintenanceHistory: (p: MaintenanceHistoryQuery) => ["maintenance-history", p] as const,
+  agSecondaryStatus: (clusterId: string | null) => ["ag-secondary-status", clusterId] as const,
 };

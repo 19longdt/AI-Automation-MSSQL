@@ -46,6 +46,11 @@ export interface AnalysesQuery {
   page?: number;
 }
 
+export interface AgSecondaryStatus {
+  status: "active" | "no_secondary";
+  last_seen_at: string | null;
+}
+
 /* ── API Response Types ── */
 export interface FindingWithAnalysis extends Finding {
   ai_analyzed: boolean;
