@@ -4,14 +4,14 @@ import { HistoryTable } from "@/components/maintenance/HistoryTable";
 import { PipelineStages } from "@/components/maintenance/PipelineStages";
 import { QueueTable } from "@/components/maintenance/QueueTable";
 import { WindowStatusBar } from "@/components/maintenance/WindowStatusBar";
-import { CampaignList } from "@/components/maintenance/CampaignList";
+import { CampaignControl } from "@/components/maintenance/CampaignControl";
 import { PageShell } from "@/components/layout/PageShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMaintenanceSummary } from "@/hooks/useMaintenance";
 import { useDashboardStore } from "@/store/dashboard.store";
 
 export function MaintenancePage() {
-  const [tab, setTab] = useState<"queue" | "history" | "campaigns">("queue");
+  const [tab, setTab] = useState<"queue" | "history">("queue");
   const { selectedClusterId } = useDashboardStore();
   const queryClient = useQueryClient();
   const { data: summary, isLoading, isFetching } = useMaintenanceSummary();
@@ -61,10 +61,11 @@ export function MaintenancePage() {
       <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="flex min-h-full flex-col gap-2 pb-1">
           <PipelineStages data={summary} isLoading={isLoading && !summary} />
+          <CampaignControl />
 
           <Tabs
             value={tab}
-            onValueChange={(value) => setTab(value as "queue" | "history" | "campaigns")}
+            onValueChange={(value) => setTab(value as "queue" | "history")}
             className="min-h-0 rounded-[18px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm"
           >
             <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)] px-3 py-2 sm:px-4">
@@ -74,7 +75,6 @@ export function MaintenancePage() {
               <TabsList className="shrink-0 self-end border-b-0">
                 <TabsTrigger value="queue">Queue</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
-                <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
               </TabsList>
             </div>
             <TabsContent value="queue" className="px-3 py-2 sm:px-4">
@@ -82,9 +82,6 @@ export function MaintenancePage() {
             </TabsContent>
             <TabsContent value="history" className="px-3 py-2 sm:px-4">
               <HistoryTable />
-            </TabsContent>
-            <TabsContent value="campaigns" className="px-3 py-2 sm:px-4">
-              <CampaignList />
             </TabsContent>
           </Tabs>
         </div>

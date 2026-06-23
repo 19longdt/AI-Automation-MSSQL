@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CalendarDays, Clock3, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { CampaignCreateBody, CampaignUpdateBody, MaintenanceCampaign } from "@/types";
@@ -30,6 +31,9 @@ const EMPTY_FORM: FormState = {
   endDate: "",
   scanTimes: ["20:00"],
 };
+
+const fieldClassName =
+  "w-full rounded-xl border border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-surface)_90%,transparent)] px-3 py-2 text-sm text-[var(--color-text)] outline-none transition-colors placeholder:text-[var(--color-muted)] focus:border-[color:color-mix(in_srgb,var(--color-primary)_55%,var(--color-border)_45%)]";
 
 function toDateInput(value: string | null | undefined): string {
   return value ? value.slice(0, 10) : "";
@@ -143,20 +147,13 @@ export function CampaignForm({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[min(92vw,540px)]">
-        <DialogHeader>
+        <DialogHeader className="px-4 py-3">
           <DialogTitle>{titleForMode(mode)}</DialogTitle>
         </DialogHeader>
-        <DialogBody className="space-y-3">
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-[var(--color-muted)]" htmlFor="campaign-cluster">
-              Cluster
-            </label>
-            <input
-              id="campaign-cluster"
-              value={clusterId}
-              disabled
-              className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text)]"
-            />
+        <DialogBody className="space-y-2.5 p-4">
+          <div className="rounded-xl border border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-surface-2)_82%,transparent)] px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Cluster</div>
+            <div className="mt-1 text-[14px] font-semibold text-[var(--color-text)]">{clusterId || "-"}</div>
           </div>
 
           {mode !== "extend" ? (
@@ -168,7 +165,7 @@ export function CampaignForm({
                 id="campaign-name"
                 value={form.name}
                 onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+                className={fieldClassName}
               />
             </div>
           ) : null}
@@ -182,25 +179,28 @@ export function CampaignForm({
                 id="campaign-description"
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                rows={3}
-                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+                rows={2}
+                className={fieldClassName}
               />
             </div>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2.5 sm:grid-cols-2">
             {mode === "create" ? (
               <div className="space-y-1">
                 <label className="text-[12px] font-medium text-[var(--color-muted)]" htmlFor="campaign-start-date">
                   Start Date
                 </label>
-                <input
-                  id="campaign-start-date"
-                  type="date"
-                  value={form.startDate}
-                  onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
-                  className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
-                />
+                <div className="relative">
+                  <input
+                    id="campaign-start-date"
+                    type="date"
+                    value={form.startDate}
+                    onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                    className={fieldClassName}
+                  />
+                  <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
+                </div>
               </div>
             ) : (
               <div className="space-y-1">
@@ -211,7 +211,7 @@ export function CampaignForm({
                   id="campaign-start-date-readonly"
                   value={form.startDate}
                   disabled
-                  className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text)]"
+                  className={`${fieldClassName} bg-[var(--color-surface-2)]`}
                 />
               </div>
             )}
@@ -220,60 +220,71 @@ export function CampaignForm({
               <label className="text-[12px] font-medium text-[var(--color-muted)]" htmlFor="campaign-end-date">
                 End Date
               </label>
-              <input
-                id="campaign-end-date"
-                type="date"
-                value={form.endDate}
-                onChange={(event) => setForm((prev) => ({ ...prev, endDate: event.target.value }))}
-                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
-              />
+              <div className="relative">
+                <input
+                  id="campaign-end-date"
+                  type="date"
+                  value={form.endDate}
+                  onChange={(event) => setForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                  className={fieldClassName}
+                />
+                <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
+              </div>
             </div>
           </div>
 
           {mode !== "extend" ? (
             <div className="space-y-1">
               <label className="text-[12px] font-medium text-[var(--color-muted)]">
-                Discovery Time Slots (HH:MM)
+                Discovery Time Slots
               </label>
-              <div className="space-y-2">
-                {form.scanTimes.map((t, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={t}
-                      onChange={(e) => {
-                        const next = [...form.scanTimes];
-                        next[idx] = e.target.value;
-                        setForm((prev) => ({ ...prev, scanTimes: next }));
-                      }}
-                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
-                    />
+              <div className="space-y-2 rounded-xl border border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-surface)_88%,transparent)] p-2">
+                {form.scanTimes.map((time, idx) => (
+                  <div key={`${idx}-${time}`} className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="time"
+                        value={time}
+                        onChange={(event) => {
+                          const next = [...form.scanTimes];
+                          next[idx] = event.target.value;
+                          setForm((prev) => ({ ...prev, scanTimes: next }));
+                        }}
+                        className={fieldClassName}
+                      />
+                      <Clock3 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
+                    </div>
                     {form.scanTimes.length > 1 ? (
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon"
                         onClick={() =>
                           setForm((prev) => ({
                             ...prev,
                             scanTimes: prev.scanTimes.filter((_, i) => i !== idx),
                           }))
                         }
-                        className="text-[var(--color-muted)] hover:text-[var(--color-critical)] text-sm cursor-pointer"
+                        className="h-9 w-9 shrink-0 text-[var(--color-muted)] hover:text-[var(--color-critical)]"
                       >
-                        ✕
-                      </button>
+                        <X className="h-4 w-4" />
+                      </Button>
                     ) : null}
                   </div>
                 ))}
                 {form.scanTimes.length < 10 ? (
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
                     onClick={() =>
                       setForm((prev) => ({ ...prev, scanTimes: [...prev.scanTimes, "20:00"] }))
                     }
-                    className="text-[12px] text-[var(--color-primary)] hover:underline cursor-pointer"
+                    className="h-8 justify-start px-2 text-[12px] text-[var(--color-primary)]"
                   >
-                    + Add time slot
-                  </button>
+                    <Plus className="h-3.5 w-3.5" />
+                    Add time slot
+                  </Button>
                 ) : null}
               </div>
             </div>
@@ -281,7 +292,7 @@ export function CampaignForm({
 
           {error ? <p className="text-[12px] text-[var(--color-critical)]">{error}</p> : null}
         </DialogBody>
-        <DialogFooter>
+        <DialogFooter className="px-4 py-3">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
             Cancel
           </Button>

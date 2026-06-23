@@ -28,13 +28,13 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function useMaintenanceSummary() {
-  const { selectedClusterId } = useDashboardStore();
+  const { selectedClusterId, autoRefresh } = useDashboardStore();
   const params: MaintenanceSummaryQuery = selectedClusterId ? { cluster_id: selectedClusterId } : {};
   return useQuery({
     queryKey: qk.maintenanceSummary(params),
     queryFn: () => apiGet<MaintenanceSummary>("/api/maintenance/summary", params),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: autoRefresh.enabled ? autoRefresh.intervalMs : false,
     placeholderData: (prev) => prev,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -42,13 +42,13 @@ export function useMaintenanceSummary() {
 }
 
 export function useMaintenanceQueue(filters: MaintenanceQueueQuery) {
-  const { selectedClusterId } = useDashboardStore();
+  const { selectedClusterId, autoRefresh } = useDashboardStore();
   const params = { ...filters, ...(selectedClusterId ? { cluster_id: selectedClusterId } : {}) };
   return useQuery({
     queryKey: qk.maintenanceQueue(params),
     queryFn: () => apiGet<MaintenanceQueueResponse>("/api/maintenance/queue", params),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: autoRefresh.enabled ? autoRefresh.intervalMs : false,
     placeholderData: (prev) => prev,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -56,12 +56,13 @@ export function useMaintenanceQueue(filters: MaintenanceQueueQuery) {
 }
 
 export function useMaintenanceHistory(filters: MaintenanceHistoryQuery) {
-  const { selectedClusterId } = useDashboardStore();
+  const { selectedClusterId, autoRefresh } = useDashboardStore();
   const params = { ...filters, ...(selectedClusterId ? { cluster_id: selectedClusterId } : {}) };
   return useQuery({
     queryKey: qk.maintenanceHistory(params),
     queryFn: () => apiGet<MaintenanceHistoryResponse>("/api/maintenance/history", params),
     staleTime: 60_000,
+    refetchInterval: autoRefresh.enabled ? autoRefresh.intervalMs : false,
     placeholderData: (prev) => prev,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -69,7 +70,7 @@ export function useMaintenanceHistory(filters: MaintenanceHistoryQuery) {
 }
 
 export function useCampaigns(filters: Omit<CampaignListQuery, "cluster_id"> = {}) {
-  const { selectedClusterId } = useDashboardStore();
+  const { selectedClusterId, autoRefresh } = useDashboardStore();
   const params: CampaignListQuery = {
     ...filters,
     ...(selectedClusterId ? { cluster_id: selectedClusterId } : {}),
@@ -79,6 +80,7 @@ export function useCampaigns(filters: Omit<CampaignListQuery, "cluster_id"> = {}
     queryFn: () => apiGet<CampaignListResponse>("/api/maintenance/campaigns", params),
     enabled: Boolean(selectedClusterId),
     staleTime: 30_000,
+    refetchInterval: autoRefresh.enabled ? autoRefresh.intervalMs : false,
     placeholderData: (prev) => prev,
     retry: 1,
     refetchOnWindowFocus: false,
