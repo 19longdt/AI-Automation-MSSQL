@@ -4,6 +4,7 @@ import type { AnalysisResult, InsightData } from "@layer3/core";
 /* ── API Query Params ── */
 export interface FindingsQuery {
   finding_id?: string;
+  query_hash?: string;
   cluster_id?: string;
   topic_id?: string;
   severity?: Severity | "";
@@ -17,6 +18,8 @@ export interface FindingsQuery {
 }
 
 export interface TimelineQuery {
+  finding_id?: string;
+  query_hash?: string;
   cluster_id?: string;
   topic_id?: string;
   severity?: string;
@@ -54,6 +57,21 @@ export interface FindingWithAnalysis extends Finding {
 export interface FindingsResponse {
   total: number;
   items: FindingWithAnalysis[];
+}
+
+export interface SlowQueryStatsItem {
+  query_hash: string;
+  count: number;
+  avg_elapsed: number;
+  max_elapsed: number;
+  avg_cpu: number;
+  impact: number;
+  sql_text: string;
+  severity: "CRITICAL" | "WARNING" | "INFO";
+}
+
+export interface SlowQueryStatsResponse {
+  items: SlowQueryStatsItem[];
 }
 
 export interface TimelineBucket {
@@ -310,6 +328,8 @@ export interface FindingFilters {
   alertStatus?: "sent" | "suppressed" | "pending" | "";
   blockingStatus?: "blocked" | "not_blocked" | "";
   replica?: string;
+  findingId?: string;
+  queryHash?: string;
 }
 
 export interface AutoRefreshConfig {

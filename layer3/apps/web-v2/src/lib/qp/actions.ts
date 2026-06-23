@@ -31,6 +31,14 @@ const OVERLAY_ACTION_BTN_CSS =
   "padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;" +
   "color:var(--color-text-2);font-family:system-ui,sans-serif;transition:background .12s,color .12s";
 
+const OVERLAY_ICON_BTN_CSS =
+  "position:absolute;top:10px;right:10px;width:32px;height:32px;" +
+  "display:inline-flex;align-items:center;justify-content:center;" +
+  "background:var(--color-surface-2);border:1px solid var(--color-border-2);" +
+  "border-radius:8px;font-size:0;cursor:pointer;color:var(--color-text-2);" +
+  "box-shadow:0 4px 10px color-mix(in_srgb,var(--color-shadow-lg)_40%,transparent);" +
+  "transition:background .12s,color .12s,border-color .12s";
+
 const OVERLAY_PRE_CSS =
   "font-family:var(--font-code);font-size:12px;white-space:pre-wrap;" +
   "word-break:break-word;margin:0;line-height:1.6;color:var(--color-text);" +
@@ -138,6 +146,71 @@ function createQpOverlay(title: string, bodyContent: HTMLElement) {
   document.addEventListener("keydown", keyHandlerRef.fn, true);
 }
 
+export function openQpTextOverlay(title: string, text: string, copyLabel = "Copy SQL") {
+  const normalized = text.trim();
+  if (!normalized) return;
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative";
+  const copyBtn = document.createElement("button");
+  copyBtn.style.cssText = OVERLAY_ICON_BTN_CSS;
+  copyBtn.setAttribute("aria-label", copyLabel);
+  copyBtn.setAttribute("title", copyLabel);
+  copyBtn.innerHTML =
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+    '<path d="M9 9.75A2.25 2.25 0 0 1 11.25 7.5h7.5A2.25 2.25 0 0 1 21 9.75v7.5a2.25 2.25 0 0 1-2.25 2.25h-7.5A2.25 2.25 0 0 1 9 17.25v-7.5Z" stroke="currentColor" stroke-width="1.6"/>' +
+    '<path d="M15 7.5V6.75A2.25 2.25 0 0 0 12.75 4.5h-7.5A2.25 2.25 0 0 0 3 6.75v7.5a2.25 2.25 0 0 0 2.25 2.25H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+    "</svg>";
+  copyBtn.onmouseenter = () => {
+    copyBtn.style.background = "var(--color-surface-3)";
+    copyBtn.style.color = "var(--color-text)";
+    copyBtn.style.borderColor = "var(--color-border)";
+  };
+  copyBtn.onmouseleave = () => {
+    copyBtn.style.background = "var(--color-surface-2)";
+    copyBtn.style.color = "var(--color-text-2)";
+    copyBtn.style.borderColor = "var(--color-border-2)";
+  };
+  copyBtn.addEventListener("pointerdown", e => e.stopPropagation());
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(normalized).then(() => {
+      copyBtn.setAttribute("title", "Copied");
+      copyBtn.innerHTML =
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+        '<path d="M5 12.5l4.2 4.2L19 7" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' +
+        "</svg>";
+      setTimeout(() => {
+        copyBtn.setAttribute("title", copyLabel);
+        copyBtn.innerHTML =
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+          '<path d="M9 9.75A2.25 2.25 0 0 1 11.25 7.5h7.5A2.25 2.25 0 0 1 21 9.75v7.5a2.25 2.25 0 0 1-2.25 2.25h-7.5A2.25 2.25 0 0 1 9 17.25v-7.5Z" stroke="currentColor" stroke-width="1.6"/>' +
+          '<path d="M15 7.5V6.75A2.25 2.25 0 0 0 12.75 4.5h-7.5A2.25 2.25 0 0 0 3 6.75v7.5a2.25 2.25 0 0 0 2.25 2.25H6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+          "</svg>";
+      }, 1800);
+    });
+  });
+
+  const pre = document.createElement("pre");
+  pre.style.cssText = `${OVERLAY_PRE_CSS};padding-top:18px`;
+  pre.textContent = normalized;
+  wrap.appendChild(copyBtn);
+  wrap.appendChild(pre);
+  createQpOverlay(title, wrap);
+
+  if (typeof window.QP?.beautifySqlWithFallback === "function") {
+    void window.QP.beautifySqlWithFallback(normalized)
+      .then((beautified) => {
+        const formatted = beautified.trim();
+        if (formatted) {
+          pre.textContent = formatted;
+        }
+      })
+      .catch(() => {
+        // Keep raw SQL text when beautify fails.
+      });
+  }
+}
+
 function prettyPrintXml(raw: string) {
   try {
     const doc = new DOMParser().parseFromString(raw, "application/xml");
@@ -170,27 +243,7 @@ export function bindQpActions(container: HTMLElement, xml?: string) {
 
   window.QP.bindQueryActions(container, {
     onOpenQueryPopup(ctx) {
-      const text = (ctx?.queryText ?? "").trim();
-      if (!text) return;
-
-      const wrap = document.createElement("div");
-      const copyBtn = document.createElement("button");
-      copyBtn.textContent = "Copy SQL";
-      copyBtn.style.cssText = `${OVERLAY_ACTION_BTN_CSS};margin-bottom:10px;display:block`;
-      copyBtn.addEventListener("pointerdown", e => e.stopPropagation());
-      copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(text).then(() => {
-          copyBtn.textContent = "Copied";
-          setTimeout(() => { copyBtn.textContent = "Copy SQL"; }, 1800);
-        });
-      });
-
-      const pre = document.createElement("pre");
-      pre.style.cssText = OVERLAY_PRE_CSS;
-      pre.textContent = text;
-      wrap.appendChild(copyBtn);
-      wrap.appendChild(pre);
-      createQpOverlay("Query Text", wrap);
+      openQpTextOverlay("Query Text", ctx?.queryText ?? "", "Copy SQL");
     },
 
     onShowPlanXml() {

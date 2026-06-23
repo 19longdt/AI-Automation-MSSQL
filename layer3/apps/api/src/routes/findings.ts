@@ -1,11 +1,12 @@
 import { FastifyInstance } from "fastify";
 import { getDiagnosticsByFindingId } from "../services/findings-diagnostics-service";
-import { getFindingById, getFindingTimeline, listFindings } from "../services/findings-service";
+import { getFindingById, getFindingTimeline, getSlowQueryStats, listFindings } from "../services/findings-service";
 import { idParamsSchema } from "../schemas/common.schema";
-import { findingsQuerySchema, findingsTimelineQuerySchema } from "../schemas/findings.schema";
+import { findingsQuerySchema, findingsTimelineQuerySchema, slowQueryStatsQuerySchema } from "../schemas/findings.schema";
 
 interface FindingsRouteQuery {
   finding_id?: string;
+  query_hash?: string;
   cluster_id?: string;
   topic_id?: string;
   severity?: string;
@@ -21,6 +22,8 @@ interface FindingsRouteQuery {
 }
 
 interface FindingsTimelineRouteQuery {
+  finding_id?: string;
+  query_hash?: string;
   cluster_id?: string;
   topic_id?: string;
   severity?: string;
@@ -29,6 +32,21 @@ interface FindingsTimelineRouteQuery {
   since?: string;
   until?: string;
   interval_minutes?: number;
+}
+
+interface SlowQueryStatsRouteQuery {
+  finding_id?: string;
+  query_hash?: string;
+  cluster_id?: string;
+  severity?: string;
+  alert_status?: string;
+  blocking_status?: string;
+  replica?: string;
+  since?: string;
+  until?: string;
+  sort_by?: "impact" | "count" | "avg_elapsed" | "max_elapsed" | "avg_cpu";
+  sort_dir?: "asc" | "desc";
+  limit?: number;
 }
 
 interface IdParams {
@@ -58,6 +76,21 @@ export async function registerFindingRoutes(app: FastifyInstance) {
         return reply.send(timeline);
       } catch (err: unknown) {
         app.log.error({ err, url: req.url, query: req.query }, "getFindingTimeline failed");
+        return reply.code(500).send({ message: "Internal server error" });
+      }
+    }
+  );
+
+  app.get<{ Querystring: SlowQueryStatsRouteQuery }>(
+    "/api/findings/slow-query-stats",
+    { schema: slowQueryStatsQuerySchema },
+    async (req, reply) => {
+      try {
+        if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
+        const stats = await getSlowQueryStats(app.getDb(), req.query);
+        return reply.send(stats);
+      } catch (err: unknown) {
+        app.log.error({ err, url: req.url, query: req.query }, "getSlowQueryStats failed");
         return reply.code(500).send({ message: "Internal server error" });
       }
     }

@@ -15,6 +15,8 @@ export function buildFindingsQuery(
   limit: number,
 ): FindingsQuery {
   return {
+    finding_id: ctx.filters.findingId || undefined,
+    query_hash: ctx.filters.queryHash || undefined,
     cluster_id: ctx.selectedClusterId || undefined,
     topic_id: ctx.activeTopicId || undefined,
     severity: ctx.filters.severity || undefined,
@@ -32,6 +34,8 @@ export function buildTimelineQuery(
   intervalMinutes: number,
 ): TimelineQuery {
   return {
+    finding_id: ctx.filters.findingId || undefined,
+    query_hash: ctx.filters.queryHash || undefined,
     cluster_id: ctx.selectedClusterId || undefined,
     topic_id: ctx.activeTopicId || undefined,
     severity: ctx.filters.severity || undefined,
