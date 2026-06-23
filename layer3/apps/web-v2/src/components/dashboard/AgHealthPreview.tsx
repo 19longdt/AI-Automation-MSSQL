@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, HardDrive, PauseCircle, Zap } from "lucide-react";
+import { HardDrive, PauseCircle, Zap } from "lucide-react";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { RefreshingOverlay } from "@/components/dashboard/AsyncState";
@@ -13,10 +13,9 @@ import { formatNumber, parseWallClockDate } from "@/lib/format";
 import { useTopicMetricThreshold } from "@/hooks/useTopics";
 import { useTimeRange } from "@/hooks/useTimeRange";
 import { getThresholdSeverity } from "@/lib/topic-thresholds";
-import { qk } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/store/dashboard.store";
-import type { AgSecondaryStatus, FindingWithAnalysis, FindingsQuery, FindingsResponse, TopicThresholdConfig } from "@/types";
+import type { FindingWithAnalysis, FindingsQuery, FindingsResponse, TopicThresholdConfig } from "@/types";
 
 type ReplicaMetricMap = Record<string, { replica: string; queueKb: number | null; rateKbps: number | null }>;
 
@@ -443,7 +442,7 @@ function LoadingState(): React.ReactElement {
   );
 }
 
-export function AgHealthPreview(): React.ReactElement {
+export function AgHealthPreview({ noSecondary = false }: { noSecondary?: boolean }): React.ReactElement {
   const { activeTopicId, selectedClusterId, filters, timeRange, comparePastEnabled } = useDashboardStore();
   const { from, to } = useTimeRange();
   const logSendQueueThreshold = useTopicMetricThreshold("ag_health", "log_send_queue_size", {
@@ -464,16 +463,6 @@ export function AgHealthPreview(): React.ReactElement {
     () => buildFindingsQuery({ activeTopicId, selectedClusterId, filters, from: compareRange.from, to: compareRange.to }, 0, 1),
     [activeTopicId, selectedClusterId, filters, compareRange.from, compareRange.to],
   );
-
-  const { data: secondaryStatus } = useQuery({
-    queryKey: qk.agSecondaryStatus(selectedClusterId ?? null),
-    queryFn: () => apiGet<AgSecondaryStatus>("/api/findings/ag-secondary-status", {
-      cluster_id: selectedClusterId ?? "",
-    }),
-    staleTime: 30_000,
-    refetchInterval: 120_000,
-    retry: 1,
-  });
 
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["ag-health-preview-findings", params],
@@ -562,12 +551,6 @@ export function AgHealthPreview(): React.ReactElement {
 
   return (
     <div className="relative grid gap-3">
-      {secondaryStatus?.status === "no_secondary" && (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--color-warning)] bg-[var(--color-warning)]/10 px-4 py-3 text-[13px] text-[var(--color-warning)]">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>Không phát hiện secondary replica trong 2 phút gần nhất — cụm có thể đang chạy chỉ với Primary.</span>
-        </div>
-      )}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           icon={<HardDrive className="h-3.5 w-3.5" />}

@@ -514,7 +514,11 @@ export interface AgSecondaryStatus {
 }
 
 export async function getAgSecondaryStatus(db: Db, clusterId: string): Promise<AgSecondaryStatus> {
-  const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  // detected_at is stored as naive UTC+7 strings by Layer 1 (e.g. "2026-06-23T16:55:00").
+  // MongoDB $convert treats them as UTC, so comparisons must use the same naive convention.
+  const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+  const sinceTs = Date.now() + VN_OFFSET_MS - 2 * 60 * 1000;
+  const since = new Date(sinceTs).toISOString().replace("Z", ""); // strip Z → naive string
   const filter: Record<string, unknown> = { topic_id: "ag_health" };
   if (clusterId) filter.cluster_id = clusterId;
 
