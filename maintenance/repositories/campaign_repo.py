@@ -80,7 +80,7 @@ class CampaignRepo:
             {
                 "cluster_id": cluster_id,
                 "status": CampaignStatus.ACTIVE.value,
-                "end_date": {"$lt": now},
+                "end_date": {"$lte": now},
             },
             {"$set": {"status": CampaignStatus.EXPIRED.value, "updated_at": now}},
         )
