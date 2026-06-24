@@ -96,7 +96,6 @@ export function SlowQueryStatsTable(): React.ReactElement {
     queryKey: qk.slowQueryStats(params),
     queryFn: () => apiGet<SlowQueryStatsResponse>("/api/findings/slow-query-stats", params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 

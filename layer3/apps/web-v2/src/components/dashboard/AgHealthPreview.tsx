@@ -468,7 +468,6 @@ export function AgHealthPreview({ noSecondary = false }: { noSecondary?: boolean
     queryKey: ["ag-health-preview-findings", params],
     queryFn: () => fetchAllHealthFindings(params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
   const { data: compareData, isFetching: compareFetching } = useQuery({
@@ -476,7 +475,6 @@ export function AgHealthPreview({ noSecondary = false }: { noSecondary?: boolean
     queryFn: () => fetchAllHealthFindings(compareParams),
     enabled: comparePastEnabled,
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 

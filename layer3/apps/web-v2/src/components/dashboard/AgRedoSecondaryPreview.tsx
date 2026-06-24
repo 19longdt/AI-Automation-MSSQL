@@ -584,7 +584,6 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     queryKey: ["ag-redo-preview-findings", params],
     queryFn: () => fetchAllRedoFindings(params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
   const { data: compareData, isFetching: compareFetching } = useQuery({
@@ -592,7 +591,6 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
     queryFn: () => fetchAllRedoFindings(compareParams),
     enabled: comparePastEnabled,
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 
