@@ -40,6 +40,10 @@ export function apiPut<T>(url: string, body: unknown): Promise<T> {
   return apiFetch<T>(url, { method: "PUT", body: JSON.stringify(body) });
 }
 
+export function apiPatch<T>(url: string, body: unknown): Promise<T> {
+  return apiFetch<T>(url, { method: "PATCH", body: JSON.stringify(body) });
+}
+
 export function apiDelete<T>(url: string): Promise<T> {
   return apiFetch<T>(url, { method: "DELETE" });
 }

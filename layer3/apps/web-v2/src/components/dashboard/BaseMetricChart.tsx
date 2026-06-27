@@ -43,6 +43,7 @@ export function BaseMetricChart<TData extends object>({
   tooltip,
   referenceLines = [],
   margin,
+  connectNulls = true,
 }: {
   data: TData[];
   height?: number;
@@ -51,6 +52,7 @@ export function BaseMetricChart<TData extends object>({
   tooltip: ReactElement;
   referenceLines?: BaseMetricChartReferenceLine[];
   margin?: { top?: number; right?: number; left?: number; bottom?: number };
+  connectNulls?: boolean;
 }) {
   return (
     <div style={{ height }}>
@@ -100,7 +102,7 @@ export function BaseMetricChart<TData extends object>({
               activeDot={{ r: 4 }}
               isAnimationActive={false}
               hide={line.hide}
-              connectNulls
+              connectNulls={connectNulls}
             />
           ))}
         </LineChart>

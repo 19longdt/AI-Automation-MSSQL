@@ -119,6 +119,12 @@ export interface MonitorTopic {
   thresholds?: Record<string, TopicThresholdConfig>;
 }
 
+export interface TopicNotifyOverride {
+  notify_enabled: boolean;
+}
+
+export type TopicOverridesMap = Record<string, TopicNotifyOverride>;
+
 export interface ClusterNodeRole {
   host: string;
   server_name: string;
@@ -139,6 +145,7 @@ export interface ClusterResponse {
   color: string;
   has_password: boolean;
   node_roles: ClusterNodeRole[];
+  topic_overrides?: TopicOverridesMap;
   created_at?: string;
   updated_at?: string;
 }

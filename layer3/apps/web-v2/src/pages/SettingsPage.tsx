@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageShell } from "@/components/layout/PageShell";
+import { AlertConfigDialog } from "@/components/settings/AlertConfigDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useClusters } from "@/hooks/useClusters";
@@ -120,6 +121,7 @@ function ClusterTableSection({
   environment,
   items,
   onEdit,
+  onAlertConfig,
   onAskDelete,
   deletingId,
   refreshingId,
@@ -128,6 +130,7 @@ function ClusterTableSection({
   environment: ClusterResponse["environment"];
   items: ClusterResponse[];
   onEdit: (cluster: ClusterResponse) => void;
+  onAlertConfig: (cluster: ClusterResponse) => void;
   onAskDelete: (cluster: ClusterResponse) => void;
   deletingId: string | null;
   refreshingId: string | null;
@@ -203,6 +206,7 @@ function ClusterTableSection({
                 <td className="px-4 py-3">
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => onEdit(cluster)}>Edit</Button>
+                    <Button size="sm" variant="outline" onClick={() => onAlertConfig(cluster)}>Alert Config</Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -235,7 +239,9 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const { data: clusters, isLoading, error } = useClusters();
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isAlertConfigOpen, setIsAlertConfigOpen] = useState(false);
   const [editing, setEditing] = useState<ClusterResponse | null>(null);
+  const [alertConfigCluster, setAlertConfigCluster] = useState<ClusterResponse | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ClusterResponse | null>(null);
   const [form, setForm] = useState<ClusterFormState>(EMPTY_FORM);
   const [testResult, setTestResult] = useState<string>("");
@@ -339,6 +345,11 @@ export function SettingsPage() {
     setIsEditorOpen(true);
   }
 
+  function openAlertConfig(cluster: ClusterResponse) {
+    setAlertConfigCluster(cluster);
+    setIsAlertConfigOpen(true);
+  }
+
   function submit() {
     if (editing) {
       updateMutation.mutate({ id: editing.cluster_id, payload: toUpdatePayload(form) });
@@ -387,6 +398,7 @@ export function SettingsPage() {
               environment={group.environment}
               items={group.items}
               onEdit={openEdit}
+              onAlertConfig={openAlertConfig}
               onAskDelete={setPendingDelete}
               deletingId={deleteMutation.isPending ? pendingDelete?.cluster_id ?? null : null}
               refreshingId={refreshRolesMutation.isPending ? (refreshRolesMutation.variables ?? null) : null}
@@ -527,6 +539,15 @@ export function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertConfigDialog
+        cluster={alertConfigCluster}
+        open={isAlertConfigOpen}
+        onOpenChange={(open) => {
+          setIsAlertConfigOpen(open);
+          if (!open) setAlertConfigCluster(null);
+        }}
+      />
 
       <Dialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <DialogContent className="w-[min(90vw,480px)]">

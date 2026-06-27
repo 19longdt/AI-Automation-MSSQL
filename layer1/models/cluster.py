@@ -21,6 +21,10 @@ class ClusterNodeRole(BaseModel):
     last_seen_at: datetime
 
 
+class TopicNotifyOverride(BaseModel):
+    notify_enabled: bool = True
+
+
 class ClusterConfig(BaseModel):
     # max_length=12: derived from Telegram 64-byte callback_data limit.
     # Longest callback: "l1|mntb|" (8) + cluster_id + "|" (1) + UUID (36) + "|reject" (7) = 52 + len ≤ 64
@@ -36,6 +40,7 @@ class ClusterConfig(BaseModel):
     enabled: bool = True
     color: str = "#6b7280"
     node_roles: list[ClusterNodeRole] = Field(default_factory=list)
+    topic_overrides: dict[str, TopicNotifyOverride] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

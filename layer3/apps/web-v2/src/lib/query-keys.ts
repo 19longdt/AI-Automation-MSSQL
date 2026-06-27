@@ -12,6 +12,7 @@ import type {
 
 export const qk = {
   topics: ()                          => ["topics"]                      as const,
+  topicOverrides: (clusterId: string) => ["topic-overrides", clusterId] as const,
   findings: (p: FindingsQuery)        => ["findings", p]                 as const,
   timeline: (p: TimelineQuery)        => ["findings-timeline", p]        as const,
   findingById: (id: string)           => ["finding", id]                 as const,

@@ -152,6 +152,19 @@ class Layer1Service:
         # then swap atomically under lock so topic jobs on healthy clusters are not blocked.
         next_clusters, next_role_caches, next_topic_runners = self._build_cluster_runtime(seed_if_empty=False)
         with self._lock:
+            # If a cluster that was running fails re-initialization (e.g. transient AG blip,
+            # all nodes briefly unreachable during this refresh cycle), keep the existing runner
+            # and cache rather than dropping it. Dropping removes the cluster's APScheduler jobs
+            # entirely, causing a monitoring blackout until the next successful refresh cycle.
+            for cluster_id in list(self._clusters):
+                if cluster_id not in next_clusters and cluster_id in self._topic_runners:
+                    logger.warning(
+                        "Cluster re-init failed during refresh — keeping existing runner: cluster=%s",
+                        cluster_id,
+                    )
+                    next_clusters[cluster_id] = self._clusters[cluster_id]
+                    next_role_caches[cluster_id] = self._role_caches[cluster_id]
+                    next_topic_runners[cluster_id] = self._topic_runners[cluster_id]
             self._clusters = next_clusters
             self._role_caches = next_role_caches
             self._topic_runners = next_topic_runners

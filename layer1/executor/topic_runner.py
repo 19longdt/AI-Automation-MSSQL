@@ -227,6 +227,14 @@ class TopicRunner:
         Chỉ mark dedup sau khi dispatch thành công (status=sent), để đảm bảo
         luôn có ít nhất 1 alert thực sự được gửi trước khi suppress alert trùng.
         """
+        override = self._cluster.topic_overrides.get(finding.topic_id)
+        if override is not None and not override.notify_enabled:
+            logger.info(
+                "Notification skipped by cluster topic override: cluster=%s topic=%s issue_type=%s node=%s",
+                self._cluster.cluster_id, finding.topic_id, finding.issue_type.value, finding.node,
+            )
+            return (AlertStatus.SKIPPED_NOTIFY, "notify disabled by cluster topic override")
+
         if not self._dispatcher:
             logger.warning(
                 "No dispatcher configured — notification skipped: topic=%s issue_type=%s node=%s",

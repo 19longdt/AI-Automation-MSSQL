@@ -188,6 +188,7 @@ function aggregateRedoSeries(findings: FindingWithAnalysis[], from: Date, to: Da
   });
 
   const buckets = new Map<string, BucketAccumulator>();
+  const replicaNames = new Set<string>();
 
   sorted.forEach((finding) => {
     if (!finding.detected_at) return;
@@ -200,6 +201,7 @@ function aggregateRedoSeries(findings: FindingWithAnalysis[], from: Date, to: Da
     const findingTs = parseWallClockDate(finding.detected_at)?.getTime() ?? 0;
 
     if (queueKb == null && lagMs == null && rateKbps == null && !suspended) return;
+    replicaNames.add(replica);
 
     const bucketTs = floorToBucketMs(findingTs, REDO_BUCKET_MS);
     const key = String(bucketTs);
@@ -243,6 +245,13 @@ function aggregateRedoSeries(findings: FindingWithAnalysis[], from: Date, to: Da
       replicas: {},
       latestFinding: bucket?.latestFinding ?? null,
     };
+
+    replicaNames.forEach((replica) => {
+      const key = replicaKey(replica);
+      point[`queue__${key}`] = null;
+      point[`lag__${key}`] = null;
+      point[`rate__${key}`] = null;
+    });
 
     bucket?.replicas.forEach((value, replica) => {
       const key = replicaKey(replica);
@@ -740,6 +749,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
         >
           <BaseMetricChart
             data={chartSeries}
+            connectNulls={false}
             margin={{ top: 8, right: 10, left: 4, bottom: 0 }}
             tooltip={<MetricTooltip unit="mixed" />}
             yAxes={[
@@ -845,6 +855,7 @@ export function AgRedoSecondaryPreview(): React.ReactElement {
         >
           <BaseMetricChart
             data={chartSeries}
+            connectNulls={false}
             margin={{ top: 8, right: 10, left: 2, bottom: 0 }}
             tooltip={<MetricTooltip unit="KB/s" />}
             yAxes={[

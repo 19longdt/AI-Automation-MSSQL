@@ -35,6 +35,7 @@ class AlertStatus(str, Enum):
     SENT = "sent"
     FAILED = "failed"
     SUPPRESSED = "suppressed"
+    SKIPPED_NOTIFY = "skipped_notify"
     SKIPPED_SEVERITY = "skipped_severity"
     SKIPPED_NO_DISPATCHER = "skipped_no_dispatcher"
 

@@ -6,6 +6,7 @@ import {
   putJsonWithTimeout,
 } from "../proxy/l2-proxy";
 import { getUpstreamError } from "../proxy/upstream-error";
+import { getTopicOverrides, setTopicOverrides, TopicOverridesMap } from "../services/topic-overrides-service";
 
 interface ClusterIdParams {
   id: string;
@@ -42,6 +43,30 @@ export async function registerClusterRoutes(app: FastifyInstance) {
     } catch (err: unknown) {
       const upstream = getUpstreamError(err);
       return reply.code(upstream.status ?? 502).send(upstream.payload ?? { message: upstream.message ?? "Failed to load cluster" });
+    }
+  });
+
+  app.get<{ Params: ClusterIdParams }>("/api/clusters/:id/topic-overrides", async (req, reply) => {
+    try {
+      if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
+      const overrides = await getTopicOverrides(app.getDb(), req.params.id);
+      if (overrides === null) return reply.code(404).send({ message: "Cluster not found" });
+      return reply.send(overrides);
+    } catch (err: unknown) {
+      app.log.error({ err, url: req.url, params: req.params }, "getTopicOverrides failed");
+      return reply.code(500).send({ message: "Internal server error" });
+    }
+  });
+
+  app.patch<{ Params: ClusterIdParams; Body: TopicOverridesMap }>("/api/clusters/:id/topic-overrides", async (req, reply) => {
+    try {
+      if (!app.mongoReady) return reply.code(503).send({ message: "MongoDB is unavailable" });
+      const updated = await setTopicOverrides(app.getDb(), req.params.id, req.body ?? {});
+      if (!updated) return reply.code(404).send({ message: "Cluster not found" });
+      return reply.send({ ok: true, cluster_id: req.params.id, topic_overrides: req.body ?? {} });
+    } catch (err: unknown) {
+      app.log.error({ err, url: req.url, params: req.params }, "setTopicOverrides failed");
+      return reply.code(500).send({ message: "Internal server error" });
     }
   });
 
