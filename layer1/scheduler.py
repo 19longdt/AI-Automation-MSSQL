@@ -473,6 +473,7 @@ def _setup_signal_handlers(service: Layer1Service) -> None:
 
 def main() -> None:
     _setup_logging()
+    init_apm(settings)
     logger.info("Layer 1 Monitoring Service starting...")
     service = Layer1Service()
     _setup_signal_handlers(service)
