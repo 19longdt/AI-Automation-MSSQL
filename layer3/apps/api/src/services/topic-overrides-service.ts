@@ -23,8 +23,8 @@ function isTopicNotifyOverride(value: unknown): value is TopicNotifyOverride {
 
 function normalizeTopicOverrides(value: unknown): TopicOverridesMap {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([topicId, override]) => topicId.trim() && isTopicNotifyOverride(override))
+  const entries = (Object.entries(value as Record<string, unknown>) as Array<[string, unknown]>)
+    .filter((entry): entry is [string, TopicNotifyOverride] => Boolean(entry[0].trim()) && isTopicNotifyOverride(entry[1]))
     .map(([topicId, override]) => [topicId, { notify_enabled: override.notify_enabled }] as const);
   return Object.fromEntries(entries);
 }

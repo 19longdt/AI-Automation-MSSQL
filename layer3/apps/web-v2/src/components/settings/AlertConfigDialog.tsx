@@ -37,7 +37,7 @@ export function AlertConfigDialog({ cluster, open, onOpenChange }: AlertConfigDi
   }, [open, overrides]);
 
   const sortedTopics = useMemo(
-    () => [...(topics ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    () => [...(topics ?? [])].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
     [topics]
   );
   const isLoading = topicsLoading || overridesLoading;
@@ -92,7 +92,12 @@ export function AlertConfigDialog({ cluster, open, onOpenChange }: AlertConfigDi
             <div className="py-10 text-center text-[13px] text-[var(--color-muted)]">No topics available.</div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-[var(--color-border)]">
-              <table className="min-w-full text-left text-[13px]">
+              <table className="w-full table-fixed text-left text-[13px]">
+                <colgroup>
+                  <col className="w-[55%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[30%]" />
+                </colgroup>
                 <thead className="bg-[var(--color-surface-2)] text-[var(--color-muted)]">
                   <tr>
                     <th className="px-4 py-3">Topic</th>
@@ -137,13 +142,13 @@ export function AlertConfigDialog({ cluster, open, onOpenChange }: AlertConfigDi
                         <td className="px-4 py-3">
                           <span
                             className={cn(
-                              "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                              "inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold",
                               enabled
                                 ? "bg-[var(--color-success-soft)] text-[var(--color-success)]"
                                 : "bg-[var(--color-warning-soft)] text-[var(--color-warning)]"
                             )}
                           >
-                            {enabled ? "Enabled" : "Disabled, findings still stored"}
+                            {enabled ? "Enabled" : "Disabled"}
                           </span>
                         </td>
                       </tr>
