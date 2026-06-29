@@ -34,6 +34,7 @@ def _default_policy() -> MaintenancePolicy:
         stats_modification_threshold=20_000,
         stats_fullscan=False,
         stats_sample_pct=None,
+        stats_min_sample_pct=5.0,
         heap_forwarded_records_threshold=1000,
         priority_boost=0,
     )
@@ -44,13 +45,22 @@ def _default_window(cluster_id: str) -> MaintenanceWindow:
         window_id=cluster_id,
         cluster_id=cluster_id,
         enabled=True,
-        default=WindowSlot(start="01:00", end="04:00", time_budget_minutes=170),
+        default=WindowSlot(start="02:30", end="05:00", time_budget_minutes=150),
         day_overrides={
             "5": WindowSlot(start="00:00", end="05:00", time_budget_minutes=280),
             "6": WindowSlot(start="00:00", end="05:00", time_budget_minutes=280),
         },
         kill_switch=False,
         gates={},
+        health_monitor={
+            "enabled": True,
+            "interval_sec": 30,
+            "cpu_max_pct": 80.0,
+            "active_requests_max": 60,
+            "log_send_queue_max_kb": None,
+            "redo_queue_max_kb": None,
+            "auto_resume": True,
+        },
     )
 
 

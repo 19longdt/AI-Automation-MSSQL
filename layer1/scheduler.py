@@ -166,6 +166,10 @@ class Layer1Service:
         cache.refresh()
         return True
 
+    def get_node_role_cache(self, cluster_id: str) -> NodeRoleCache | None:
+        with self._lock:
+            return self._role_caches.get(cluster_id)
+
     def _setup_infrastructure(self) -> None:
         logger.info("Connecting to MongoDB: %s", settings.mongodb_uri)
         MongoConnection.initialize(settings)

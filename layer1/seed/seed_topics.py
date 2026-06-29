@@ -449,8 +449,8 @@ ORDER BY tl.request_session_id, tl.resource_type
         # Không dùng get_blocking_chain (trùng subset của metrics) và get_wait_stats
         # (dm_os_wait_stats cumulative từ restart — không phản ánh incident hiện tại).
         capture_tools=[
-            "get_blocked_victims_snapshot",   # per-victim: full text, wait_resource, victim plan
-            "get_analysis_history",           # AI recurrence context (mongo, rẻ)
+            # "get_blocked_victims_snapshot",   # per-victim: full text, wait_resource, victim plan
+            # "get_analysis_history",           # AI recurrence context (mongo, rẻ)
         ],
         analysis_config=AnalysisConfig(
             context=(
@@ -509,8 +509,8 @@ ORDER BY deadlock_time DESC
         detector_type="blocking_chain",  # detector route theo query_id → deadlock parsing
         # Không thresholds: deadlock đã xảy ra → detector luôn tạo CRITICAL per event mới
         capture_tools=[
-            "get_recent_findings",
-            "get_analysis_history",
+            # "get_recent_findings",
+            # "get_analysis_history",
         ],
         analysis_config=AnalysisConfig(
             context=(
@@ -996,13 +996,13 @@ FROM sys.dm_db_file_space_usage
             },
         },
         capture_tools=[
-            "get_memory_pressure",
-            "get_ple_numa",
-            "get_memory_grant",
-            "get_tempdb_usage",
-            "get_wait_stats",
-            "get_query_stats",
-            "get_resource_governor_stats",
+            # "get_memory_pressure",
+            # "get_ple_numa",
+            # "get_memory_grant",
+            # "get_tempdb_usage",
+            # "get_wait_stats",
+            # "get_query_stats",
+            # "get_resource_governor_stats",
         ],
         analysis_config=AnalysisConfig(
             context=(
@@ -1054,11 +1054,11 @@ WHERE counter_name = 'Page life expectancy'
             "issue_type": "memory_pressure",
         },
         capture_tools=[
-            "get_memory_pressure",
-            "get_ple_numa",
-            "get_memory_grant",
-            "get_wait_stats",
-            "get_query_stats",
+            # "get_memory_pressure",
+            # "get_ple_numa",
+            # "get_memory_grant",
+            # "get_wait_stats",
+            # "get_query_stats",
         ],
         analysis_config=AnalysisConfig(
             context=(

@@ -6,3 +6,4 @@ pyodbc>=4.0
 tenacity>=8.0
 python-dotenv>=1.0
 python-logstash-async>=2.5
+elastic-apm>=6.22

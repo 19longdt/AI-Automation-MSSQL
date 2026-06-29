@@ -97,7 +97,8 @@ class CampaignRepo:
         result = self.collection.update_one({"campaign_id": campaign_id}, {"$set": set_fields})
         return result.modified_count > 0
 
-    def increment_stats(self, campaign_id: str, *, done: int = 0, failed: int = 0, skipped: int = 0) -> None:
+    def increment_stats(self, campaign_id: str, *, done: int = 0, failed: int = 0, skipped: int = 0) -> bool:
+        """Increment terminal counters. Returns True if THIS call transitioned campaign to COMPLETED."""
         self.collection.update_one(
             {"campaign_id": campaign_id},
             {
@@ -111,13 +112,21 @@ class CampaignRepo:
         )
         campaign = self.find_by_id(campaign_id)
         if not campaign:
-            return
+            return False
         terminal_count = campaign.done_count + campaign.failed_count + campaign.skipped_count
         if campaign.total_items > 0 and terminal_count >= campaign.total_items:
-            self.collection.update_one(
+            result = self.collection.update_one(
                 {
                     "campaign_id": campaign_id,
                     "status": CampaignStatus.ACTIVE.value,
                 },
                 {"$set": {"status": CampaignStatus.COMPLETED.value, "updated_at": now_vn()}},
             )
+            return result.modified_count > 0
+        return False
+
+    def increment_window_budget(self, campaign_id: str, minutes: float) -> None:
+        self.collection.update_one(
+            {"campaign_id": campaign_id},
+            {"$inc": {"window_budget_used_minutes": minutes}, "$set": {"updated_at": now_vn()}},
+        )

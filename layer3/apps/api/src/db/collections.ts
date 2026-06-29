@@ -6,5 +6,8 @@ export const collections = {
   clusters: "db_clusters",
   topics: "monitor_topics",
   jobs: "job_executions",
-  campaigns: "maintenance_campaigns"
+  campaigns: "maintenance_campaigns",
+  catalog: "maintenance_catalog",
+  catalogConfig: "maintenance_catalog_config",
+  maintenanceCommands: "maintenance_commands",
 } as const;

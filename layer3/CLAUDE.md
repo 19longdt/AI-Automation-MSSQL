@@ -2,34 +2,37 @@
 
 ## Mục đích
 
-Web UI dashboard cho hệ thống giám sát MSSQL, gồm:
+Web UI cho hệ thống giám sát + bảo trì MSSQL, gồm:
 - **Dashboard**: Theo dõi findings, metrics real-time
 - **Insights**: Tổng hợp issue insights từ AI analysis
 - **Query Plan**: Phân tích và visualize SQL execution plan
+- **Maintenance**: Catalog scope/snapshot + Campaign + Queue/History (điều khiển maintenance runner qua MongoDB)
 
-**Stack:** Node.js/TypeScript (API backend) + Vanilla TypeScript (frontend) + nginx (static serve)
+**Stack:** Fastify (API backend, TypeScript, `@fastify/static` phục vụ frontend) + React SPA
+(`apps/web-v2`: Vite + React Query + Zustand + shadcn/ui)
 
 ---
 
 ## Kiến trúc
 
 ```
-Browser
-    │ HTTP
+Browser (React SPA — apps/web-v2)
+    │ HTTP /api/*
     ▼
-nginx (static files: HTML/CSS/JS)
-    │ /api/*  proxy
-    ▼
-apps/api (Express.js — port 3000)
-    │ MongoDB reads (direct)
-    │ /api/v1/* proxy
+apps/api (Fastify — phục vụ static web-v2 + JSON API)
+    │ MongoDB reads/writes (direct)        ← findings, insights, maintenance_*, campaigns, ...
+    │ /api/v1/* proxy                       ← plan analysis
     ▼
 layer2 (FastAPI — port 8000)
+
+maintenance runner ◄──poll── MongoDB ◄──writes── apps/api   (catalog_config / campaigns / commands)
 ```
 
-- Frontend **không gọi trực tiếp Layer 2** — qua Express proxy để thêm auth, aggregation
-- Express API đọc MongoDB trực tiếp (findings, insights, topics, jobs) — không qua Layer 1/2
+- Frontend **không gọi trực tiếp Layer 2** — qua Fastify proxy (`/api/v1/*`)
+- Fastify API đọc MongoDB trực tiếp (findings, insights, topics, jobs, maintenance) — không qua Layer 1/2
 - Plan analysis route (`/api/v1/plan/analyze`) proxy sang Layer 2
+- **Maintenance:** API ghi config/campaign/command vào MongoDB; **maintenance runner là process riêng**
+  poll MongoDB (không có HTTP). Xem `maintenance/CLAUDE.md`.
 
 ---
 
@@ -38,64 +41,39 @@ layer2 (FastAPI — port 8000)
 ```
 layer3/
 ├── apps/
-│   ├── api/                       ← Express.js backend
+│   ├── api/                       ← Fastify backend (TypeScript)
 │   │   └── src/
 │   │       ├── main.ts            ← Entry point
-│   │       ├── server.ts          ← Express app factory + route registration
+│   │       ├── server.ts          ← Fastify factory + route/plugin registration + @fastify/static (web-v2)
 │   │       ├── config.ts          ← Layer3Settings (env vars)
-│   │       ├── db/
-│   │       │   ├── client.ts      ← MongoClient singleton
-│   │       │   └── collections.ts ← Collection accessors (typed)
-│   │       ├── proxy/
-│   │       │   └── l2-proxy.ts    ← Proxy /api/v1/* sang Layer 2 URL
-│   │       ├── routes/
-│   │       │   ├── findings.ts    ← GET /findings (list + pagination)
-│   │       │   ├── analyses.ts    ← GET /analyses
-│   │       │   ├── insights.ts    ← GET /insights
-│   │       │   ├── topics.ts      ← GET /topics
-│   │       │   ├── jobs.ts        ← GET /jobs
-│   │       │   ├── actions.ts     ← POST /actions (kill session, etc.)
-│   │       │   ├── plan.ts        ← POST /api/v1/plan/analyze → proxy Layer 2
-│   │       │   └── health.ts      ← GET /health
-│   │       └── services/
-│   │           ├── findings-service.ts            ← Query findings với filter/pagination + cluster_id isolation
-│   │           ├── findings-diagnostics-service.ts ← finding_diagnostics MongoDB lookup
-│   │           ├── analyses-service.ts            ← ai_analyses query
-│   │           ├── insights-service.ts            ← issue_insights query
-│   │           ├── topics-service.ts              ← monitor_topics query
-│   │           ├── jobs-service.ts                ← job_executions query
-│   │           └── time-filter.ts                 ← Build MongoDB time range filter
+│   │       ├── db/collections.ts  ← Typed MongoDB collection accessors
+│   │       ├── proxy/l2-proxy.ts  ← Proxy /api/v1/* sang Layer 2
+│   │       ├── routes/            ← findings, analyses, insights, topics, jobs, actions, plan, health,
+│   │       │                         clusters, maintenance, catalog, campaigns
+│   │       ├── schemas/           ← *.schema.ts — Fastify JSON Schema (maintenance, campaigns, findings, ...)
+│   │       └── services/          ← findings, analyses, insights, topics, jobs, time-filter,
+│   │                                 maintenance, catalog, campaign, command (maintenance writes)
 │   │
-│   └── web/                       ← Frontend (Vanilla TypeScript, no framework)
-│       ├── pages/
-│       │   ├── dashboard.html     ← Trang chính: findings + metrics
-│       │   ├── insights.html      ← AI insights summary
-│       │   └── query-plan.html    ← SQL execution plan analysis
-│       ├── css/
-│       │   ├── base.css           ← CSS variables (light/dark), reset, typography
-│       │   │                        --group-color-* cho plan analysis groups
-│       │   ├── dashboard.css      ← Dashboard layout
-│       │   ├── stats-cards.css    ← Stats card components
-│       │   ├── query-plan.css     ← Query plan XML viewer (SSMS-style)
-│       │   └── plan-analysis.css  ← Plan analysis component styles
-│       └── dashboard/             ← TypeScript components (compiled → JS)
-│           ├── dashboard.ts       ← Dashboard page logic
-│           ├── insights.ts        ← Insights page logic
-│           ├── api-client.ts      ← Fetch wrapper cho Express API
-│           ├── modal.ts           ← Modal dialog component
-│           ├── loading-overlay.ts ← Loading state component
-│           ├── glossary.ts        ← Glossary data store (70+ entries)
-│           ├── glossary-tooltip.ts ← attachGlossaryTooltips() — tự động gắn tooltip vào [data-glossary]
-│           └── plan-analysis-component.ts ← PlanAnalysisComponent — render PlanAnalysisOutput
+│   └── web-v2/                    ← Frontend SPA — React + Vite + React Query + Zustand + shadcn/ui
+│       └── src/
+│           ├── main.tsx, App.tsx  ← Entry + path-based routing (lazy pages)
+│           ├── pages/             ← DashboardPage, InsightsPage, QueryPlanPage, SettingsPage,
+│           │                         MaintenanceCampaignPage, MaintenanceCatalogPage
+│           ├── components/
+│           │   ├── dashboard/     ← KPI cards, findings table, charts, modals
+│           │   ├── insights/, plan/ ← Insight cards; plan analysis panel + embedded QP diagram
+│           │   ├── maintenance/   ← CampaignControl/Form/List, Catalog{Charts,View,TableDetailDialog},
+│           │   │                     ScopeEditor, QueueTable, HistoryTable, PipelineStages,
+│           │   │                     WindowStatusBar, MaintenanceSubNav
+│           │   ├── layout/, shared/, ui/ ← Shell/topbar/cluster selector; badges; shadcn primitives
+│           ├── hooks/             ← useFindings, useInsights, useMaintenance (catalog/campaign/queue/history), ...
+│           ├── store/             ← dashboard.store.ts (Zustand: selectedClusterId, filters)
+│           └── lib/qp/            ← Embedded html-query-plan renderer (SSMS-style diagram)
 │
-└── packages/
-    └── core/
-        └── src/
-            └── types/
-                └── plan-analysis.ts  ← TypeScript types mirror Python models:
-                                         FindingInstance, FindingGroup, StatementResult,
-                                         PlanAnalysisResult, OperatorSummary, ...
+└── packages/core/src/types/      ← Shared TS types (plan-analysis.ts mirrors Python models)
 ```
+
+> Plan analysis (glossary, 5 groups, summary bar) nằm trong `components/plan/`; build output ở `dist-v2/`.
 
 ---
 
@@ -221,7 +199,8 @@ Mọi code dùng `s.findings` cũ phải chuyển sang `s.finding_groups.reduce(
 | Quyết định | Lý do |
 |---|---|
 | **Vanilla TypeScript, không framework** | Đơn giản, bundle nhỏ, dễ debug; dashboard không phức tạp SPA |
-| **Express proxy thay vì gọi Layer 2 trực tiếp** | Cho phép thêm auth, rate limit, aggregation sau này |
+| **Fastify proxy thay vì gọi Layer 2 trực tiếp** | Cho phép thêm auth, rate limit, aggregation; JSON-schema validate request |
+| **Maintenance: API ghi MongoDB, runner poll (không gọi trực tiếp)** | Runner không có HTTP; tách process; force-run qua `maintenance_commands` |
 | **5 groups thay vì flat list** | Ưu tiên hóa thông tin: DBA đọc ORIENTATION trước, ACTIONABLE sau |
 | **`data-glossary` attribute + auto-attach** | Không cần manual wiring từng tooltip — scan DOM một lần sau render |
 | **CSS variables cho group colors** | Light/dark mode override 1 chỗ — component không cần biết mode |
@@ -273,6 +252,71 @@ db.findings.updateMany(
 
 ---
 
+## Maintenance UI & API
+
+Layer 3 là **control plane** cho maintenance runner (`maintenance/` — process riêng). Mọi tương tác
+qua **MongoDB**: API ghi config/campaign/command, runner poll. API cũng đọc các collection runtime
+(`maintenance_*`) để hiển thị. Runner KHÔNG có HTTP — xem `maintenance/CLAUDE.md` + `maintenance/ARCHITECTURE.md`.
+
+### Pages (web-v2)
+
+| Page | Route | Nội dung |
+|---|---|---|
+| `MaintenanceCampaignPage` | `/maintenance` | Control header (KPI), WindowStatusBar, PipelineStages (Discovery→Scanning→Decision→Execution), CampaignControl, tabs Queue / History |
+| `MaintenanceCatalogPage` | `/maintenance/catalog` | CatalogView: chọn database → schema → snapshot (`run_id`) → table list (lọc frag/stale/heap) → drilldown detail dialog (charts) |
+
+`MaintenanceSubNav` chuyển giữa 2 trang; chấm đỏ trên Campaign nếu có campaign `DISCOVERY_FAILED`.
+
+### Components (`components/maintenance/`)
+
+| Component | Vai trò |
+|---|---|
+| `CampaignControl` / `CampaignForm` / `CampaignList` | Tạo/sửa/extend/cancel campaign; form có scope theo bảng, execution_types, **ngưỡng nhóm theo execution type**, scan_times, window override; list có progress % + discovery error |
+| `ScopeEditor` | CRUD catalog scope (db → schema → table); validate trùng theo key **(db, schema, table)** — cùng (db,schema) khác bảng thì CHO PHÉP, all-tables hoặc giao bảng thì chặn |
+| `CatalogView` / `CatalogCharts` / `CatalogTableDetailDialog` | Duyệt snapshot; trend frag theo table / index×partition / stats modification (Recharts) |
+| `QueueTable` / `HistoryTable` | Queue items theo status tab; lịch sử thực thi theo outcome |
+| `PipelineStages` / `WindowStatusBar` | 4-stage pipeline với counts; trạng thái window + budget + gates |
+
+### Hooks (`hooks/useMaintenance.ts`)
+
+Queries: `useMaintenanceSummary`, `useMaintenanceQueue`, `useMaintenanceHistory`, `useCampaigns`,
+`useCatalog{Databases,Schemas,Snapshots,Tables,LiveTables,Table,TableHistory,IndexHistory,StatsHistory,TableEvents}`,
+`useCatalogConfig`.
+Mutations: `useSaveCatalogConfig`, `useCreateMaintenanceCommand` (force run_catalog/run_discovery),
+`useCreateCampaign`, `useUpdateCampaign`, `useCancelCampaign` — đều invalidate `summary`/`campaigns`.
+
+### API Endpoints (Fastify, `routes/`)
+
+```
+GET  /api/maintenance/summary                  ← window/budget + queue counts + last batch/scan + catalog status
+GET  /api/maintenance/queue        ?cluster_id&status&action_type   (X-Total-Count)
+GET  /api/maintenance/history      ?cluster_id&outcome
+POST /api/maintenance/commands     {cluster_id, type: run_catalog|run_discovery}   → 202, enqueue maintenance_commands
+
+GET  /api/maintenance/catalog/databases | schemas | snapshots | tables | table | table-history
+       | table-index-history | table-stats-history | table-events | live-tables(proxy Layer1)
+GET  /api/maintenance/catalog/config           ← scope hiện tại
+PUT  /api/maintenance/catalog/config           ← full-replace scope (validate trùng (db,schema,table))
+
+GET    /api/maintenance/campaigns  ?cluster_id&status    (X-Total-Count)
+POST   /api/maintenance/campaigns  (rate-limit 10/min — validate scope vs catalog config, không chồng campaign active)
+PUT    /api/maintenance/campaigns/:id   (status-aware: scope/execution_types chỉ khi pending; thresholds/window khi pending|active)
+DELETE /api/maintenance/campaigns/:id   (rate-limit 5/min — cancel)
+```
+
+### Services (`services/`)
+
+- `maintenance-service.ts` — summary (window VN-time + budget từ history, queue count buckets, catalog stale >25h), queue/history list.
+- `catalog-service.ts` — đọc `maintenance_catalog` (tables/snapshots/trends), `putCatalogConfig` (validate + upsert scope).
+- `campaign-service.ts` — CRUD `maintenance_campaigns`; normalize `CampaignThresholds` (grouped index/statistic/heap); validate ngày + scope + chống chồng campaign.
+- `command-service.ts` — enqueue `maintenance_commands` (fire-and-forget trigger).
+
+> **Quan trọng — đồng bộ với runner:** Campaign threshold là **grouped** (index/statistic/heap) ở cả
+> `campaigns.schema.ts`, `campaign-service.ts`, `types/index.ts`, `CampaignForm.tsx` — khớp với Pydantic
+> `CampaignThresholds` ở runner. Catalog scope là **đo lường thuần, KHÔNG chứa ngưỡng**.
+
+---
+
 ## Pending — Keyword Highlighting (Option B)
 
 Plan: `plan/upgrade-v2/highlight-keywords-plan.md`
@@ -290,4 +334,4 @@ Còn lại cần implement:
 
 **Author:** Long Do | Backend Engineering | longdt@softdreams.vn
 
-**Status:** ✅ Fully Implemented (Express API + TypeScript frontend + Plan Analysis UI)
+**Status:** ✅ Fully Implemented (Fastify API + React SPA web-v2 + Plan Analysis UI + Maintenance UI)

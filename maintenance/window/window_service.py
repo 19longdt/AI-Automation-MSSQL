@@ -62,6 +62,26 @@ class WindowService:
         last = self.last_window_bounds(window, now)
         return last[2] if last else None
 
+    def state_from_override(
+        self,
+        now: datetime,
+        start: str,
+        end: str,
+        budget_minutes: int,
+        budget_used_minutes: float = 0.0,
+    ) -> WindowState:
+        slot = WindowSlot(start=start, end=end, time_budget_minutes=budget_minutes)
+        bounds = self._bounds_for_slot(now, slot)
+        if bounds is None:
+            return WindowState(open=False, reason="outside_window")
+        _window_start, window_end, _slot = bounds
+        remaining_budget = max(0.0, budget_minutes - budget_used_minutes)
+        minutes_to_end = (window_end - now).total_seconds() / 60.0
+        remaining = min(remaining_budget, minutes_to_end)
+        if remaining <= 0:
+            return WindowState(open=False, remaining_minutes=0.0, reason="budget_exhausted")
+        return WindowState(open=True, remaining_minutes=round(remaining, 1), reason="open")
+
     @staticmethod
     def current_window_bounds(
         window: MaintenanceWindow, now: datetime
@@ -76,12 +96,7 @@ class WindowService:
         for day_offset in (0, -1):
             day = (now + timedelta(days=day_offset)).date()
             slot = window.slot_for_weekday(day.weekday())
-            sh, sm = slot.start_tuple()
-            eh, em = slot.end_tuple()
-            start = datetime(day.year, day.month, day.day, sh, sm)
-            end = datetime(day.year, day.month, day.day, eh, em)
-            if slot.crosses_midnight():
-                end += timedelta(days=1)
+            start, end = WindowService._slot_bounds_for_day(day, slot)
             if start <= now < end:
                 return start, end, slot
         return None
@@ -94,12 +109,26 @@ class WindowService:
         for day_offset in (0, -1, -2):
             day = (now + timedelta(days=day_offset)).date()
             slot = window.slot_for_weekday(day.weekday())
-            sh, sm = slot.start_tuple()
-            eh, em = slot.end_tuple()
-            start = datetime(day.year, day.month, day.day, sh, sm)
-            end = datetime(day.year, day.month, day.day, eh, em)
-            if slot.crosses_midnight():
-                end += timedelta(days=1)
+            start, end = WindowService._slot_bounds_for_day(day, slot)
             if end <= now:
                 return start, end, slot
         return None
+
+    @staticmethod
+    def _bounds_for_slot(now: datetime, slot: WindowSlot) -> tuple[datetime, datetime, WindowSlot] | None:
+        for day_offset in (0, -1):
+            day = (now + timedelta(days=day_offset)).date()
+            start, end = WindowService._slot_bounds_for_day(day, slot)
+            if start <= now < end:
+                return start, end, slot
+        return None
+
+    @staticmethod
+    def _slot_bounds_for_day(day, slot: WindowSlot) -> tuple[datetime, datetime]:
+        sh, sm = slot.start_tuple()
+        eh, em = slot.end_tuple()
+        start = datetime(day.year, day.month, day.day, sh, sm)
+        end = datetime(day.year, day.month, day.day, eh, em)
+        if slot.crosses_midnight():
+            end += timedelta(days=1)
+        return start, end

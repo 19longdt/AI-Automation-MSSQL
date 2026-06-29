@@ -10,3 +10,6 @@ __pycache__/
 *.log
 layer3/dist-v2/
 layer3/dist/
+.env
+.env.local
+.env.*

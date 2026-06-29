@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Toaster } from "sonner";
 import { Topbar } from "@/components/layout/Topbar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -6,7 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 const DashboardPage  = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const InsightsPage   = lazy(() => import("@/pages/InsightsPage").then((m) => ({ default: m.InsightsPage })));
 const QueryPlanPage  = lazy(() => import("@/pages/QueryPlanPage").then((m) => ({ default: m.QueryPlanPage })));
-const MaintenancePage = lazy(() => import("@/pages/MaintenancePage").then((m) => ({ default: m.MaintenancePage })));
+const MaintenanceCampaignPage = lazy(() => import("@/pages/MaintenanceCampaignPage").then((m) => ({ default: m.MaintenanceCampaignPage })));
+const MaintenanceCatalogPage = lazy(() => import("@/pages/MaintenanceCatalogPage").then((m) => ({ default: m.MaintenanceCatalogPage })));
 const SettingsPage   = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 
 function PageFallback() {
@@ -17,17 +18,28 @@ function PageFallback() {
   );
 }
 
-function resolveRoute(): "dashboard" | "insights" | "query-plan" | "maintenance" | "settings" {
+function resolveRoute(): "dashboard" | "insights" | "query-plan" | "maintenance-campaign" | "maintenance-catalog" | "settings" {
   const p = window.location.pathname;
   if (p.startsWith("/insights"))  return "insights";
-  if (p.startsWith("/maintenance")) return "maintenance";
+  if (p.startsWith("/maintenance/catalog")) return "maintenance-catalog";
+  if (p.startsWith("/maintenance")) return "maintenance-campaign";
   if (p.startsWith("/settings")) return "settings";
   if (p.startsWith("/query-plan") || p.startsWith("/extract-query-plan")) return "query-plan";
   return "dashboard";
 }
 
 export default function App() {
-  const route = resolveRoute();
+  const [route, setRoute] = useState(resolveRoute);
+
+  useEffect(() => {
+    const handleRouteChange = () => setRoute(resolveRoute());
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener("pushstate", handleRouteChange);
+    return () => {
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("pushstate", handleRouteChange);
+    };
+  }, []);
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-[var(--color-bg)]">
@@ -37,7 +49,8 @@ export default function App() {
           {route === "dashboard"  && <DashboardPage />}
           {route === "insights"   && <InsightsPage />}
           {route === "query-plan" && <QueryPlanPage />}
-          {route === "maintenance" && <MaintenancePage />}
+          {route === "maintenance-campaign" && <MaintenanceCampaignPage />}
+          {route === "maintenance-catalog" && <MaintenanceCatalogPage />}
           {route === "settings"   && <SettingsPage />}
         </Suspense>
       </main>

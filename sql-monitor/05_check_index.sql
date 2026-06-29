@@ -158,34 +158,55 @@ ORDER BY total_reads ASC, us.user_updates DESC;
 --   - Sau REBUILD: statistics tu dong duoc update
 -- ============================================================================
 
-SELECT top(10)
-    OBJECT_NAME(ips.object_id)       AS table_name,
-    i.name                           AS index_name,
+;WITH target_tables AS (
+    SELECT v.schema_name, v.table_name,
+           OBJECT_ID(QUOTENAME(v.schema_name) + '.' + QUOTENAME(v.table_name)) AS object_id
+    FROM (VALUES
+        ('dbo', 'bill')
+        -- them bang: ('schema', 'ten_bang'),
+    ) v (schema_name, table_name)
+    WHERE OBJECT_ID(QUOTENAME(v.schema_name) + '.' + QUOTENAME(v.table_name)) IS NOT NULL
+)
+SELECT
+    t.schema_name,
+    t.table_name,
+    i.name                                          AS index_name,
     i.type_desc,
-    ips.index_type_desc,
-    ips.avg_fragmentation_in_percent AS frag_pct,
+    ips.partition_number,
+    pf.name                                         AS partition_function,
+    CAST(prv.value AS NVARCHAR(50))                 AS partition_boundary_value,
+    ips.avg_fragmentation_in_percent                AS frag_pct,
     ips.page_count,
-    ips.page_count * 8 / 1024       AS size_mb,
-    ips.avg_page_space_used_in_percent AS avg_page_fill_pct,
+    ips.page_count * 8 / 1024                      AS size_mb,
+    ips.avg_page_space_used_in_percent              AS avg_page_fill_pct,
     ips.record_count,
     CASE
         WHEN ips.page_count < 1000 THEN 'NHO - Bo qua'
         WHEN ips.avg_fragmentation_in_percent > 30
         THEN 'REBUILD: ALTER INDEX [' + i.name + '] ON ['
-             + OBJECT_SCHEMA_NAME(ips.object_id) + '].[' + OBJECT_NAME(ips.object_id)
-             + '] REBUILD WITH (ONLINE = ON, SORT_IN_TEMPDB = ON);'
+             + t.schema_name + '].[' + t.table_name
+             + '] REBUILD PARTITION = ' + CAST(ips.partition_number AS VARCHAR)
+             + ' WITH (ONLINE = ON, SORT_IN_TEMPDB = ON);'
         WHEN ips.avg_fragmentation_in_percent > 5
         THEN 'REORGANIZE: ALTER INDEX [' + i.name + '] ON ['
-             + OBJECT_SCHEMA_NAME(ips.object_id) + '].[' + OBJECT_NAME(ips.object_id)
-             + '] REORGANIZE;'
+             + t.schema_name + '].[' + t.table_name
+             + '] REORGANIZE PARTITION = ' + CAST(ips.partition_number AS VARCHAR) + ';'
         ELSE 'OK'
-    END AS action_sql
-FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'LIMITED') ips
-    JOIN sys.indexes i ON ips.object_id = i.object_id AND ips.index_id = i.index_id
-WHERE ips.avg_fragmentation_in_percent > 5
-  AND ips.page_count > 100  -- Bo qua index qua nho
-  AND i.name IS NOT NULL    -- Bo qua heap
-ORDER BY ips.avg_fragmentation_in_percent DESC;
+    END                                             AS action_sql
+FROM target_tables t
+CROSS APPLY sys.dm_db_index_physical_stats(DB_ID(), t.object_id, NULL, NULL, 'LIMITED') ips
+JOIN sys.indexes i
+    ON  ips.object_id = i.object_id
+    AND ips.index_id  = i.index_id
+LEFT JOIN sys.partition_schemes ps
+    ON  i.data_space_id = ps.data_space_id
+LEFT JOIN sys.partition_functions pf
+    ON  ps.function_id = pf.function_id
+LEFT JOIN sys.partition_range_values prv
+    ON  pf.function_id  = prv.function_id
+    AND prv.boundary_id = ips.partition_number - 1
+WHERE i.name IS NOT NULL and ips.avg_fragmentation_in_percent > 5
+ORDER BY t.table_name, ips.avg_fragmentation_in_percent DESC;
 
 
 -- ============================================================================

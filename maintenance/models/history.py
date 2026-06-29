@@ -13,7 +13,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from ..infra.time_utils import now_vn
-from .work_item import ActionType
+from .work_item import ActionType, WorkItemStatus
 
 
 class MaintenanceOutcome(str, Enum):
@@ -42,6 +42,9 @@ class MaintenanceHistory(BaseModel):
     stats_name: str | None = None
     partition_number: int | None = None
     action_type: ActionType
+    previous_status: WorkItemStatus | None = None
+    final_status: WorkItemStatus | None = None
+    attempt_no: int = 0
 
     # T-SQL chính xác đã chạy (hoặc sẽ chạy nếu dry_run) — audit + AI context
     statement: str = ""

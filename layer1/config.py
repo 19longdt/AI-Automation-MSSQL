@@ -75,7 +75,7 @@ class EnvSettings(BaseSettings):
     logstash_host: str = Field(default="")
     logstash_port: int = Field(default=5044)
     logstash_app_name: str = Field(
-        default="sds.ep.ai-automation-layer1",
+        default="sds.ep.mssql-automation-layer1",
         validation_alias=AliasChoices("L1_LOGSTASH_APP_NAME", "LOGSTASH_APP_NAME"),
     )
     logstash_transport: str = Field(
@@ -83,6 +83,27 @@ class EnvSettings(BaseSettings):
         validation_alias=AliasChoices("L1_LOGSTASH_TRANSPORT", "LOGSTASH_TRANSPORT"),
     )
     logstash_database_path: str = Field(default="")
+
+    elastic_apm_server_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("L1_ELASTIC_APM_SERVER_URL", "ELASTIC_APM_SERVER_URL"),
+    )
+    elastic_apm_secret_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("L1_ELASTIC_APM_SECRET_TOKEN", "ELASTIC_APM_SECRET_TOKEN"),
+    )
+    elastic_apm_service_name: str = Field(
+        default="layer1-monitor",
+        validation_alias=AliasChoices("L1_ELASTIC_APM_SERVICE_NAME", "ELASTIC_APM_SERVICE_NAME"),
+    )
+    elastic_apm_environment: str = Field(
+        default="production",
+        validation_alias=AliasChoices("L1_ELASTIC_APM_ENVIRONMENT", "ELASTIC_APM_ENVIRONMENT"),
+    )
+    elastic_apm_service_version: str = Field(
+        default="",
+        validation_alias=AliasChoices("L1_ELASTIC_APM_SERVICE_VERSION", "ELASTIC_APM_SERVICE_VERSION"),
+    )
 
     @field_validator("logstash_transport", mode="before")
     @classmethod

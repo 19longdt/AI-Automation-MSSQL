@@ -18,7 +18,14 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
     const payload = await res.json().catch(() => ({}));
     throw new ApiError(res.status, payload, `${res.status} ${res.statusText}`);
   }
-  return res.json() as Promise<T>;
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  const text = await res.text();
+  if (!text.trim()) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 // `object` accepts any interface/type without requiring an index signature.
@@ -38,6 +45,10 @@ export function apiPost<T>(url: string, body: unknown): Promise<T> {
 
 export function apiPut<T>(url: string, body: unknown): Promise<T> {
   return apiFetch<T>(url, { method: "PUT", body: JSON.stringify(body) });
+}
+
+export function apiPatch<T>(url: string, body: unknown): Promise<T> {
+  return apiFetch<T>(url, { method: "PATCH", body: JSON.stringify(body) });
 }
 
 export function apiDelete<T>(url: string): Promise<T> {

@@ -107,7 +107,8 @@ export async function createServer(config: AppConfig, db: Db | null, mongoReady:
   app.get("/query-plan",         async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/extract-query-plan", async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/history",            async (_req, reply) => reply.sendFile("index.html", dist2Root));
-  app.get("/maintenance",        async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/maintenance",         async (_req, reply) => reply.sendFile("index.html", dist2Root));
+  app.get("/maintenance/catalog", async (_req, reply) => reply.sendFile("index.html", dist2Root));
   app.get("/settings",           async (_req, reply) => reply.sendFile("index.html", dist2Root));
 
   await registerHealthRoutes(app);

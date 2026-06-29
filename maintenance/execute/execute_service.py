@@ -1,4 +1,4 @@
-"""execute_service.py — Execute maintenance items cho một cluster."""
+"""execute_service.py - Execute maintenance items cho một cluster."""
 from __future__ import annotations
 
 import logging
@@ -9,18 +9,21 @@ from layer1.models.cluster import ClusterConfig
 
 from ..config import MaintEnvSettings
 from ..connection import maint_connection
+from ..infra.cluster_reader import ClusterReader
 from ..infra.mssql_connection import mssql_connection
 from ..infra.time_utils import now_vn
 from ..models.campaign import CampaignStatus, MaintenanceCampaign
 from ..models.history import MaintenanceHistory, MaintenanceOutcome
 from ..models.policy import MaintenancePolicy
 from ..models.work_item import ActionType, ItemKind, TERMINAL_STATUSES, WorkItem, WorkItemStatus
+from ..notify.event_publisher import MaintenanceEventPublisher
 from ..policy.policy_resolver import PolicyResolver
 from ..repositories.campaign_repo import CampaignRepo
 from ..repositories.history_repo import HistoryRepo
 from ..repositories.queue_repo import QueueRepo
 from ..repositories.window_repo import WindowRepo
 from ..safety.gate_service import GateService
+from ..safety.health_state import HealthState
 from ..window.window_service import WindowService
 from . import statement_builder
 
@@ -58,6 +61,8 @@ class ClusterExecuteService:
         gate_service: GateService,
         policy_resolver: PolicyResolver,
         maint_settings: MaintEnvSettings,
+        cluster_reader: ClusterReader,
+        publisher: MaintenanceEventPublisher | None = None,
     ) -> None:
         self._cluster = cluster
         self._queue_repo = queue_repo
@@ -68,6 +73,8 @@ class ClusterExecuteService:
         self._gate_service = gate_service
         self._resolver = policy_resolver
         self._settings = maint_settings
+        self._cluster_reader = cluster_reader
+        self._publisher = publisher
 
         self._stop_requested = False
         self._deferred_item_ids: set[str] = set()
@@ -76,20 +83,47 @@ class ClusterExecuteService:
         self._current_item: WorkItem | None = None
         self._current_host: str | None = None
         self._current_conn_str: str | None = None
+        self._last_role_refresh: datetime | None = None
+
+        self._health_lock = threading.Lock()
+        self._health_state: HealthState = HealthState.HEALTHY
+        self._health_reason = ""
+        self._health_metrics: dict = {}
 
     def tick(self) -> int:
         if self._stop_requested:
             return 0
 
+        health = self.get_health_state()
+        if health != HealthState.HEALTHY:
+            logger.debug("Tick skip: health_state=%s for cluster=%s", health.value, self._cluster.cluster_id)
+            return 0
+
         now = now_vn()
         self._campaign_repo.expire_if_past_end_date(self._cluster.cluster_id, now)
         campaign = self._campaign_repo.find_active_or_discovering(self._cluster.cluster_id)
-        if not campaign or campaign.status != CampaignStatus.ACTIVE:
+        if not campaign:
+            logger.debug("Tick skip: no active campaign for cluster=%s", self._cluster.cluster_id)
+            return 0
+        if campaign.status != CampaignStatus.ACTIVE:
+            logger.debug(
+                "Tick skip: campaign status=%s (not ACTIVE) for cluster=%s campaign=%s",
+                campaign.status.value,
+                self._cluster.cluster_id,
+                campaign.campaign_id,
+            )
             return 0
 
-        state = self._window_service.state(now)
-        self._track_window_transition(state.open)
-        if not state.open:
+        win_state = self._resolve_window_state(campaign, now)
+        self._track_window_transition(win_state.open)
+        if not win_state.open:
+            logger.debug(
+                "Tick skip: window closed reason=%s remaining=%.1fm for cluster=%s campaign=%s",
+                win_state.reason,
+                win_state.remaining_minutes or 0.0,
+                self._cluster.cluster_id,
+                campaign.campaign_id,
+            )
             return 0
 
         host = self._get_primary_host()
@@ -99,34 +133,127 @@ class ClusterExecuteService:
 
         window = self._window_repo.find_by_cluster(self._cluster.cluster_id)
         if window is None:
+            logger.warning("Tick skip: no window config for cluster=%s", self._cluster.cluster_id)
             return 0
         conn_str = self._cluster.get_connection_string(host)
         gate = self._gate_service.check(host, window.effective_gates(), conn_str)
         if not gate.passed:
+            # GateService logs INFO on failure — chỉ thêm debug context ở đây
+            logger.debug(
+                "Tick skip: gate failed reasons=%s for cluster=%s",
+                gate.reasons,
+                self._cluster.cluster_id,
+            )
             return 0
 
         item = self._claim_next(campaign.campaign_id)
         if item is None:
+            logger.debug(
+                "Tick skip: no approved item to claim for cluster=%s campaign=%s",
+                self._cluster.cluster_id,
+                campaign.campaign_id,
+            )
             return 0
-        return self._process_item(item, host, conn_str, state.remaining_minutes, campaign)
+        return self._process_item(item, host, conn_str, win_state.remaining_minutes, campaign)
 
     def request_stop(self) -> None:
         self._stop_requested = True
+        self._pause_current_rebuild("SIGTERM")
+
+    def get_current_item(self) -> WorkItem | None:
+        with self._lock:
+            return self._current_item
+
+    def get_primary_host(self) -> str | None:
+        return self._get_primary_host()
+
+    def get_primary_conn_str(self, host: str) -> str:
+        return self._cluster.get_connection_string(host)
+
+    def get_health_state(self) -> HealthState:
+        with self._health_lock:
+            return self._health_state
+
+    def request_health_stop(self, reason: str, metrics: dict) -> None:
+        with self._health_lock:
+            if self._health_state == HealthState.HEALTHY:
+                self._health_state = HealthState.STOPPING
+            elif self._health_state == HealthState.RECOVERING:
+                self._health_state = HealthState.STOPPED
+            self._health_reason = reason
+            self._health_metrics = metrics
+        self._pause_current_rebuild("HealthMonitor")
+
+    def mark_health_stopped(self) -> None:
+        with self._health_lock:
+            if self._health_state == HealthState.STOPPING:
+                self._health_state = HealthState.STOPPED
+
+    def notify_gates_recovered(self) -> None:
+        with self._health_lock:
+            if self._health_state == HealthState.STOPPED:
+                self._health_state = HealthState.RECOVERING
+
+    def confirm_recovery(self) -> None:
+        with self._health_lock:
+            if self._health_state == HealthState.RECOVERING:
+                self._health_state = HealthState.HEALTHY
+                self._health_reason = ""
+                self._health_metrics = {}
+
+    def clear_health_stop(self) -> None:
+        with self._health_lock:
+            self._health_state = HealthState.HEALTHY
+            self._health_reason = ""
+            self._health_metrics = {}
+
+    def is_health_stopped(self) -> bool:
+        with self._health_lock:
+            return self._health_state in (HealthState.STOPPING, HealthState.STOPPED, HealthState.RECOVERING)
+
+    def _resolve_window_state(self, campaign: MaintenanceCampaign, now: datetime):
+        if campaign.window_override:
+            return self._window_service.state_from_override(
+                now,
+                start=campaign.window_override.start,
+                end=campaign.window_override.end,
+                budget_minutes=campaign.window_override.time_budget_minutes,
+                budget_used_minutes=campaign.window_budget_used_minutes,
+            )
+        return self._window_service.state(now)
+
+    def _pause_current_rebuild(self, source: str) -> None:
         with self._lock:
             item = self._current_item
             host = self._current_host
             conn_str = self._current_conn_str
         if item is None or host is None or conn_str is None:
             return
-        if item.action_type in _REBUILD_ACTIONS:
-            try:
-                pause_stmt = statement_builder.build_pause(item)
-                with maint_connection(host, conn_str) as conn:
-                    conn.execute(pause_stmt)
-            except Exception as exc:
-                logger.error("SIGTERM PAUSE failed for %s: %s", item.object_label(), exc)
+        if item.action_type not in _REBUILD_ACTIONS:
+            return
+        try:
+            pause_stmt = statement_builder.build_pause(item)
+            with maint_connection(host, conn_str) as conn:
+                conn.execute(pause_stmt)
+            logger.info("%s: paused resumable REBUILD for %s", source, item.object_label())
+            with self._health_lock:
+                if source == "HealthMonitor":
+                    self._health_state = HealthState.STOPPED
+        except Exception as exc:
+            logger.error("%s PAUSE failed for %s: %s", source, item.object_label(), exc)
 
     def _get_primary_host(self) -> str | None:
+        now = now_vn()
+        if self._last_role_refresh is None or (now - self._last_role_refresh).total_seconds() > self._settings.maint_node_role_refresh_sec:
+            try:
+                fresh = self._cluster_reader.find_by_id(self._cluster.cluster_id)
+                if fresh:
+                    self._cluster = fresh
+                    self._last_role_refresh = now
+                    logger.debug("Node roles refreshed for cluster=%s", self._cluster.cluster_id)
+            except Exception as exc:
+                logger.warning("Node role refresh failed for cluster=%s: %s", self._cluster.cluster_id, exc)
+
         for node_role in self._cluster.node_roles:
             if str(node_role.role).lower() == "primary":
                 return node_role.host
@@ -141,7 +268,8 @@ class ClusterExecuteService:
         item = self._queue_repo.claim_paused_resumable(self._cluster.cluster_id, campaign_id)
         if item is not None:
             return item
-        for _ in range(10):
+        loop_limit = min(len(self._deferred_item_ids) + 1, 100)
+        for _ in range(loop_limit):
             item = self._queue_repo.claim_next_approved(self._cluster.cluster_id, campaign_id)
             if item is None:
                 return None
@@ -163,14 +291,25 @@ class ClusterExecuteService:
 
         if not policy.enabled:
             self._queue_repo.finalize(item.item_id, WorkItemStatus.SKIPPED)
-            self._write_history(item, host, "", MaintenanceOutcome.SKIPPED, skip_reason="policy_disabled")
+            self._write_history(
+                item,
+                host,
+                "",
+                MaintenanceOutcome.SKIPPED,
+                previous_status=WorkItemStatus.RUNNING,
+                final_status=WorkItemStatus.SKIPPED,
+                attempt_no=item.attempts + 1,
+                skip_reason="policy_disabled",
+            )
             self._increment_campaign_terminal(campaign, WorkItemStatus.SKIPPED)
             return 0
 
-        is_resumable_rebuild = (
-            item.action_type in _REBUILD_ACTIONS and policy.online and policy.resumable
-        )
+        is_resumable_rebuild = item.action_type in _REBUILD_ACTIONS and policy.online and policy.resumable
         if not is_resumable_rebuild and item.estimated_minutes > remaining_minutes:
+            logger.info(
+                "Defer item %s: est %.0fp > remaining %.0fp (insufficient_budget) cluster=%s",
+                item.object_label(), item.estimated_minutes, remaining_minutes, self._cluster.cluster_id,
+            )
             self._deferred_item_ids.add(item.item_id)
             self._queue_repo.release(item.item_id, WorkItemStatus.APPROVED)
             self._write_history(
@@ -178,6 +317,9 @@ class ClusterExecuteService:
                 host,
                 "",
                 MaintenanceOutcome.SKIPPED,
+                previous_status=WorkItemStatus.RUNNING,
+                final_status=WorkItemStatus.APPROVED,
+                attempt_no=item.attempts + 1,
                 skip_reason=f"insufficient_budget: est {item.estimated_minutes:.0f}p > remaining {remaining_minutes:.0f}p",
             )
             return 0
@@ -201,9 +343,20 @@ class ClusterExecuteService:
 
         if self._settings.maint_dry_run:
             self._queue_repo.finalize(item.item_id, WorkItemStatus.DONE)
-            self._write_history(item, host, statement, MaintenanceOutcome.DRY_RUN)
+            self._write_history(
+                item,
+                host,
+                statement,
+                MaintenanceOutcome.DRY_RUN,
+                previous_status=WorkItemStatus.RUNNING,
+                final_status=WorkItemStatus.DONE,
+                attempt_no=item.attempts + 1,
+            )
             self._increment_campaign_terminal(campaign, WorkItemStatus.DONE)
             return 1
+
+        if self._publisher is not None and item.estimated_minutes >= 15:
+            self._publisher.on_item_started(item)
 
         frag_before = self._measure_frag(host, conn_str, item)
         started_at = now_vn()
@@ -223,12 +376,23 @@ class ClusterExecuteService:
                 host,
                 statement,
                 MaintenanceOutcome.DONE,
+                previous_status=WorkItemStatus.RUNNING,
+                final_status=WorkItemStatus.DONE,
+                attempt_no=item.attempts + 1,
                 frag_before=frag_before,
                 frag_after=frag_after,
                 started_at=started_at,
                 finished_at=finished_at,
             )
             self._increment_campaign_terminal(campaign, WorkItemStatus.DONE)
+            self._increment_window_budget(campaign, (finished_at - started_at).total_seconds() * 1000)
+            if self._publisher is not None:
+                self._publisher.on_item_done(
+                    item,
+                    frag_before=frag_before,
+                    frag_after=frag_after,
+                    duration_ms=(finished_at - started_at).total_seconds() * 1000,
+                )
             return 1
         except Exception as exc:
             return self._handle_execute_error(
@@ -244,6 +408,7 @@ class ClusterExecuteService:
                 campaign,
             )
         finally:
+            self.mark_health_stopped()
             with self._lock:
                 self._current_item = None
                 self._current_host = None
@@ -263,6 +428,7 @@ class ClusterExecuteService:
         campaign: MaintenanceCampaign,
     ) -> int:
         finished_at = now_vn()
+        duration_ms = (finished_at - started_at).total_seconds() * 1000
 
         if item.action_type in _REBUILD_ACTIONS and _is_pause_error(error):
             self._queue_repo.release(item.item_id, WorkItemStatus.PAUSED, resume_token=True)
@@ -271,20 +437,25 @@ class ClusterExecuteService:
                 host,
                 statement,
                 MaintenanceOutcome.PAUSED,
+                previous_status=WorkItemStatus.RUNNING,
+                final_status=WorkItemStatus.PAUSED,
+                attempt_no=item.attempts + 1,
                 frag_before=frag_before,
                 started_at=started_at,
                 finished_at=finished_at,
             )
+            self._increment_window_budget(campaign, duration_ms)
+            if self._publisher is not None:
+                self._publisher.on_item_paused(item, duration_ms)
             return 0
 
         if _is_online_restriction(error) and policy.online and policy.offline_fallback and not item.resume_token:
             try:
-                offline_stmt = statement_builder.build_statement(
-                    item, policy, remaining_minutes, force_offline=True
-                )
+                offline_stmt = statement_builder.build_statement(item, policy, remaining_minutes, force_offline=True)
                 with maint_connection(host, conn_str) as conn:
                     conn.execute(offline_stmt)
                 finished_at = now_vn()
+                duration_ms = (finished_at - started_at).total_seconds() * 1000
                 frag_after = self._measure_frag(host, conn_str, item)
                 self._queue_repo.finalize(item.item_id, WorkItemStatus.DONE)
                 self._write_history(
@@ -292,6 +463,9 @@ class ClusterExecuteService:
                     host,
                     offline_stmt,
                     MaintenanceOutcome.DONE,
+                    previous_status=WorkItemStatus.RUNNING,
+                    final_status=WorkItemStatus.DONE,
+                    attempt_no=item.attempts + 1,
                     frag_before=frag_before,
                     frag_after=frag_after,
                     started_at=started_at,
@@ -299,6 +473,9 @@ class ClusterExecuteService:
                     skip_reason="online_fallback_to_offline",
                 )
                 self._increment_campaign_terminal(campaign, WorkItemStatus.DONE)
+                self._increment_window_budget(campaign, duration_ms)
+                if self._publisher is not None:
+                    self._publisher.on_item_done(item, frag_before, frag_after, duration_ms)
                 return 1
             except Exception as retry_exc:
                 error = f"offline retry failed: {retry_exc} (original: {error})"
@@ -316,24 +493,46 @@ class ClusterExecuteService:
             host,
             statement,
             MaintenanceOutcome.FAILED,
+            previous_status=WorkItemStatus.RUNNING,
+            final_status=terminal_status if terminal_status is not None else WorkItemStatus.APPROVED,
+            attempt_no=attempts,
             frag_before=frag_before,
             started_at=started_at,
             finished_at=finished_at,
             error=error,
         )
+        self._increment_window_budget(campaign, duration_ms)
         if terminal_status is not None:
             self._increment_campaign_terminal(campaign, terminal_status)
+        if self._publisher is not None:
+            self._publisher.on_item_failed(
+                item,
+                error=error,
+                attempt=attempts,
+                max_attempts=self._settings.maint_max_attempts,
+                duration_ms=duration_ms,
+            )
         return 0
 
     def _increment_campaign_terminal(self, campaign: MaintenanceCampaign, status: WorkItemStatus) -> None:
         if status not in TERMINAL_STATUSES:
             return
-        self._campaign_repo.increment_stats(
+        just_completed = self._campaign_repo.increment_stats(
             campaign.campaign_id,
             done=1 if status == WorkItemStatus.DONE else 0,
             failed=1 if status == WorkItemStatus.FAILED else 0,
             skipped=1 if status == WorkItemStatus.SKIPPED else 0,
         )
+        if just_completed and self._publisher is not None:
+            current = self._campaign_repo.find_by_id(campaign.campaign_id)
+            if current is not None:
+                done_items = self._history_repo.find_done_by_campaign(current.campaign_id)
+                self._publisher.on_campaign_completed(current, done_items)
+
+    def _increment_window_budget(self, campaign: MaintenanceCampaign, duration_ms: float) -> None:
+        if campaign.window_override is None:
+            return
+        self._campaign_repo.increment_window_budget(campaign.campaign_id, duration_ms / 60000)
 
     def _measure_frag(self, host: str, conn_str: str, item: WorkItem) -> float | None:
         if item.kind not in (ItemKind.INDEX_FRAG, ItemKind.HEAP_FORWARDED):
@@ -360,6 +559,9 @@ class ClusterExecuteService:
         statement: str,
         outcome: MaintenanceOutcome,
         *,
+        previous_status: WorkItemStatus | None = None,
+        final_status: WorkItemStatus | None = None,
+        attempt_no: int | None = None,
         frag_before: float | None = None,
         frag_after: float | None = None,
         started_at: datetime | None = None,
@@ -385,6 +587,9 @@ class ClusterExecuteService:
                 stats_name=item.stats_name,
                 partition_number=item.partition_number,
                 action_type=item.action_type,
+                previous_status=previous_status,
+                final_status=final_status,
+                attempt_no=attempt_no if attempt_no is not None else item.attempts,
                 statement=statement,
                 outcome=outcome,
                 frag_before_pct=frag_before,
