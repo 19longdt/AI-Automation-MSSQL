@@ -17,6 +17,7 @@ class MaintEnvSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     mongodb_uri: str = Field(default="mongodb://localhost:27017")
@@ -24,7 +25,7 @@ class MaintEnvSettings(BaseSettings):
     maint_mongodb_db: str = Field(default="db_maintenance")
     mssql_query_timeout_sec: int = Field(default=30)
 
-    maint_scan_cron: str = Field(default="0 20 * * *")
+    maint_catalog_cron: str = Field(default="0 6 * * *")
     maint_summary_cron: str = Field(default="30 5 * * *")
     maint_tick_sec: int = Field(default=60, ge=10)
     maint_dry_run: bool = Field(default=True)
@@ -33,6 +34,9 @@ class MaintEnvSettings(BaseSettings):
     maint_estimate_rows_per_minute: int = Field(default=2_000_000, ge=10_000)
     maint_batch_top_n_items: int = Field(default=10, ge=0, le=20)
     maint_approval_expire_hours: int = Field(default=30, ge=1)
+    maint_catalog_max_workers: int = Field(default=8, ge=1, le=32)
+    maint_catalog_table_timeout_sec: int = Field(default=120, ge=5)
+    maint_node_role_refresh_sec: int = Field(default=1800, ge=60)
 
     maint_telegram_bot_token: str
     telegram_chat_id: str
@@ -43,11 +47,35 @@ class MaintEnvSettings(BaseSettings):
     )
     logstash_host: str = Field(default="")
     logstash_port: int = Field(default=5044)
-    logstash_app_name: str = Field(default="sds.ep.ai-automation-maintenance")
+    logstash_app_name: str = Field(
+        default="sds.ep.mssql-automation-maintenance",
+        validation_alias=AliasChoices("MAINT_LOGSTASH_APP_NAME", "LOGSTASH_APP_NAME"),
+    )
     logstash_transport: str = Field(default="tcp")
     logstash_database_path: str = Field(default="")
 
-    @field_validator("maint_scan_cron", "maint_summary_cron")
+    elastic_apm_server_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAINT_ELASTIC_APM_SERVER_URL", "ELASTIC_APM_SERVER_URL"),
+    )
+    elastic_apm_secret_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAINT_ELASTIC_APM_SECRET_TOKEN", "ELASTIC_APM_SECRET_TOKEN"),
+    )
+    elastic_apm_service_name: str = Field(
+        default="maintenance-runner",
+        validation_alias=AliasChoices("MAINT_ELASTIC_APM_SERVICE_NAME", "ELASTIC_APM_SERVICE_NAME"),
+    )
+    elastic_apm_environment: str = Field(
+        default="production",
+        validation_alias=AliasChoices("MAINT_ELASTIC_APM_ENVIRONMENT", "ELASTIC_APM_ENVIRONMENT"),
+    )
+    elastic_apm_service_version: str = Field(
+        default="",
+        validation_alias=AliasChoices("MAINT_ELASTIC_APM_SERVICE_VERSION", "ELASTIC_APM_SERVICE_VERSION"),
+    )
+
+    @field_validator("maint_catalog_cron", "maint_summary_cron")
     @classmethod
     def validate_cron_fields(cls, v: str) -> str:
         return _validate_cron(v)

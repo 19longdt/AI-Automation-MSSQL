@@ -8,6 +8,7 @@ from datetime import datetime
 from apscheduler.executors.pool import ThreadPoolExecutor as APSThreadPoolExecutor
 from apscheduler.schedulers.blocking import BlockingScheduler
 
+from .job_manager.apm import get_apm_ids, init_apm
 from .capture.capture_tool_loader import CaptureToolLoader
 from .capture.diagnostic_capture import DiagnosticCapture
 from .config import settings
@@ -178,6 +179,10 @@ class Layer1Service:
             return False
         cache.refresh()
         return True
+
+    def get_node_role_cache(self, cluster_id: str) -> NodeRoleCache | None:
+        with self._lock:
+            return self._role_caches.get(cluster_id)
 
     def _setup_infrastructure(self) -> None:
         logger.info("Connecting to MongoDB: %s", settings.mongodb_uri)
@@ -410,6 +415,17 @@ class Layer1Service:
         return f"topic_{cluster_id}_{topic_id}"
 
 
+class _ApmTraceFilter(logging.Filter):
+    """Inject Elastic APM trace/transaction/span IDs into every LogRecord."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        apm_trace, apm_txn, apm_span = get_apm_ids()
+        record.apm_trace_id = apm_trace          # type: ignore[attr-defined]
+        record.apm_transaction_id = apm_txn      # type: ignore[attr-defined]
+        record.apm_span_id = apm_span            # type: ignore[attr-defined]
+        return True
+
+
 def _setup_logging() -> None:
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
     logging.basicConfig(
@@ -454,6 +470,7 @@ def _setup_logging() -> None:
             },
         )
     )
+    handler.addFilter(_ApmTraceFilter())
     logging.getLogger().addHandler(handler)
 
 
@@ -469,6 +486,7 @@ def _setup_signal_handlers(service: Layer1Service) -> None:
 
 def main() -> None:
     _setup_logging()
+    init_apm(settings)
     logger.info("Layer 1 Monitoring Service starting...")
     service = Layer1Service()
     _setup_signal_handlers(service)

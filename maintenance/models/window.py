@@ -1,9 +1,5 @@
 """
-window.py — Maintenance window config (dynamic trong MongoDB) + computed state.
-
-Window theo giờ VN (now_vn). Hỗ trợ window qua đêm (start 23:00, end 04:00).
-day_overrides key = weekday của ngày window BẮT ĐẦU ("0"=Mon .. "6"=Sun —
-khớp convention day_of_week của baseline).
+window.py - Maintenance window config (dynamic trong MongoDB) + computed state.
 """
 from __future__ import annotations
 
@@ -21,17 +17,15 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
 
 
 class WindowSlot(BaseModel):
-    """1 khung giờ window + budget."""
-
-    start: str = "01:00"  # HH:MM giờ VN
-    end: str = "04:00"
-    time_budget_minutes: int = Field(default=170, ge=1)
+    start: str = "02:30"
+    end: str = "05:00"
+    time_budget_minutes: int = Field(default=150, ge=1)
 
     @field_validator("start", "end")
     @classmethod
-    def validate_hhmm(cls, v: str) -> str:
-        _parse_hhmm(v)
-        return v.strip()
+    def validate_hhmm(cls, value: str) -> str:
+        _parse_hhmm(value)
+        return value.strip()
 
     def start_tuple(self) -> tuple[int, int]:
         return _parse_hhmm(self.start)
@@ -43,42 +37,44 @@ class WindowSlot(BaseModel):
         return self.start_tuple() > self.end_tuple()
 
 
-# Gate thresholds default — override được trong maintenance_window doc (field `gates`)
 DEFAULT_GATES = {
     "cpu_max_pct": 60,
-    "max_active_requests": 50,
-    "max_log_send_queue_kb": 100_000,
-    "max_redo_queue_kb": 200_000,
+    "active_requests_max": 50,
+    "log_send_queue_max_kb": 100_000,
+    "redo_queue_max_kb": 200_000,
 }
 
 
-class MaintenanceWindow(BaseModel):
-    """Document window cho 1 cluster."""
+class HealthMonitorConfig(BaseModel):
+    enabled: bool = True
+    interval_sec: int = 30
+    cpu_max_pct: float = 80.0
+    active_requests_max: int = 60
+    log_send_queue_max_kb: int | None = None
+    redo_queue_max_kb: int | None = None
+    auto_resume: bool = True
 
+
+class MaintenanceWindow(BaseModel):
     window_id: str
     cluster_id: str
     enabled: bool = True
     default: WindowSlot = Field(default_factory=WindowSlot)
-    # {"0": WindowSlot, ..., "6": WindowSlot} — 0=Mon
-    day_overrides: dict[str, WindowSlot] = Field(default_factory=dict)
-    # True = dừng execute sau item hiện tại (DBA bật qua Telegram/Web/Compass)
+    day_overrides: dict[str, WindowSlot | None] = Field(default_factory=dict)
     kill_switch: bool = False
-    # Safety gate thresholds — merge với DEFAULT_GATES
-    gates: dict[str, int] = Field(default_factory=dict)
+    gates: dict[str, int | None] = Field(default_factory=dict)
+    health_monitor: HealthMonitorConfig = Field(default_factory=HealthMonitorConfig)
 
     def slot_for_weekday(self, weekday: int) -> WindowSlot:
-        """weekday: 0=Mon..6=Sun (datetime.weekday())."""
-        return self.day_overrides.get(str(weekday), self.default)
+        return self.day_overrides.get(str(weekday)) or self.default
 
     def effective_gates(self) -> dict[str, int]:
         merged = dict(DEFAULT_GATES)
-        merged.update(self.gates)
+        merged.update({key: value for key, value in self.gates.items() if value is not None})
         return merged
 
 
 class WindowState(BaseModel):
-    """Trạng thái window tại 1 thời điểm — output của WindowService.state()."""
-
     open: bool
     remaining_minutes: float = 0.0
-    reason: str = ""  # "open" | "outside_window" | "kill_switch" | "disabled" | "budget_exhausted"
+    reason: str = ""

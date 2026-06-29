@@ -55,6 +55,15 @@ class HistoryRepo:
             return 0.0
         return float(docs[0].get("total_ms") or 0.0) / 60_000.0
 
+    def find_done_by_campaign(self, campaign_id: str) -> list[dict]:
+        """Done items của campaign — cho campaign completed notification."""
+        return list(
+            self.collection.find(
+                {"campaign_id": campaign_id, "outcome": MaintenanceOutcome.DONE.value},
+                {"_id": 0},
+            ).sort("created_at", DESCENDING)
+        )
+
     def find_recent_by_table(self, cluster_id: str, table_name: str, limit: int = 10) -> list[dict]:
         return list(
             self.collection.find({"cluster_id": cluster_id, "table_name": table_name}, {"_id": 0})

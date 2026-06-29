@@ -1,3 +1,1 @@
-from .scan_service import ScanService
-
-__all__ = ["ScanService"]
+__all__: list[str] = []

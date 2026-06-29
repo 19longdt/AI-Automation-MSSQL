@@ -157,16 +157,11 @@ layer1/
 │   └── seed_capture_tools.py  ← Seed 18 capture tool defs vào capture_tool_defs (chạy trước khi start)
 │                                 Entry: python -m layer1.seed.seed_capture_tools
 │
-├── maintenance/               ← Index/Stats Maintenance Runner — PROCESS RIÊNG (xem CLAUDE.md root)
-│                                 Entry: python -m layer1.maintenance.runner
-│                                 Seed:  python -m layer1.maintenance.seed.seed_maintenance
-│                                 KHÔNG poll Telegram getUpdates (monitoring process độc quyền);
-│                                 approval callback mntb/mnti xử lý qua MaintenanceApprovalAdapter
-│                                 inject vào TelegramBot (scheduler.py)
-│
 └── utils/
     └── time_utils.py          ← now_vn() (UTC+7 naive, cho MongoDB), utc_now() (cho APScheduler)
 ```
+
+> **Maintenance không còn nằm trong `layer1/`.** Index/statistics maintenance đã tách thành package độc lập ở root: `maintenance/` (process riêng, `python -m maintenance.runner`). Xem `maintenance/CLAUDE.md` + `maintenance/ARCHITECTURE.md`. Layer 1 chỉ còn liên quan gián tiếp: maintenance runner đọc `db_clusters` (do Layer 1 quản lý) và import `layer1.models.cluster.ClusterConfig`.
 
 ---
 
@@ -233,7 +228,7 @@ LOG_LEVEL=INFO
 # Dùng UDP transport → Logstash input: udp { port => 5044 codec => json }
 LOGSTASH_HOST=10.100.110.185
 LOGSTASH_PORT=5044
-LOGSTASH_APP_NAME=sds.ep.ai-automation
+LOGSTASH_APP_NAME=sds.ep.mssql-automation
 LOGSTASH_DATABASE_PATH=/var/lib/layer1/logstash/queue.db  # SQLite persistent queue
 ```
 

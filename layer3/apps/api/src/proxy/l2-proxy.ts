@@ -3,8 +3,21 @@ export async function fetchJsonWithTimeout(url: string, timeoutMs = 3000): Promi
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    const contentType = res.headers.get("content-type") || "";
+    let payload: any = null;
+    if (contentType.indexOf("application/json") >= 0) {
+      payload = await res.json();
+    } else {
+      const text = await res.text();
+      payload = text ? { message: text } : null;
+    }
+    if (!res.ok) {
+      const err: any = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      err.payload = payload;
+      throw err;
+    }
+    return payload;
   } finally {
     clearTimeout(timer);
   }

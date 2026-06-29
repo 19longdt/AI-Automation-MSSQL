@@ -239,33 +239,112 @@ Browser → Layer 3 /insights
 
 ---
 
+## Flow 4 — Maintenance (Index / Statistics / Heap)
+
+```
+DBA cấu hình scope (Layer 3 → MongoDB maintenance_catalog_config)
+    │
+    ▼ Catalog job (cron 06:00 — mỗi cluster)
+CatalogService.run()
+    ├── Chọn primary host của cluster
+    ├── Sinh run_id; mỗi DB trong scope:
+    │       ① Danh sách bảng (filter per-schema — tránh rò tên bảng chéo schema)
+    │       ② Chi tiết song song (MAINT_CATALOG_MAX_WORKERS):
+    │              index: dm_db_index_physical_stats('SAMPLED') — frag per-partition
+    │              stats: dm_db_stats_properties — modification_counter, last_updated
+    │              heap:  forwarded_record_count
+    └── Upsert → maintenance_catalog (run_id = snapshot key)
+
+DBA tạo Campaign (Layer 3 → maintenance_campaigns):
+    scope (db/schema/table), execution_types (INDEX/STATISTIC/HEAP),
+    thresholds (trống = dùng default), window_override (tuỳ chọn), scan_times
+
+    │
+    ▼ Discovery job (IntervalTrigger 60s — mỗi cluster)
+ClusterDiscoveryService.run()
+    ├── Kiểm tra scan_times + cooldown 55 phút → skip nếu chưa đến giờ
+    ├── Campaign PENDING → DISCOVERING → _run_discovery():
+    │       So snapshot mới nhất với EffectiveThresholds → sinh work items
+    │       1 item / partition vượt ngưỡng (REORGANIZE / REBUILD_PARTITION / UPDATE_STATISTICS / HEAP_REBUILD)
+    │       Dedup item đang mở → insert maintenance_queue (AWAITING_APPROVAL)
+    │       Gửi batch approval Telegram (top-N items, inline keyboard ✅/⛔)
+    │   Có item → ACTIVE; 0 item → COMPLETED
+    └── Campaign ACTIVE + capture mới → _maybe_rediscover():
+            Supersede AWAITING/APPROVED → chạy discovery lại trên snapshot mới
+
+DBA duyệt batch trên Telegram (MaintenanceBot poll callback):
+    ✅ → APPROVED; ⛔ → REJECTED
+
+    │
+    ▼ Execute tick (IntervalTrigger 60s, trong window đêm — mỗi cluster)
+ClusterExecuteService.tick()
+    ├── Health state ≠ HEALTHY → skip
+    ├── Không có campaign ACTIVE → skip
+    ├── Window đóng / budget hết → skip
+    ├── Không tìm được primary host → skip (WARNING)
+    ├── Gate fail (CPU / active requests / AG queue) → skip
+    ├── Claim item: PAUSED resumable trước, sau đó APPROVED (priority DESC)
+    │       Policy disabled → SKIPPED
+    │       Non-resumable + estimated > budget còn lại → defer (giữ APPROVED, thử lần sau)
+    ├── DRY_RUN=True → finalize(DONE, log T-SQL)
+    └── Thực thi T-SQL:
+            OK       → DONE, ghi frag_before/after + duration → maintenance_history
+            PAUSE    → PAUSED + resume_token (REBUILD RESUMABLE bị interrupt)
+            Lỗi ONLINE → fallback offline REBUILD nếu policy.offline_fallback=True
+            Lỗi retry → APPROVED (attempts+1) hoặc FAILED (≥ max_attempts)
+
+SIGTERM (stop_grace_period 30s):
+    → ALTER INDEX ... PAUSE trên item đang REBUILD RESUMABLE
+    → release(PAUSED, resume_token) → sẽ RESUME khi restart
+
+Nightly summary (cron 05:30):
+    → Telegram báo cáo: counts theo outcome, bảng đã xử lý, item lỗi, budget dùng
+```
+
+**Phối hợp Maintenance ↔ Layer 3 qua MongoDB (runner không có HTTP):**
+
+```
+Layer 3 (Fastify)                               maintenance runner
+  PUT  catalog/config   ──► maintenance_catalog_config  ──poll──► CatalogService
+  POST campaigns        ──► maintenance_campaigns        ──poll──► DiscoveryService
+  POST commands{type}   ──► maintenance_commands  ──poll 30s──► trigger in-process (có lock)
+  GET  queue/history/.. ◄── đọc trực tiếp collections
+```
+
+---
+
 ## Technology Stack
 
 | Layer | Runtime | Framework | Key Dependencies |
 |---|---|---|---|
 | Layer 1 | Python 3.12+ | stdlib HTTP | APScheduler, pyodbc, pymongo, anthropic, lxml |
+| Maintenance | Python 3.12+ | — | APScheduler, pyodbc, pymongo, pydantic-settings |
 | Layer 2 | Python 3.12+ | FastAPI + uvicorn | anthropic, pyodbc, pymongo, pydantic |
 | Layer 3 API | Node.js 20+ | Fastify | mongodb driver, node-fetch |
-| Layer 3 Web | TypeScript (compiled) | Vanilla TS | No framework |
+| Layer 3 Web | TypeScript (compiled) | React + Vite | React Query, Zustand, shadcn/ui |
 | Database | — | MongoDB 6+ | — |
-| Infra | Docker Compose | nginx (static) | — |
+| Infra | Docker Compose | — | — |
 
 ---
 
 ## Deployment
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Docker Compose (server)                                  │
-│                                                           │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐  │
-│  │ layer1   │  │ layer2   │  │ layer3   │  │ mongodb │  │
-│  │ :8001    │  │ :8000    │  │ :3000    │  │ :27017  │  │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘  │
-│                                                           │
-│  Networks: tất cả trong cùng docker bridge network        │
-│  Volumes:  mongodb_data (persistent)                      │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Docker Compose (server)                                         │
+│                                                                  │
+│  ┌──────────┐  ┌─────────────┐  ┌──────────┐  ┌──────────┐     │
+│  │ layer1   │  │ maintenance │  │ layer2   │  │ layer3   │     │
+│  │ :8001    │  │ (no HTTP)   │  │ :8000    │  │ :3000    │     │
+│  └──────────┘  └─────────────┘  └──────────┘  └──────────┘     │
+│                                                                  │
+│  ┌─────────┐                                                     │
+│  │ mongodb │  :27017                                             │
+│  └─────────┘                                                     │
+│                                                                  │
+│  Networks: tất cả trong cùng docker bridge network               │
+│  Volumes:  mongodb_data, logstash_buffer, logstash_buffer_maint  │
+└─────────────────────────────────────────────────────────────────┘
 
 Build machine:
   docker build -t 19longdt/ai-automation-mssql:vX.X.X .
@@ -290,6 +369,10 @@ Server:
 | **Tool whitelist** | Claude không thể inject SQL tùy ý — chỉ gọi tên tool, Layer 2 dispatch pre-written SQL |
 | **Self-contained snapshot** | `finding_diagnostics` đủ để Layer 2 phân tích mà không cần query thêm DB |
 | **Separation of concerns** | Layer 1 = detect; Layer 2 = analyze; Layer 3 = visualize; MongoDB = data bus |
+| **Catalog ≠ Campaign** | Catalog = đo lường (capture gì); Campaign = hành động (ngưỡng nào, bảng nào) — 1 snapshot dùng nhiều campaign |
+| **Ngưỡng ở cấp Campaign** | Đổi ngưỡng → discovery lần sau áp dụng ngay, không cần capture lại catalog |
+| **Maintenance IPC qua MongoDB** | Runner không có HTTP; Layer 3 ghi config/command; runner poll — tách hoàn toàn khỏi monitoring |
+| **SIGTERM → PAUSE RESUMABLE** | Container stop an toàn; item được RESUME khi restart — không mất tiến trình rebuild |
 
 ---
 

@@ -77,8 +77,8 @@ L2_LOG_LEVEL=INFO
 LOGSTASH_HOST=
 LOGSTASH_PORT=5044
 LOGSTASH_TRANSPORT=tcp
-L1_LOGSTASH_APP_NAME=sds.ep.ai-automation-layer1
-L2_LOGSTASH_APP_NAME=sds.ep.ai-automation-layer2
+L1_LOGSTASH_APP_NAME=sds.ep.mssql-automation-layer1
+L2_LOGSTASH_APP_NAME=sds.ep.mssql-automation-layer2
 LOGSTASH_DATABASE_PATH=
 ```
 

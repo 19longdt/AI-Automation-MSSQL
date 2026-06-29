@@ -38,7 +38,9 @@ class MongoConnection:
         # corrupt logic format datetime ở Telegram (đã giả định naive VN).
         client = MongoClient(
             cfg.mongodb_uri,
-            serverSelectionTimeoutMS=5000,
+            serverSelectionTimeoutMS=5_000,
+            connectTimeoutMS=10_000,
+            socketTimeoutMS=120_000,  # 2 min cap — prevents indefinite hang on dead TCP
             tz_aware=False,
         )
         # Verify kết nối ngay — không lazy

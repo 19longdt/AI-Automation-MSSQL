@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 TTL_MAINT_QUEUE_TERMINAL_SEC = 14 * 24 * 3600
 TTL_MAINT_BATCHES_SEC = 14 * 24 * 3600
 TTL_MAINT_HISTORY_SEC = 90 * 24 * 3600
+TTL_MAINT_COMMANDS_SEC = 24 * 3600
 
 
 def _ensure_ttl_index(col, keys, name: str, ttl_seconds: int) -> None:
@@ -27,6 +28,12 @@ def _ensure_ttl_index(col, keys, name: str, ttl_seconds: int) -> None:
     col.create_index(keys, name=name, expireAfterSeconds=ttl_seconds)
 
 
+def _drop_index_if_exists(col, name: str) -> None:
+    existing = next((idx for idx in col.list_indexes() if idx.get("name") == name), None)
+    if existing:
+        col.drop_index(name)
+
+
 def create_maint_indexes(db: Database) -> None:
     _create_maintenance_campaign_indexes(db)
     _create_maintenance_policies_indexes(db)
@@ -35,6 +42,8 @@ def create_maint_indexes(db: Database) -> None:
     _create_maintenance_batches_indexes(db)
     _create_maintenance_history_indexes(db)
     _create_maintenance_scan_queries_indexes(db)
+    _create_maintenance_catalog_indexes(db)
+    _create_maintenance_commands_indexes(db)
     logger.info("Maintenance MongoDB indexes created/verified (db=%s).", db.name)
 
 
@@ -109,6 +118,7 @@ def _create_maintenance_history_indexes(db: Database) -> None:
         IndexModel([("cluster_id", ASCENDING), ("action_type", ASCENDING), ("created_at", DESCENDING)], name="action_time"),
         IndexModel([("cluster_id", ASCENDING), ("item_id", ASCENDING)], name="item_id"),
         IndexModel([("cluster_id", ASCENDING), ("campaign_id", ASCENDING), ("created_at", DESCENDING)], name="campaign_time"),
+        IndexModel([("cluster_id", ASCENDING), ("campaign_id", ASCENDING), ("finished_at", DESCENDING), ("started_at", DESCENDING)], name="campaign_finished_time"),
     ])
     _ensure_ttl_index(col, [("created_at", ASCENDING)], "ttl_created_at", TTL_MAINT_HISTORY_SEC)
 
@@ -119,3 +129,32 @@ def _create_maintenance_scan_queries_indexes(db: Database) -> None:
         IndexModel([("query_id", ASCENDING)], unique=True, name="unique_query_id"),
         IndexModel([("enabled", ASCENDING)], name="enabled"),
     ])
+
+
+def _create_maintenance_catalog_indexes(db: Database) -> None:
+    config_col = db["maintenance_catalog_config"]
+    config_col.create_indexes([
+        IndexModel([("cluster_id", ASCENDING)], unique=True, name="unique_cluster_id"),
+    ])
+
+    col = db["maintenance_catalog"]
+    _drop_index_if_exists(col, "unique_cluster_db_schema_table")
+    col.create_indexes([
+        IndexModel(
+            [("cluster_id", ASCENDING), ("database_name", ASCENDING), ("run_id", ASCENDING), ("schema_name", ASCENDING), ("table_name", ASCENDING)],
+            name="cluster_db_run_schema_table",
+        ),
+        IndexModel([("cluster_id", ASCENDING), ("captured_at", DESCENDING)], name="cluster_captured_at"),
+        IndexModel([("cluster_id", ASCENDING), ("database_name", ASCENDING), ("captured_at", DESCENDING)], name="cluster_db_captured_at"),
+    ])
+    _ensure_ttl_index(col, [("captured_at", ASCENDING)], "ttl_captured_at", 7 * 24 * 3600)
+
+
+def _create_maintenance_commands_indexes(db: Database) -> None:
+    col = db["maintenance_commands"]
+    col.create_indexes([
+        IndexModel([("command_id", ASCENDING)], unique=True, name="unique_command_id"),
+        IndexModel([("status", ASCENDING), ("requested_at", ASCENDING)], name="status_requested_at"),
+        IndexModel([("cluster_id", ASCENDING), ("type", ASCENDING), ("requested_at", DESCENDING)], name="cluster_type_requested_at"),
+    ])
+    _ensure_ttl_index(col, [("finished_at", ASCENDING)], "ttl_finished_at", TTL_MAINT_COMMANDS_SEC)

@@ -46,6 +46,8 @@ class WorkItemStatus(str, Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     EXPIRED = "expired"
+    # Capture mới supersede item chưa execute của capture cũ
+    SUPERSEDED = "superseded"
 
 
 # Trạng thái terminal — set terminal_at để TTL dọn dẹp
@@ -55,6 +57,7 @@ TERMINAL_STATUSES = {
     WorkItemStatus.FAILED,
     WorkItemStatus.SKIPPED,
     WorkItemStatus.EXPIRED,
+    WorkItemStatus.SUPERSEDED,
 }
 
 # Trạng thái "open" — dùng dedupe khi scan (không enqueue trùng object)

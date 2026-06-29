@@ -68,11 +68,12 @@ class ClusterConfig(BaseModel):
             raise ValueError("color must be in #RRGGBB format")
         return text.lower()
 
-    def get_connection_string(self, host: str) -> str:
+    def get_connection_string(self, host: str, database: str | None = None) -> str:
+        db = database or self.database
         return (
             f"DRIVER={{ODBC Driver 17 for SQL Server}};"
             f"SERVER={host},{self.port};"
-            f"DATABASE={self.database};"
+            f"DATABASE={db};"
             f"UID={self.username};"
             f"PWD={self.password};"
             f"TrustServerCertificate=yes;"

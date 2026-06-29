@@ -109,7 +109,7 @@ class Layer2Settings(BaseSettings):
     logstash_host: str = Field(default="")
     logstash_port: int = Field(default=5044)
     logstash_app_name: str = Field(
-        default="sds.ep.ai-automation-layer2",
+        default="sds.ep.mssql-automation-layer2",
         validation_alias=AliasChoices("L2_LOGSTASH_APP_NAME", "LOGSTASH_APP_NAME"),
     )
     logstash_transport: str = Field(

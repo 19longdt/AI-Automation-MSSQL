@@ -35,6 +35,7 @@ MERGEABLE_FIELDS = (
     "stats_modification_threshold",
     "stats_fullscan",
     "stats_sample_pct",
+    "stats_min_sample_pct",
     "heap_forwarded_records_threshold",
     "window_override",
     "priority_boost",
@@ -71,6 +72,8 @@ class MaintenancePolicy(BaseModel):
     stats_fullscan: bool = False
     # None = để SQL Server tự chọn sample rate
     stats_sample_pct: int | None = None
+    # Update stats nếu sample rate thấp hơn ngưỡng này và vẫn có modification > 0.
+    stats_min_sample_pct: float | None = 5.0
 
     # ── Heap ─────────────────────────────────────────────────────────────────
     heap_forwarded_records_threshold: int = 1000

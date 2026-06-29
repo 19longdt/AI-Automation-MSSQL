@@ -228,7 +228,7 @@ mongodb_uri: str = Field(default="mongodb://localhost:27017")
 log_level: str = Field(default="INFO", validation_alias=AliasChoices("MAINT_LOG_LEVEL", "LOG_LEVEL"))
 logstash_host: str = Field(default="")
 logstash_port: int = Field(default=5044)
-logstash_app_name: str = Field(default="sds.ep.ai-automation-maintenance")
+logstash_app_name: str = Field(default="sds.ep.mssql-automation-maintenance")
 logstash_transport: str = Field(default="tcp")
 logstash_database_path: str = Field(default="")
 

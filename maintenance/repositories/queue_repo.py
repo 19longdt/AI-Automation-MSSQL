@@ -55,6 +55,7 @@ class QueueRepo:
         cursor = self.collection.find(
             {"cluster_id": cluster_id, "status": {"$in": open_values}},
             {
+                "cluster_id": 1,
                 "schema_name": 1,
                 "table_name": 1,
                 "index_name": 1,
@@ -74,6 +75,38 @@ class QueueRepo:
                 doc.get("kind"),
             ))
         return keys
+
+    def supersede_open_items(self, cluster_id: str, campaign_id: str) -> int:
+        """
+        Capture mới → item chưa execute (awaiting_approval/approved) của campaign
+        bị SUPERSEDED. KHÔNG đụng running/paused (đang thực thi dở dang).
+        """
+        now = now_vn()
+        result = self.collection.update_many(
+            {
+                "cluster_id": cluster_id,
+                "campaign_id": campaign_id,
+                "status": {"$in": [
+                    WorkItemStatus.AWAITING_APPROVAL.value,
+                    WorkItemStatus.APPROVED.value,
+                ]},
+            },
+            {"$set": {
+                "status": WorkItemStatus.SUPERSEDED.value,
+                "updated_at": now,
+                "terminal_at": now,
+            }},
+        )
+        return result.modified_count
+
+    def count_open_for_campaign(self, cluster_id: str, campaign_id: str) -> int:
+        """Đếm item còn open (chưa terminal) của campaign — quyết định ACTIVE vs COMPLETED."""
+        open_values = [s.value for s in OPEN_STATUSES]
+        return self.collection.count_documents({
+            "cluster_id": cluster_id,
+            "campaign_id": campaign_id,
+            "status": {"$in": open_values},
+        })
 
     def expire_stale_awaiting(self, cluster_id: str, older_than: datetime) -> int:
         """Batch cũ chưa được duyệt → expired (không bao giờ chạy)."""

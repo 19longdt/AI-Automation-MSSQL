@@ -4,6 +4,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .http import RouteRegistry, send_json
+from .routes.catalog import register_catalog_routes
 from .routes.clusters import register_cluster_routes
 from .routes.health import register_health_routes
 from .routes.sessions import register_session_routes
@@ -16,6 +17,7 @@ def build_registry(runtime) -> RouteRegistry:
     register_health_routes(registry, runtime)
     register_session_routes(registry, runtime)
     register_cluster_routes(registry, runtime)
+    register_catalog_routes(registry, runtime)
     return registry
 
 

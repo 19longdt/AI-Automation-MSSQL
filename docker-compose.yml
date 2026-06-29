@@ -66,6 +66,10 @@ services:
 
     environment:
       MONGODB_URI: mongodb://mongodb:27017
+      LOGSTASH_DATABASE_PATH: /var/lib/maintenance/logstash/queue.db
+
+    volumes:
+      - logstash_buffer_maint:/var/lib/maintenance/logstash
 
     # Grace period đủ để PAUSE resumable rebuild khi stop
     stop_grace_period: 30s
@@ -148,6 +152,7 @@ services:
 
     environment:
       MONGODB_URI: mongodb://mongodb:27017
+      L1_API_URL: http://layer1:8001
       L2_API_URL: http://layer2:8000
       API_PORT: 3000
 
@@ -201,4 +206,6 @@ volumes:
   logstash_buffer:
     driver: local
   logstash_buffer_l2:
+    driver: local
+  logstash_buffer_maint:
     driver: local

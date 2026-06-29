@@ -35,6 +35,9 @@ class JobExecution(BaseModel):
     findings_created: int = 0
     error_message: str | None = None
 
+    # Trace ID — correlate với log lines trong cùng lần chạy
+    trace_id: str | None = None
+
     # Dùng để phát hiện missed schedule
     next_expected_at: datetime | None = None
 

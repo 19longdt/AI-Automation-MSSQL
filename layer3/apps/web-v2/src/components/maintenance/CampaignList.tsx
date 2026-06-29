@@ -134,10 +134,11 @@ export function CampaignList() {
   }
 
   return (
-    <div className="rounded-[16px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="flex flex-col gap-2 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-surface)_0%,color-mix(in_srgb,var(--color-surface-2)_55%,white_45%)_100%)] px-3 py-2">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="flex flex-col gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Campaigns</p>
             <h3 className="text-[15px] font-semibold text-[var(--color-text)]">Maintenance Campaigns</h3>
             <p className="text-[12px] text-[var(--color-muted)]">
               One discovery builds the queue, then nightly execution drains that snapshot only.
@@ -159,14 +160,14 @@ export function CampaignList() {
             description="Choose a cluster before managing maintenance campaigns."
           />
         ) : isLoading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="rounded-2xl border border-[var(--color-border)] p-3">
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="rounded-lg border border-[var(--color-border)] p-3">
                 <Skeleton className="h-5 w-40" />
                 <Skeleton className="mt-3 h-3 w-full" />
                 <Skeleton className="mt-2 h-3 w-5/6" />
               </div>
-            ))}
+              ))}
           </div>
         ) : error ? (
           <ErrorState
@@ -189,7 +190,7 @@ export function CampaignList() {
                 return (
                   <article
                     key={campaign.campaign_id ?? `${campaign.name}-${campaign.created_at}`}
-                    className="rounded-2xl border border-[var(--color-border)] bg-[color:color-mix(in_srgb,var(--color-surface)_86%,white_14%)] p-3 shadow-sm"
+                    className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 shadow-sm"
                   >
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-2">
@@ -239,7 +240,7 @@ export function CampaignList() {
                         <span>Updated {formatDetectedAt(campaign.updated_at)}</span>
                       </div>
                       {campaign.discovery_error ? (
-                        <p className="rounded-xl border border-[var(--color-critical-soft)] bg-[color:color-mix(in_srgb,var(--color-critical-soft)_55%,transparent)] px-2.5 py-2 text-[12px] text-[var(--color-critical)]">
+                        <p className="rounded-md border border-[var(--color-critical-soft)] bg-[color:color-mix(in_srgb,var(--color-critical-soft)_55%,transparent)] px-2.5 py-2 text-[12px] text-[var(--color-critical)]">
                           Discovery error: {campaign.discovery_error}
                         </p>
                       ) : null}
