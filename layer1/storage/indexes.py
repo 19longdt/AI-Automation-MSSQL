@@ -4,19 +4,21 @@ indexes.py — Khởi tạo MongoDB indexes và TTL settings khi service startup
 Gọi 1 lần sau khi MongoConnection.initialize() thành công.
 create_index() với existing index là idempotent — safe để gọi mỗi lần restart.
 
-Collections:
-  raw_metrics:      30 ngày TTL — số liệu thô từ query execution
-  findings:         90 ngày TTL — issues phát hiện bởi detectors
-  ai_analysis:      90 ngày TTL — response từ Layer 2 Claude API
-  baselines:        không TTL   — day-of-week baseline data
-  dedup_cache:       7 ngày TTL — chống spam alert
-  job_executions:   30 ngày TTL — job run history
-  monitor_topics:   không TTL   — topic config (source of truth)
-  node_roles:       không TTL   — cached AG node roles
+TTL mặc định (override qua env vars):
+  raw_metrics:           L1_TTL_RAW_METRICS_DAYS=1
+  findings:              L1_TTL_FINDINGS_DAYS=7
+  finding_diagnostics:   L1_TTL_FINDING_DIAGNOSTICS_DAYS=7
+  dedup_cache:           L1_TTL_DEDUP_CACHE_DAYS=1
+  job_executions:        L1_TTL_JOB_EXECUTIONS_DAYS=1
+  ai_analyses:           quản lý bởi Layer 2 (L2_TTL_AI_ANALYSES_DAYS=90)
+  baselines:             không TTL
+  monitor_topics:        không TTL
+  node_roles:            không TTL
 """
 from __future__ import annotations
 
 import logging
+import os
 
 from pymongo import ASCENDING, DESCENDING
 from pymongo.database import Database
@@ -24,26 +26,13 @@ from pymongo.operations import IndexModel
 
 logger = logging.getLogger(__name__)
 
-# TTL values (giây)
-TTL_RAW_METRICS_SEC = 1 * 24 * 3600
-TTL_FINDINGS_SEC = 7 * 24 * 3600
-TTL_FINDING_DIAGNOSTICS_SEC = 7 * 24 * 3600
-TTL_AI_ANALYSIS_SEC = 7 * 24 * 3600
-TTL_DEDUP_CACHE_SEC = 1 * 24 * 3600
-TTL_JOB_EXECUTIONS_SEC = 1 * 24 * 3600
-
-# Maintenance module — queue/batch TTL ngắn (chỉ dọn item terminal),
-# history TTL DÀI vì là AI context cho Layer 2 ("lần rebuild trước có giúp không?")
-TTL_MAINT_QUEUE_TERMINAL_SEC = 14 * 24 * 3600
-TTL_MAINT_BATCHES_SEC = 14 * 24 * 3600
-TTL_MAINT_HISTORY_SEC = 90 * 24 * 3600
-
-# Giữ alias ngày để backward compat với các module khác import constants này
-TTL_RAW_METRICS_DAYS = 1
-TTL_FINDINGS_DAYS = 7
-TTL_AI_ANALYSIS_DAYS = 7
-TTL_DEDUP_CACHE_DAYS = 1
-TTL_JOB_EXECUTIONS_DAYS = 1
+# TTL values (giây) — đọc từ env, fallback về default
+_DAY = 86400
+TTL_RAW_METRICS_SEC          = int(os.getenv("L1_TTL_RAW_METRICS_DAYS",           "1"))  * _DAY
+TTL_FINDINGS_SEC              = int(os.getenv("L1_TTL_FINDINGS_DAYS",              "7"))  * _DAY
+TTL_FINDING_DIAGNOSTICS_SEC   = int(os.getenv("L1_TTL_FINDING_DIAGNOSTICS_DAYS",   "7"))  * _DAY
+TTL_DEDUP_CACHE_SEC           = int(os.getenv("L1_TTL_DEDUP_CACHE_DAYS",           "1"))  * _DAY
+TTL_JOB_EXECUTIONS_SEC        = int(os.getenv("L1_TTL_JOB_EXECUTIONS_DAYS",        "1"))  * _DAY
 
 
 def create_all_indexes(db: Database) -> None:

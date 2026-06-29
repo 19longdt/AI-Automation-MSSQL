@@ -12,15 +12,14 @@ GATE_TIMEOUT_SEC = 10
 CPU_SQL = """
 SELECT TOP 1
   record.value('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]','int') AS sql_cpu_pct,
-  record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]','int') AS system_idle_pct,
-  record.value('(./Record/@time)[1]','bigint') AS record_time
+  record.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]','int') AS system_idle_pct
 FROM (
-  SELECT CONVERT(XML, record) AS record
+  SELECT [timestamp], CONVERT(XML, record) AS record
   FROM sys.dm_os_ring_buffers
   WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
     AND record LIKE '%<SystemHealth>%'
 ) AS x
-ORDER BY record_time DESC
+ORDER BY [timestamp] DESC
 """
 
 # Số request user đang active (loại trừ chính session gate).

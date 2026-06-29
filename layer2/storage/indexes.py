@@ -4,15 +4,16 @@ indexes.py — Khởi tạo MongoDB indexes cho Layer 2 collections.
 Gọi 1 lần sau khi MongoConnection.initialize() thành công.
 create_index() với existing index là idempotent — safe để gọi mỗi lần restart.
 
-Collections Layer 2:
-  ai_analyses:        90 ngày TTL — kết quả phân tích + tool calls
-  issue_insights:     không TTL   — structured insights, lịch sử dài hạn
-  db_context:         không TTL   — singleton schema/AG/RG context
-  analysis_sessions:  8 giờ TTL   — multi-turn conversation state (Telegram)
+TTL mặc định (override qua env vars):
+  ai_analyses:       L2_TTL_AI_ANALYSES_DAYS=90         (anchor: started_at)
+  analysis_sessions: L2_TTL_ANALYSIS_SESSIONS_HOURS=8   (anchor: last_activity_at)
+  issue_insights:    không TTL — structured insights, lịch sử dài hạn
+  db_context:        không TTL — singleton schema/AG/RG context
 """
 from __future__ import annotations
 
 import logging
+import os
 
 from pymongo import ASCENDING, DESCENDING
 from pymongo.database import Database
@@ -20,9 +21,9 @@ from pymongo.operations import IndexModel
 
 logger = logging.getLogger(__name__)
 
-# TTL values (giây)
-TTL_AI_ANALYSES_SEC = 90 * 24 * 3600
-TTL_ANALYSIS_SESSIONS_SEC = 8 * 3600   # 8 giờ từ last_activity_at
+_DAY = 86400
+TTL_AI_ANALYSES_SEC       = int(os.getenv("L2_TTL_AI_ANALYSES_DAYS",          "90")) * _DAY
+TTL_ANALYSIS_SESSIONS_SEC = int(os.getenv("L2_TTL_ANALYSIS_SESSIONS_HOURS",    "8")) * 3600
 
 
 def create_all_indexes(db: Database) -> None:

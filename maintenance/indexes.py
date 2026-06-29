@@ -1,9 +1,17 @@
 """
 MongoDB indexes for the standalone maintenance database.
+
+TTL mặc định (override qua env vars):
+  maintenance_queue:   MAINT_TTL_QUEUE_DAYS=14    (anchor: terminal_at)
+  maintenance_batches: MAINT_TTL_BATCHES_DAYS=14  (anchor: created_at)
+  maintenance_history: MAINT_TTL_HISTORY_DAYS=90  (anchor: created_at)
+  maintenance_catalog: MAINT_TTL_CATALOG_DAYS=7   (anchor: captured_at)
+  maintenance_commands:MAINT_TTL_COMMANDS_DAYS=1  (anchor: finished_at)
 """
 from __future__ import annotations
 
 import logging
+import os
 
 from pymongo import ASCENDING, DESCENDING
 from pymongo.database import Database
@@ -11,10 +19,12 @@ from pymongo.operations import IndexModel
 
 logger = logging.getLogger(__name__)
 
-TTL_MAINT_QUEUE_TERMINAL_SEC = 14 * 24 * 3600
-TTL_MAINT_BATCHES_SEC = 14 * 24 * 3600
-TTL_MAINT_HISTORY_SEC = 90 * 24 * 3600
-TTL_MAINT_COMMANDS_SEC = 24 * 3600
+_DAY = 86400
+TTL_MAINT_QUEUE_TERMINAL_SEC = int(os.getenv("MAINT_TTL_QUEUE_DAYS",    "14")) * _DAY
+TTL_MAINT_BATCHES_SEC        = int(os.getenv("MAINT_TTL_BATCHES_DAYS",  "14")) * _DAY
+TTL_MAINT_HISTORY_SEC        = int(os.getenv("MAINT_TTL_HISTORY_DAYS",  "90")) * _DAY
+TTL_MAINT_CATALOG_SEC        = int(os.getenv("MAINT_TTL_CATALOG_DAYS",   "7")) * _DAY
+TTL_MAINT_COMMANDS_SEC       = int(os.getenv("MAINT_TTL_COMMANDS_DAYS",  "1")) * _DAY
 
 
 def _ensure_ttl_index(col, keys, name: str, ttl_seconds: int) -> None:
@@ -147,7 +157,7 @@ def _create_maintenance_catalog_indexes(db: Database) -> None:
         IndexModel([("cluster_id", ASCENDING), ("captured_at", DESCENDING)], name="cluster_captured_at"),
         IndexModel([("cluster_id", ASCENDING), ("database_name", ASCENDING), ("captured_at", DESCENDING)], name="cluster_db_captured_at"),
     ])
-    _ensure_ttl_index(col, [("captured_at", ASCENDING)], "ttl_captured_at", 7 * 24 * 3600)
+    _ensure_ttl_index(col, [("captured_at", ASCENDING)], "ttl_captured_at", TTL_MAINT_CATALOG_SEC)
 
 
 def _create_maintenance_commands_indexes(db: Database) -> None:
