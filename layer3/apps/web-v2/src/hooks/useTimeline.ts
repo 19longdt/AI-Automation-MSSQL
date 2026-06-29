@@ -20,7 +20,6 @@ export function useTimeline() {
     queryKey: qk.timeline(params),
     queryFn: () => apiGet<TimelineResponse>("/api/findings/timeline", params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 }

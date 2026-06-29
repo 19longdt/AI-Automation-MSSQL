@@ -16,7 +16,6 @@ export function useFindings() {
     queryKey: qk.findings(params),
     queryFn: () => apiGet<FindingsResponse>("/api/findings", params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 }

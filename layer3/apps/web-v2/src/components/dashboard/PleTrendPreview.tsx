@@ -329,7 +329,6 @@ export function PleTrendPreview(): React.ReactElement {
     queryKey: ["ple-trend-preview-findings", params],
     queryFn: () => fetchAllFindings(params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
   const { data: compareData, isFetching: compareFetching } = useQuery({
@@ -337,7 +336,6 @@ export function PleTrendPreview(): React.ReactElement {
     queryFn: () => fetchAllFindings(compareParams),
     enabled: comparePastEnabled,
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 

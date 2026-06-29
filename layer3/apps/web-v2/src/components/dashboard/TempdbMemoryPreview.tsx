@@ -413,7 +413,6 @@ export function TempdbMemoryPreview(): React.ReactElement {
     queryKey: ["tempdb-preview-findings", params],
     queryFn: () => fetchAllFindings(params),
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
   const { data: compareData, isFetching: compareFetching } = useQuery({
@@ -421,7 +420,6 @@ export function TempdbMemoryPreview(): React.ReactElement {
     queryFn: () => fetchAllFindings(compareParams),
     enabled: comparePastEnabled,
     staleTime: 15_000,
-    placeholderData: (prev) => prev,
     retry: 1,
   });
 

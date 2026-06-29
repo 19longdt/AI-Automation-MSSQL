@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, BarChart3, ChevronDown, ChevronUp } from "lucide-react";
 import { useTopics } from "@/hooks/useTopics";
 import { useTimeline } from "@/hooks/useTimeline";
@@ -21,9 +21,10 @@ import { qk } from "@/lib/query-keys";
 import type { AgSecondaryStatus } from "@/types";
 
 export function DashboardPage() {
+  const queryClient = useQueryClient();
   const { data: topics } = useTopics();
   const { data: timeline, isLoading: timelineLoading, isFetching: timelineFetching } = useTimeline();
-  const { activeTopicId, setActiveTopicId, selectedClusterId } = useDashboardStore();
+  const { activeTopicId, setActiveTopicId, selectedClusterId, timeRange, refreshNow } = useDashboardStore();
   const [showSlowQueryStats, setShowSlowQueryStats] = useState(false);
 
   const { data: secondaryStatus } = useQuery({
@@ -45,6 +46,21 @@ export function DashboardPage() {
       setActiveTopicId(defaultTopic.topic_id);
     }
   }, [topics, activeTopicId, setActiveTopicId]);
+
+  useEffect(() => {
+    if (!activeTopicId) {
+      return;
+    }
+
+    setShowSlowQueryStats(false);
+
+    if (timeRange.mode !== "absolute") {
+      refreshNow();
+      return;
+    }
+
+    void queryClient.invalidateQueries({ type: "active" });
+  }, [activeTopicId, selectedClusterId, timeRange.mode, refreshNow, queryClient]);
 
   const showBlockingFilter = activeTopicId === "slow_sessions";
   const showAgHealthPreview = activeTopicId === "ag_health";

@@ -26,16 +26,15 @@ export function KpiCards() {
     topic_id: "tempdb_memory",
   };
 
-  const { data: all, isLoading: l0, isFetching: f0 } = useQuery({ queryKey: qk.findings({ ...params }), queryFn: () => apiGet<FindingsResponse>("/api/findings", params), staleTime: 30_000, placeholderData: (prev) => prev });
-  const { data: crit, isLoading: l1, isFetching: f1 } = useQuery({ queryKey: qk.findings({ ...params, severity: "CRITICAL" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "CRITICAL" }), staleTime: 30_000, placeholderData: (prev) => prev });
-  const { data: warn, isLoading: l2, isFetching: f2 } = useQuery({ queryKey: qk.findings({ ...params, severity: "WARNING" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "WARNING" }), staleTime: 30_000, placeholderData: (prev) => prev });
-  const { data: info, isLoading: l3, isFetching: f3 } = useQuery({ queryKey: qk.findings({ ...params, severity: "INFO" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "INFO" }), staleTime: 30_000, placeholderData: (prev) => prev });
+  const { data: all, isLoading: l0, isFetching: f0 } = useQuery({ queryKey: qk.findings({ ...params }), queryFn: () => apiGet<FindingsResponse>("/api/findings", params), staleTime: 30_000 });
+  const { data: crit, isLoading: l1, isFetching: f1 } = useQuery({ queryKey: qk.findings({ ...params, severity: "CRITICAL" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "CRITICAL" }), staleTime: 30_000 });
+  const { data: warn, isLoading: l2, isFetching: f2 } = useQuery({ queryKey: qk.findings({ ...params, severity: "WARNING" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "WARNING" }), staleTime: 30_000 });
+  const { data: info, isLoading: l3, isFetching: f3 } = useQuery({ queryKey: qk.findings({ ...params, severity: "INFO" }), queryFn: () => apiGet<FindingsResponse>("/api/findings", { ...params, severity: "INFO" }), staleTime: 30_000 });
   const { data: pleData, isLoading: l4, isFetching: f4 } = useQuery({
     queryKey: qk.findings(pleParams),
     queryFn: () => apiGet<FindingsResponse>("/api/findings", pleParams),
     enabled: showBufferHealth,
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
   });
 
   const counts: Record<string, number> = {
