@@ -15,7 +15,7 @@ from ..models.approval import MaintenanceBatch
 from ..models.campaign import MaintenanceCampaign
 from ..models.history import MaintenanceOutcome
 from ..models.window import WindowSlot
-from ..models.work_item import WorkItem
+from ..models.work_item import WorkItem, WorkItemStatus
 from .event_publisher import MaintenanceEventPublisher
 from .notify_queue import NotifyQueue
 
@@ -72,6 +72,9 @@ class MaintenanceNotifier(MaintenanceEventPublisher):
 
     def on_campaign_completed(self, campaign: MaintenanceCampaign, done_items: list[dict]) -> None:
         self._post(self._fmt_campaign_completed(campaign, done_items))
+
+    def on_web_queue_action(self, actions: list[dict]) -> None:
+        self._send(self._fmt_web_queue_action(actions))
 
     def send_batch_approval(
         self,
@@ -449,6 +452,39 @@ class MaintenanceNotifier(MaintenanceEventPublisher):
         total_sec = int(duration_ms / 1000)
         minutes, seconds = divmod(total_sec, 60)
         return f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+
+    def _fmt_web_queue_action(self, actions: list[dict]) -> str:
+        approved = [a for a in actions if a.get("status") == WorkItemStatus.APPROVED.value]
+        rejected = [a for a in actions if a.get("status") == WorkItemStatus.REJECTED.value]
+        skipped  = [a for a in actions if a.get("status") == WorkItemStatus.SKIPPED.value]
+
+        lines = [f"📋 <b>[{_esc(self._cluster_id)}] Thao tác từ Web UI</b>"]
+        if approved:
+            lines.append(f"✅ Approve: <b>{len(approved)}</b> item")
+        if rejected:
+            lines.append(f"⛔ Reject: <b>{len(rejected)}</b> item")
+        if skipped:
+            lines.append(f"⏭ Skip: <b>{len(skipped)}</b> item")
+
+        top = (approved + rejected + skipped)[:5]
+        if top:
+            lines.append("")
+            lines.append("<code>")
+            for item in top:
+                action_short = _ACTION_SHORT.get(item.get("action_type", ""), item.get("action_type", "")[:8])
+                obj = item.get("index_name") or item.get("stats_name") or ""
+                table = f"{item.get('schema_name', '')}.{item.get('table_name', '')}"
+                part = f" P{item['partition_number']}" if item.get("partition_number") else ""
+                label = f"{table} · {obj}{part}" if obj else f"{table}{part}"
+                label = (label[:38] + "…") if len(label) > 39 else label
+                status_icon = {"approved": "✅", "rejected": "⛔", "skipped": "⏭"}.get(item.get("status", ""), "·")
+                lines.append(f"{status_icon} {label:<40} {action_short}")
+            lines.append("</code>")
+            remaining = len(actions) - len(top)
+            if remaining > 0:
+                lines.append(f"<i>... và {remaining} item khác</i>")
+
+        return "\n".join(lines)
 
     def _send(self, text: str) -> None:
         try:

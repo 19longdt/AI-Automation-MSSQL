@@ -73,7 +73,7 @@ function buildSingleUpdate(action: QueueItemAction, now: Date): Record<string, u
     case "reject":
       return { $set: { status: "rejected", decided_at: now, decided_by: "web", terminal_at: now } };
     case "skip":
-      return { $set: { status: "skipped", terminal_at: now } };
+      return { $set: { status: "skipped", decided_by: "web", terminal_at: now } };
     case "reset":
       return { $set: { status: "approved", attempts: 0, last_error: null } };
   }

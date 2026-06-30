@@ -67,10 +67,12 @@ def _build_rebuild(
         raise ValueError("REBUILD cần index_name")
 
     online = policy.online and not force_offline
-    # RESUMABLE yêu cầu ONLINE=ON
-    resumable = policy.resumable and online
+    # RESUMABLE yêu cầu ONLINE=ON và không hỗ trợ partition-level rebuild
+    resumable = policy.resumable and online and item.action_type != ActionType.REBUILD_PARTITION
 
     options = [f"ONLINE = {'ON' if online else 'OFF'}", f"MAXDOP = {int(policy.maxdop)}"]
+    if policy.sort_in_tempdb:
+        options.append("SORT_IN_TEMPDB = ON")
     if resumable:
         options.append("RESUMABLE = ON")
         max_duration = max(int(remaining_minutes), 1)
@@ -87,17 +89,23 @@ def _build_update_statistics(item: WorkItem, policy: MaintenancePolicy) -> str:
     if not item.stats_name:
         raise ValueError("UPDATE STATISTICS cần stats_name")
     stmt = f"UPDATE STATISTICS {_qualified_table(item)} ({quote_ident(item.stats_name)})"
+    options: list[str] = []
     if policy.stats_fullscan:
-        stmt += " WITH FULLSCAN"
+        options.append("FULLSCAN")
     elif policy.stats_sample_pct is not None:
-        stmt += f" WITH SAMPLE {int(policy.stats_sample_pct)} PERCENT"
-    # Không option = SQL Server tự chọn sample rate (default sampling)
+        options.append(f"SAMPLE {int(policy.stats_sample_pct)} PERCENT")
+    if policy.sort_in_tempdb:
+        options.append("SORT_IN_TEMPDB")
+    if options:
+        stmt += " WITH " + ", ".join(options)
     return stmt
 
 
 def _build_heap_rebuild(item: WorkItem, policy: MaintenancePolicy, force_offline: bool) -> str:
     online = policy.online and not force_offline
     options = [f"ONLINE = {'ON' if online else 'OFF'}", f"MAXDOP = {int(policy.maxdop)}"]
+    if policy.sort_in_tempdb:
+        options.append("SORT_IN_TEMPDB = ON")
     stmt = f"ALTER TABLE {_qualified_table(item)} REBUILD"
     if item.partition_number is not None:
         stmt += f" PARTITION = {int(item.partition_number)}"

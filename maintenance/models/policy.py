@@ -31,6 +31,7 @@ MERGEABLE_FIELDS = (
     "maxdop",
     "online",
     "resumable",
+    "sort_in_tempdb",
     "offline_fallback",
     "stats_modification_threshold",
     "stats_fullscan",
@@ -64,6 +65,7 @@ class MaintenancePolicy(BaseModel):
     maxdop: int = 4
     online: bool = True
     resumable: bool = True
+    sort_in_tempdb: bool = True
     # Cho phép retry ONLINE=OFF khi gặp restriction (LOB columns...)
     offline_fallback: bool = False
 

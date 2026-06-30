@@ -43,3 +43,8 @@ class MaintenanceEventPublisher(ABC):
     @abstractmethod
     def on_campaign_completed(self, campaign: MaintenanceCampaign, done_items: list[dict]) -> None:
         raise NotImplementedError
+
+    @abstractmethod
+    def on_web_queue_action(self, actions: list[dict]) -> None:
+        """Items được approve/reject/skip từ Layer 3 Web UI."""
+        raise NotImplementedError

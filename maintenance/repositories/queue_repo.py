@@ -280,3 +280,36 @@ class QueueRepo:
     def find_by_batch(self, cluster_id: str, batch_id: str) -> list[WorkItem]:
         docs = self.collection.find({"cluster_id": cluster_id, "batch_id": batch_id}).sort(_CLAIM_SORT)
         return [item for item in (_to_item(d) for d in docs) if item]
+
+    # ── Web-action notification ───────────────────────────────────────────────
+
+    def find_unnotified_web_actions(self, cluster_id: str) -> list[dict]:
+        """Items được quyết định từ Layer 3 Web UI chưa được thông báo qua Telegram."""
+        docs = list(self.collection.find(
+            {
+                "cluster_id": cluster_id,
+                "decided_by": "web",
+                "tg_notified": {"$ne": True},
+                "status": {"$in": [
+                    WorkItemStatus.APPROVED.value,
+                    WorkItemStatus.REJECTED.value,
+                    WorkItemStatus.SKIPPED.value,
+                ]},
+            },
+            {
+                "item_id": 1, "status": 1, "action_type": 1,
+                "schema_name": 1, "table_name": 1,
+                "index_name": 1, "stats_name": 1, "partition_number": 1,
+            },
+        ))
+        for doc in docs:
+            doc.pop("_id", None)
+        return docs
+
+    def mark_tg_notified(self, item_ids: list[str]) -> None:
+        if not item_ids:
+            return
+        self.collection.update_many(
+            {"item_id": {"$in": item_ids}},
+            {"$set": {"tg_notified": True}},
+        )

@@ -223,22 +223,7 @@ export function CatalogView() {
               </FilterField>
 
               <div className="flex items-end">
-                <div className="grid w-full grid-cols-2 gap-2 xl:w-auto">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 rounded-md px-3.5 text-[12px]"
-                    disabled={commandMutation.isPending}
-                    onClick={() => commandMutation.mutate({ cluster_id: selectedClusterId, type: "run_catalog" })}
-                    title="Queue a full catalog snapshot for the active cluster scope"
-                  >
-                    {commandMutation.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Database className="h-3.5 w-3.5" />
-                    )}
-                    Run all
-                  </Button>
+                <div className="grid w-full grid-cols-1 gap-2 xl:w-auto">
                   <Button
                     variant="outline"
                     size="sm"

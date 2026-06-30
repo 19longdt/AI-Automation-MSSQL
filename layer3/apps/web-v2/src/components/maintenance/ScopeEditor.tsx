@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Database, Edit2, Plus, RotateCcw, Save, Table2, Trash2 } from "lucide-react";
+import { ChevronDown, Database, Edit2, Loader2, PlayCircle, Plus, RotateCcw, Save, Table2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCatalogLiveTables, useSaveCatalogConfig } from "@/hooks/useMaintenance";
+import { useCatalogLiveTables, useCreateMaintenanceCommand, useSaveCatalogConfig } from "@/hooks/useMaintenance";
 import { ApiError } from "@/lib/api-client";
 import type { CatalogConfig } from "@/types";
 
@@ -236,64 +236,68 @@ function ScopeEntryModal({
             </div>
 
             {tableMode === "specific" && (
-              <div className="overflow-hidden rounded-md border border-[var(--color-border)]">
+              <div className="flex h-56 flex-col overflow-hidden rounded-md border border-[var(--color-border)]">
                 {!db || !sc ? (
-                  <p className="px-3 py-4 text-[12px] text-[var(--color-muted)]">
-                    Enter database and schema above to load available tables.
-                  </p>
+                  <div className="flex flex-1 items-center px-3">
+                    <p className="text-[12px] text-[var(--color-muted)]">Enter database and schema above to load available tables.</p>
+                  </div>
                 ) : isDebouncing ? (
-                  <p className="px-3 py-4 text-[12px] text-[var(--color-muted)]">
-                    <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-primary)]" />
-                    Loading tables in a moment…
-                  </p>
+                  <div className="flex flex-1 items-center px-3">
+                    <p className="text-[12px] text-[var(--color-muted)]">
+                      <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-primary)]" />
+                      Loading tables in a moment…
+                    </p>
+                  </div>
                 ) : tablesLoading ? (
-                  <div className="space-y-2 px-3 py-3">
+                  <div className="flex flex-1 flex-col justify-center space-y-2 px-3">
                     <Skeleton className="h-5 w-full" />
                     <Skeleton className="h-5 w-4/5" />
                     <Skeleton className="h-5 w-3/4" />
                   </div>
                 ) : tablesError ? (
-                  <p className="px-3 py-4 text-[12px] text-[var(--color-critical)]">
-                    {tableErrorMessage}
-                  </p>
+                  <div className="flex flex-1 items-center px-3">
+                    <p className="text-[12px] text-[var(--color-critical)]">{tableErrorMessage}</p>
+                  </div>
                 ) : availableTables.length === 0 ? (
-                  <p className="px-3 py-4 text-[12px] text-[var(--color-muted)]">
-                    No tables found in <span className="font-medium">{db}.{sc}</span>. Check database/schema names or use "All tables".
-                  </p>
+                  <div className="flex flex-1 items-center px-3">
+                    <p className="text-[12px] text-[var(--color-muted)]">
+                      No tables found in <span className="font-medium">{db}.{sc}</span>. Check database/schema names or use "All tables".
+                    </p>
+                  </div>
                 ) : (
                   <>
-                  <div className="border-b border-[var(--color-border)] px-3 py-2">
-                    <input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Filter tables…"
-                      className="w-full bg-transparent text-[12px] text-[var(--color-text)] outline-none placeholder:text-[var(--color-muted)]"
-                    />
-                  </div>
-                  <div className="max-h-52 overflow-y-auto divide-y divide-[var(--color-border)]">
-                    {filteredTables.length === 0 ? (
-                      <p className="px-3 py-3 text-[12px] text-[var(--color-muted)]">
-                        No tables match "<span className="font-medium">{search}</span>".
-                      </p>
-                    ) : filteredTables.map((table) => (
-                      <label
-                        key={table}
-                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-[13px] text-[var(--color-text)] hover:bg-[var(--color-row-hover)] transition-colors duration-100"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedTables.includes(table)}
-                          onChange={() => toggleTable(table)}
-                          className="h-3.5 w-3.5 shrink-0 accent-[var(--color-primary)]"
-                        />
-                        {table}
-                      </label>
-                    ))}
-                  </div>
+                    <div className="shrink-0 border-b border-[var(--color-border)] px-3 py-2">
+                      <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Filter tables…"
+                        className="w-full bg-transparent text-[12px] text-[var(--color-text)] outline-none placeholder:text-[var(--color-muted)]"
+                      />
+                    </div>
+                    <div className="flex-1 divide-y divide-[var(--color-border)] overflow-y-auto">
+                      {filteredTables.length === 0 ? (
+                        <p className="px-3 py-3 text-[12px] text-[var(--color-muted)]">
+                          No tables match "<span className="font-medium">{search}</span>".
+                        </p>
+                      ) : filteredTables.map((table) => (
+                        <label
+                          key={table}
+                          className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-[13px] text-[var(--color-text)] transition-colors duration-100 hover:bg-[var(--color-row-hover)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedTables.includes(table)}
+                            onChange={() => toggleTable(table)}
+                            className="h-3.5 w-3.5 shrink-0 accent-[var(--color-primary)]"
+                          />
+                          {table}
+                        </label>
+                      ))}
+                    </div>
                   </>
                 )}
                 {tableMode === "specific" && selectedTables.length > 0 && (
-                  <div className="border-t border-[var(--color-border)] px-3 py-2 text-[11px] text-[var(--color-muted)]">
+                  <div className="shrink-0 border-t border-[var(--color-border)] px-3 py-2 text-[11px] text-[var(--color-muted)]">
                     {selectedTables.length} selected
                   </div>
                 )}
@@ -316,10 +320,12 @@ function ScopeEntryModal({
 
 export function ScopeEditor({ clusterId, config }: ScopeEditorProps) {
   const saveMutation = useSaveCatalogConfig();
+  const commandMutation = useCreateMaintenanceCommand();
   const [entries, setEntries] = useState<ScopeEntry[]>([]);
   const [serverEntries, setServerEntries] = useState<ScopeEntry[]>([]);
   const [enabled, setEnabled] = useState(config?.enabled !== false);
   const [serverEnabled, setServerEnabled] = useState(config?.enabled !== false);
+  const [pendingDb, setPendingDb] = useState<string | null>(null);
   const [modalKey, setModalKey] = useState(0);
   const [editIndex, setEditIndex] = useState<number | null>(null);
 
@@ -380,6 +386,29 @@ export function ScopeEditor({ clusterId, config }: ScopeEditorProps) {
 
   function handleDelete(index: number) {
     setEntries((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function entryIsDirty(dbName: string, schemaName: string): boolean {
+    const draft = entries.find((e) => e.database === dbName && e.schema === schemaName);
+    const saved = serverEntries.find((e) => e.database === dbName && e.schema === schemaName);
+    if (!saved) return true; // new entry not yet saved
+    return JSON.stringify(draft) !== JSON.stringify(saved);
+  }
+
+  async function handleRunCapture(dbName: string, schemaName: string, tableNames: string[]) {
+    setPendingDb(`${dbName}.${schemaName}`);
+    try {
+      await commandMutation.mutateAsync({
+        cluster_id: clusterId,
+        type: "run_catalog",
+        catalog_scope: [{
+          database_name: dbName,
+          schemas: [{ schema_name: schemaName, table_names: tableNames }],
+        }],
+      });
+    } finally {
+      setPendingDb(null);
+    }
   }
 
   function handleDiscard() {
@@ -522,6 +551,27 @@ export function ScopeEditor({ clusterId, config }: ScopeEditorProps) {
                         </div>
 
                         <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                          {(() => {
+                            const isDirty = entryIsDirty(entry.database, entry.schema);
+                            const pendingKey = `${entry.database}.${entry.schema}`;
+                            return (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={commandMutation.isPending || !clusterId || isDirty}
+                                onClick={() => void handleRunCapture(entry.database, entry.schema, entry.tableNames)}
+                                title={isDirty ? "Save config first before running capture" : `Queue catalog capture for ${entry.database}.${entry.schema}`}
+                                className="gap-1 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-primary)]"
+                              >
+                                {pendingDb === pendingKey && commandMutation.isPending ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <PlayCircle className="h-3.5 w-3.5" />
+                                )}
+                                Run Capture
+                              </Button>
+                            );
+                          })()}
                           <Button
                             variant="ghost"
                             size="sm"

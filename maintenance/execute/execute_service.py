@@ -114,6 +114,8 @@ class ClusterExecuteService:
             )
             return 0
 
+        self._notify_web_actions()
+
         win_state = self._resolve_window_state(campaign, now)
         self._track_window_transition(win_state.open)
         if not win_state.open:
@@ -264,6 +266,19 @@ class ClusterExecuteService:
             self._deferred_item_ids.clear()
         self._window_was_open = is_open
 
+    def _notify_web_actions(self) -> None:
+        if self._publisher is None:
+            return
+        try:
+            unnotified = self._queue_repo.find_unnotified_web_actions(self._cluster.cluster_id)
+            if not unnotified:
+                return
+            item_ids = [d["item_id"] for d in unnotified]
+            self._publisher.on_web_queue_action(unnotified)
+            self._queue_repo.mark_tg_notified(item_ids)
+        except Exception:
+            logger.exception("_notify_web_actions failed for cluster=%s", self._cluster.cluster_id)
+
     def _claim_next(self, campaign_id: str) -> WorkItem | None:
         item = self._queue_repo.claim_paused_resumable(self._cluster.cluster_id, campaign_id)
         if item is not None:
@@ -335,6 +350,9 @@ class ClusterExecuteService:
         remaining_minutes: float,
         campaign: MaintenanceCampaign,
     ) -> int:
+        # Kết nối đến đúng database của item — ALTER INDEX dùng current DB context
+        conn_str = self._cluster.get_connection_string(host, database=item.database_name)
+
         statement = (
             statement_builder.build_resume(item, policy, remaining_minutes)
             if item.resume_token
