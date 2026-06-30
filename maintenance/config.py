@@ -37,6 +37,7 @@ class MaintEnvSettings(BaseSettings):
     maint_catalog_max_workers: int = Field(default=8, ge=1, le=32)
     maint_catalog_table_timeout_sec: int = Field(default=120, ge=5)
     maint_node_role_refresh_sec: int = Field(default=1800, ge=60)
+    maint_internal_port: int = Field(default=8002, ge=1024, le=65535)
 
     maint_telegram_bot_token: str
     telegram_chat_id: str

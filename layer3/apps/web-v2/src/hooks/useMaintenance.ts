@@ -26,7 +26,9 @@ import type {
   MaintenanceWindowConfig,
   QueueBulkActionBody,
   QueueItemAction,
+  TickCheckStatus,
 } from "@/types";
+
 import { useDashboardStore } from "@/store/dashboard.store";
 
 function getApiErrorMessage(error: unknown, fallback: string): string {
@@ -459,6 +461,16 @@ export function useCancelCampaign() {
     },
     onError: (error) => {
       toast.error("Cancel campaign failed", { description: getApiErrorMessage(error, "Unknown error") });
+    },
+  });
+}
+
+export function useRunTickCheck() {
+  return useMutation({
+    mutationFn: (clusterId: string) =>
+      apiPost<TickCheckStatus>("/api/maintenance/tick-check", { cluster_id: clusterId }),
+    onError: (error) => {
+      toast.error("Verify failed", { description: getApiErrorMessage(error, "Unknown error") });
     },
   });
 }

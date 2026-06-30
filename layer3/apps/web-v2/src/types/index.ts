@@ -627,3 +627,13 @@ export interface AutoRefreshConfig {
   enabled: boolean;
   intervalMs: number;
 }
+
+export interface TickCheckStatus {
+  cluster_id: string;
+  checked_at: string;
+  ok: boolean;
+  status: string;
+  message: string;
+  details: Record<string, unknown>;
+}
+

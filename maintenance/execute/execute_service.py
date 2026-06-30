@@ -158,6 +158,89 @@ class ClusterExecuteService:
             return 0
         return self._process_item(item, host, conn_str, win_state.remaining_minutes, campaign)
 
+    def run_tick_check(self) -> dict:
+        """Diagnostic dry-run: mirrors tick() logic but never claims/executes.
+        Returns a dict with {cluster_id, checked_at, ok, status, message, details}."""
+        cluster_id = self._cluster.cluster_id
+        now = now_vn()
+
+        def _result(status: str, ok: bool, message: str, details: dict | None = None) -> dict:
+            return {
+                "cluster_id": cluster_id,
+                "checked_at": now.isoformat(),
+                "ok": ok,
+                "status": status,
+                "message": message,
+                "details": details or {},
+            }
+
+        health = self.get_health_state()
+        if health != HealthState.HEALTHY:
+            return _result("health_stopped", False,
+                           f"Runner đang dừng do tải cao: {self._health_reason}",
+                           {"health_state": health.value, "reason": self._health_reason})
+
+        self._campaign_repo.expire_if_past_end_date(cluster_id, now)
+        campaign = self._campaign_repo.find_active_or_discovering(cluster_id)
+        if not campaign:
+            return _result("no_campaign", False, "Không có campaign đang active cho cluster này.")
+        if campaign.status != CampaignStatus.ACTIVE:
+            return _result("campaign_not_active", False,
+                           f"Campaign '{campaign.name}' đang ở trạng thái '{campaign.status.value}', cần ACTIVE để execute.",
+                           {"status": campaign.status.value, "campaign_id": campaign.campaign_id, "name": campaign.name})
+
+        win_state = self._resolve_window_state(campaign, now)
+        if not win_state.open:
+            if campaign.window_override:
+                window_label = f"{campaign.window_override.start}–{campaign.window_override.end} (campaign override, budget {campaign.window_override.time_budget_minutes} phút)"
+            else:
+                window_label = "cluster default window"
+            return _result("outside_window", False,
+                           f"Ngoài window maintenance ({window_label}): {win_state.reason}",
+                           {
+                               "reason": win_state.reason,
+                               "window_label": window_label,
+                               "remaining_minutes": win_state.remaining_minutes,
+                               "has_override": campaign.window_override is not None,
+                               "override_start": campaign.window_override.start if campaign.window_override else None,
+                               "override_end": campaign.window_override.end if campaign.window_override else None,
+                               "override_budget_minutes": campaign.window_override.time_budget_minutes if campaign.window_override else None,
+                               "budget_used_minutes": campaign.window_budget_used_minutes,
+                           })
+
+        host = self._get_primary_host()
+        if host is None:
+            return _result("no_primary", False, "Không tìm được primary node trong cluster.")
+
+        window = self._window_repo.find_by_cluster(cluster_id)
+        if window is None:
+            return _result("no_window_config", False, "Chưa cấu hình maintenance window cho cluster này.")
+
+        conn_str = self._cluster.get_connection_string(host)
+        gate = self._gate_service.check(host, window.effective_gates(), conn_str)
+        if not gate.passed:
+            return _result("gate_failed", False,
+                           f"Safety gate không qua: {'; '.join(gate.reasons)}",
+                           {"reasons": gate.reasons, "metrics": gate.metrics})
+
+        counts = self._queue_repo.count_by_status(cluster_id)
+        approved_count = counts.get(WorkItemStatus.APPROVED.value, 0)
+        paused_count = counts.get(WorkItemStatus.PAUSED.value, 0)
+        claimable = approved_count + paused_count
+
+        if claimable == 0:
+            return _result("no_approved_items", True,
+                           "Window mở, tất cả gate OK — không có item approved/paused trong queue.",
+                           {"remaining_minutes": win_state.remaining_minutes, "primary_host": host,
+                            "gate_metrics": gate.metrics})
+
+        remaining_str = f"~{win_state.remaining_minutes:.0f}" if win_state.remaining_minutes is not None else "?"
+        return _result("ready", True,
+                       f"Sẵn sàng execute: {claimable} item(s) trong queue (approved: {approved_count}, paused: {paused_count}), còn {remaining_str} phút trong window.",
+                       {"approved_count": approved_count, "paused_count": paused_count,
+                        "remaining_minutes": win_state.remaining_minutes,
+                        "primary_host": host, "gate_metrics": gate.metrics})
+
     def request_stop(self) -> None:
         self._stop_requested = True
         self._pause_current_rebuild("SIGTERM")

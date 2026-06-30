@@ -37,6 +37,7 @@ from .repositories.batch_repo import BatchRepo
 from .repositories.campaign_repo import CampaignRepo
 from .repositories.catalog_config_repo import CatalogConfigRepo
 from .repositories.catalog_repo import CatalogRepo
+from .infra.internal_server import start_internal_server
 from .repositories.command_repo import CommandRepo
 from .repositories.history_repo import HistoryRepo
 from .repositories.policy_repo import PolicyRepo
@@ -220,6 +221,9 @@ class MaintenanceService:
         execution_repo = JobExecutionRepo()
         self._job_runner = JobRunner(execution_repo)
         self._health_checker = HealthChecker(execution_repo, self._job_intervals)
+
+        services_by_cluster = {svc._cluster.cluster_id: svc for svc in self._execute_services}
+        start_internal_server(services_by_cluster, port=maint_settings.maint_internal_port)
 
     def _register_cluster_jobs(
         self,

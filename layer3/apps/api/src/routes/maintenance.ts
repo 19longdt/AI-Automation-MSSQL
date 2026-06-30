@@ -12,6 +12,7 @@ import {
   queueItemActionSchema,
 } from "../schemas/maintenance.schema";
 import {
+  callRunnerTickCheck,
   getCampaignSummary,
   getWindowConfig,
   getMaintenanceSummary,
@@ -146,6 +147,23 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
           return reply.code(err.statusCode).send({ message: err.message });
         }
         return reply.code(500).send({ message: "Internal server error" });
+      }
+    }
+  );
+
+  app.post<{ Body: { cluster_id?: unknown } }>(
+    "/api/maintenance/tick-check",
+    async (req, reply) => {
+      try {
+        const clusterId = String((req.body as { cluster_id?: unknown }).cluster_id ?? "").trim();
+        if (!clusterId) return reply.code(400).send({ message: "cluster_id required" });
+        const result = await callRunnerTickCheck(app.config.maintRunnerUrl, clusterId);
+        return reply.send(result);
+      } catch (err: unknown) {
+        app.log.error({ err, url: req.url, body: req.body }, "tick-check failed");
+        const msg = err instanceof Error ? err.message : "Internal server error";
+        const isConnErr = msg.includes("fetch") || msg.includes("ECONNREFUSED") || msg.includes("timeout");
+        return reply.code(isConnErr ? 503 : 500).send({ message: msg });
       }
     }
   );

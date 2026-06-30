@@ -826,3 +826,16 @@ export async function listMaintenanceHistory(
   ]);
   return { total, items: items.map(mapHistoryItem) };
 }
+
+export async function callRunnerTickCheck(
+  runnerUrl: string,
+  clusterId: string,
+): Promise<Record<string, unknown>> {
+  const url = `${runnerUrl}/tick-check?cluster_id=${encodeURIComponent(clusterId)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(35_000) });
+  const body = await res.json() as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(String(body.error ?? `Runner returned ${res.status}`));
+  }
+  return body;
+}

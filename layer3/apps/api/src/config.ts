@@ -21,6 +21,7 @@ export interface AppConfig {
   maintMongoDb: string;
   l2ApiUrl?: string;
   l1ApiUrl?: string;
+  maintRunnerUrl: string;
   actionBotToken?: string;
   apiPort: number;
   logLevel: string;
@@ -33,6 +34,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maintMongoDb: env.MAINT_MONGODB_DB || "db_maintenance",
     l2ApiUrl: env.L2_API_URL || "http://127.0.0.1:8000",
     l1ApiUrl: env.L1_API_URL || "http://127.0.0.1:8001",
+    maintRunnerUrl: env.MAINT_RUNNER_URL || "http://maintenance:8002",
     actionBotToken: env.ACTION_BOT_TOKEN || "",
     apiPort: Number(env.API_PORT || 3000),
     logLevel: env.LOG_LEVEL || "info"
